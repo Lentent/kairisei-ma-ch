@@ -110,6 +110,12 @@ func TestUserCreateSelectsTheChosenArthurStarterLeader(t *testing.T) {
 
 func TestOnboardingSequencePublishesQuestsRewardsAndFeatures(t *testing.T) {
 	store := onboardingTestStore()
+	store.tutorialCompletionMail = TutorialCompletionMail{Enabled: true, Title: "毕业礼物", Message: "完成全部训练", Rewards: []release.Reward{
+		{Type: 10, Num: 456, CardSkillLevels: []int16{}},
+		{Type: 13, RewardTypeID: 20000001, Num: 20, CardSkillLevels: []int16{}},
+		{Type: 6, RewardTypeID: 10000010, Num: 2, CardLevel: 60, CardFame: 90, CardLove: 100, CardSkillLevels: []int16{1}},
+	}}
+	store.cardDefinitions = map[int]release.Card{10000010: {CardID: 10000010, LevelMax: 60, FameMax: 90, LoveMax: 100}}
 	quests, err := store.homeOnboardingQuests()
 	if err != nil {
 		t.Fatal(err)
@@ -247,6 +253,9 @@ func TestOnboardingSequencePublishesQuestsRewardsAndFeatures(t *testing.T) {
 	for _, event := range []onboardingEvent{
 		{kind: "story"}, {kind: "activity", activityBoss: true},
 	} {
+		if len(store.presents) != 0 {
+			t.Fatal("graduation mail sent before all nine training steps completed")
+		}
 		store.mu.Lock()
 		err = store.advanceOnboardingLocked(event)
 		store.mu.Unlock()
@@ -262,6 +271,32 @@ func TestOnboardingSequencePublishesQuestsRewardsAndFeatures(t *testing.T) {
 	}
 	if store.coinFree != 600 {
 		t.Fatal("duplicate completion granted tutorial crystals twice")
+	}
+	if len(store.presents) != 3 || store.presents[0].PresentID == store.presents[1].PresentID || store.presents[0].IssuedAtUnix <= 0 || store.presents[0].Title != "毕业礼物" || store.presents[0].Comment != "完成全部训练" || store.presents[0].Reward.Num != 456 || store.stackCards[0].Num != 1 || len(store.cards) != 0 {
+		t.Fatal("graduation mail missing, duplicated, or applied directly to inventory")
+	}
+	if result, err := store.receivePresent(store.presents[2].PresentID); err != nil || len(result.FailedID) != 1 || store.presents[2].State != 0 {
+		t.Fatal("full card bag should keep the graduation card mail claimable")
+	}
+	if _, err := store.receivePresent(store.presents[0].PresentID); err != nil || store.coinFree != 1056 {
+		t.Fatal("graduation crystals were not applied on claim")
+	}
+	if _, err := store.receivePresent(store.presents[0].PresentID); err != nil || store.coinFree != 1056 {
+		t.Fatal("graduation mail could be claimed twice")
+	}
+	// The actual account snapshot carries both completion and mail. Loading it
+	// and applying current public policy must not send again.
+	saved := store.snapshot(release.State{})
+	reloaded := onboardingTestStore()
+	reloaded.onboarding = saved.Onboarding
+	reloaded.presents = clonePresents(saved.Engagement.Presents)
+	reloaded.tutorialCompletionMail = store.tutorialCompletionMail
+	if err := reloaded.advanceOnboardingLocked(onboardingEvent{kind: "activity", activityBoss: true}); err != nil || len(reloaded.presents) != 3 {
+		t.Fatal("persisted completion retried the graduation delivery")
+	}
+	reloaded.presents = nil // Account finished before this policy was enabled.
+	if err := reloaded.advanceOnboardingLocked(onboardingEvent{kind: "activity", activityBoss: true}); err != nil || len(reloaded.presents) != 0 {
+		t.Fatal("completed account received a retroactive graduation mail")
 	}
 	if store.onboarding.Step != cnOnboardingStepCount {
 		t.Fatalf("final onboarding step = %d", store.onboarding.Step)

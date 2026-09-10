@@ -8,6 +8,16 @@ type PlayerConfiguration struct {
 	LoginBonus    release.LoginBonusPolicy
 	StoryCrystals int
 	Navigators    []NaviSetting
+	TutorialMail  TutorialCompletionMail
+}
+
+// Public policy, not account state. The terminal onboarding transition and its
+// presents are persisted together, so retries need no separate delivery job.
+type TutorialCompletionMail struct {
+	Enabled bool             `json:"enabled"`
+	Title   string           `json:"title"`
+	Message string           `json:"message"`
+	Rewards []release.Reward `json:"rewards"`
 }
 
 type NaviSetting struct {
@@ -26,6 +36,7 @@ func (h *accountBusinessHandler) ApplyPlayerConfiguration(config PlayerConfigura
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.loginBonusPolicy = config.LoginBonus
+	s.tutorialCompletionMail = config.TutorialMail
 	s.storyRewardPolicy.MainFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.SubFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.EventFirstClear.Num = config.StoryCrystals

@@ -20,22 +20,17 @@ type cnNoticePolicy struct {
 	Title   string `json:"title"`
 	Body    string `json:"body"`
 }
-type cnInitialResources struct {
-	Gold         int `json:"gold"`
-	Crystals     int `json:"crystals"`
-	FriendPoints int `json:"friend_points"`
-}
 type cnLoginRewards struct {
 	Cycle    []release.LoginBonusDay `json:"cycle"`
 	Beginner []release.LoginBonusDay `json:"beginner"`
 	Total    []release.LoginBonusDay `json:"total_milestones"`
 }
 type cnPlayerPolicy struct {
-	Notice        cnNoticePolicy        `json:"notice"`
-	Initial       cnInitialResources    `json:"initial_resources"`
-	Login         cnLoginRewards        `json:"login_rewards"`
-	StoryCrystals int                   `json:"story_first_clear_crystals"`
-	Navigators    []httpapi.NaviSetting `json:"navigators"`
+	Notice        cnNoticePolicy                 `json:"notice"`
+	TutorialMail  httpapi.TutorialCompletionMail `json:"tutorial_completion_mail"`
+	Login         cnLoginRewards                 `json:"login_rewards"`
+	StoryCrystals int                            `json:"story_first_clear_crystals"`
+	Navigators    []httpapi.NaviSetting          `json:"navigators"`
 }
 type cnPlayerPolicySnapshot struct {
 	Value    cnPlayerPolicy
@@ -52,6 +47,7 @@ func (o *cnOperationStore) initializePlayerPolicy(base release.State, naviPath s
 	}
 	defaults := cnPlayerPolicy{
 		Notice:        cnNoticePolicy{Enabled: true, Title: "本地服务公告", Body: "欢迎来到不列颠！祝各位亚瑟游戏愉快。"},
+		TutorialMail:  httpapi.TutorialCompletionMail{Title: "新手毕业礼物", Message: "恭喜完成全部新手训练，祝冒险愉快！", Rewards: []release.Reward{}},
 		Login:         cnLoginRewards{Cycle: base.LoginBonusPolicy.Cycle, Beginner: base.LoginBonusPolicy.Beginner, Total: base.LoginBonusPolicy.TotalMilestones},
 		StoryCrystals: base.StoryRewardPolicy.MainFirstClear.Num,
 		Navigators:    []httpapi.NaviSetting{},
@@ -73,7 +69,7 @@ func (o *cnOperationStore) loadPlayerPolicy() error {
 	if err != nil {
 		return err
 	}
-	var value cnPlayerPolicy
+	value := cnPlayerPolicy{TutorialMail: o.playerDefaults.TutorialMail}
 	if doc.Revision > 0 {
 		if err := json.Unmarshal(doc.Payload, &value); err != nil {
 			return err
@@ -93,6 +89,7 @@ func (o *cnOperationStore) playerSnapshot(p cnPlayerPolicy, revision int) *cnPla
 	login.Cycle, login.Beginner, login.TotalMilestones = p.Login.Cycle, p.Login.Beginner, p.Login.Total
 	return &cnPlayerPolicySnapshot{Value: p, Revision: revision, Runtime: httpapi.PlayerConfiguration{
 		Revision: uint64(revision) + 1, LoginBonus: login, StoryCrystals: p.StoryCrystals, Navigators: p.Navigators,
+		TutorialMail: p.TutorialMail,
 	}}
 }
 
@@ -110,10 +107,12 @@ func (o *cnOperationStore) validatePlayerPolicy(p cnPlayerPolicy) error {
 	if p.Notice.Enabled && strings.TrimSpace(p.Notice.Body) == "" {
 		return errors.New("显示公告时正文不能为空")
 	}
-	for _, n := range []int{p.Initial.Gold, p.Initial.Crystals, p.Initial.FriendPoints} {
-		if !validCNPolicyAmount(n, true) {
-			return errors.New("新账号起步资源须为0至10000000")
-		}
+	mail := p.TutorialMail
+	if len([]rune(mail.Title)) > 40 || len([]rune(mail.Message)) > 200 || len(mail.Rewards) > 120 {
+		return errors.New("新手毕业邮件标题最多40字、正文最多200字、奖励最多120种")
+	}
+	if mail.Enabled && (strings.TrimSpace(mail.Title) == "" || strings.TrimSpace(mail.Message) == "" || len(mail.Rewards) == 0) {
+		return errors.New("启用新手毕业邮件时，请填写标题、正文并选择奖励")
 	}
 	if !validCNPolicyAmount(p.StoryCrystals, false) {
 		return errors.New("剧情首通水晶须为1至10000000")
@@ -154,13 +153,23 @@ func (o *cnOperationStore) preparePlayerPolicy(handler http.Handler) {
 	}
 }
 
-// Immutable atomic read: account creation already owns a SQLite transaction,
-// so it must never acquire the configuration writer's lock here.
-func (o *cnOperationStore) initialResources() cnInitialResources {
-	if p := o.playerPolicy.Load(); p != nil {
-		return p.Value.Initial
+func (a *cnAdmin) validateTutorialMail(mail httpapi.TutorialCompletionMail) error {
+	seen := map[string]bool{}
+	for _, r := range mail.Rewards {
+		canonical, _, err := a.mailReward(cnAdminMailRequest{
+			RewardType: r.Type, RewardTypeID: r.RewardTypeID, Quantity: r.Num,
+			CardLevel: int(r.CardLevel), CardFame: int(r.CardFame), CardLove: r.CardLove,
+		})
+		if err != nil {
+			return fmt.Errorf("新手毕业奖励 %d:%d: %w", r.Type, r.RewardTypeID, err)
+		}
+		key := cnAdminCatalogKey(r.Type, r.RewardTypeID)
+		if seen[key] || canonical.CardLevel != r.CardLevel || canonical.CardFame != r.CardFame || !slices.Equal(canonical.CardSkillLevels, r.CardSkillLevels) {
+			return errors.New("新手毕业奖励重复或卡牌属性格式不正确")
+		}
+		seen[key] = true
 	}
-	return cnInitialResources{}
+	return nil
 }
 
 func (a *cnAdmin) playerPolicy(w http.ResponseWriter, _ *http.Request) {
@@ -169,7 +178,11 @@ func (a *cnAdmin) playerPolicy(w http.ResponseWriter, _ *http.Request) {
 		writeCNAdminError(w, 503, "运营目录尚未载入")
 		return
 	}
-	writeCNAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": p.Revision, "config": p.Value, "defaults": a.operations.playerDefaults, "navi_names": a.operations.playerNaviNames})
+	entries := make([]cnAdminCatalogEntry, 0, len(p.Value.TutorialMail.Rewards))
+	for _, r := range p.Value.TutorialMail.Rewards {
+		entries = append(entries, a.catalogByKey[cnAdminCatalogKey(r.Type, r.RewardTypeID)])
+	}
+	writeCNAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": p.Revision, "config": p.Value, "defaults": a.operations.playerDefaults, "navi_names": a.operations.playerNaviNames, "mail_reward_entries": entries})
 }
 
 func (a *cnAdmin) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +200,10 @@ func (a *cnAdmin) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	o := a.operations
 	if err := o.validatePlayerPolicy(*body.Config); err != nil {
+		writeCNAdminError(w, 400, err.Error())
+		return
+	}
+	if err := a.validateTutorialMail(body.Config.TutorialMail); err != nil {
 		writeCNAdminError(w, 400, err.Error())
 		return
 	}

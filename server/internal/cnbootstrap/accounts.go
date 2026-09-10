@@ -40,11 +40,10 @@ type cnAccountIdentity struct {
 }
 
 type cnAccountStore struct {
-	initialResources func() cnInitialResources
-	storage          *cnSaveDatabase
-	mu               sync.Mutex
-	battleMu         sync.Mutex
-	battles          map[int]*cnAccountBattleSession
+	storage  *cnSaveDatabase
+	mu       sync.Mutex
+	battleMu sync.Mutex
+	battles  map[int]*cnAccountBattleSession
 }
 
 // A solo battle needs only a small runtime context, not a retained account
@@ -483,19 +482,6 @@ func (accounts *cnAccountStore) resolveLoginTransaction(transaction *sql.Tx, log
 			if err != nil {
 				return cnAccountIdentity{}, err
 			}
-			// The primary placeholder is allocated at server startup; apply the
-			// current starter policy only when its first real login is created.
-			if accounts.initialResources != nil && state.User.Name == "" {
-				accounts.applyInitialResources(&state)
-				if err := writeCNAccountRows(transaction, state); err != nil {
-					return cnAccountIdentity{}, err
-				}
-				revision++
-				updatedUTC = now
-				if _, err := transaction.Exec(`UPDATE cn_save_snapshot SET revision=?, updated_utc=? WHERE singleton=1`, revision, updatedUTC); err != nil {
-					return cnAccountIdentity{}, err
-				}
-			}
 			if err := upsertCNAccountProjection(transaction, identity.UserID, revision, updatedUTC, state); err != nil {
 				return cnAccountIdentity{}, err
 			}
@@ -512,7 +498,6 @@ func (accounts *cnAccountStore) insertSeedSnapshot(transaction *sql.Tx, userID i
 	if err := initializeCNOnboardingSnapshot(&state, userID); err != nil {
 		return err
 	}
-	accounts.applyInitialResources(&state)
 	content, err := encodeCNAccountMetadata(state)
 	if err != nil {
 		return err
@@ -527,14 +512,6 @@ func (accounts *cnAccountStore) insertSeedSnapshot(transaction *sql.Tx, userID i
 		return fmt.Errorf("create CN account snapshot: %w", err)
 	}
 	return upsertCNAccountProjection(transaction, userID, 1, now, state)
-}
-
-func (accounts *cnAccountStore) applyInitialResources(state *release.State) {
-	if accounts.initialResources == nil {
-		return
-	}
-	r := accounts.initialResources()
-	state.User.Gold, state.User.CoinFree, state.User.FriendPoint = r.Gold, r.Crystals, r.FriendPoints
 }
 
 func (accounts *cnAccountStore) loadState(userID int) (release.State, error) {

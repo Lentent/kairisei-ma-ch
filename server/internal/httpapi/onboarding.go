@@ -271,6 +271,15 @@ func (s *store) advanceOnboardingLocked(event onboardingEvent) error {
 	if !matched {
 		return nil
 	}
+	mail := s.tutorialCompletionMail
+	sendMail := s.onboarding.Step == cnOnboardingStepCount-1 && mail.Enabled
+	if sendMail {
+		for _, reward := range mail.Rewards {
+			if err := s.validateRewardLocked(reward); err != nil {
+				return fmt.Errorf("validate tutorial completion mail: %w", err)
+			}
+		}
+	}
 	if definition.Reward != nil {
 		if err := s.validateRewardBatchCapacityLocked([]release.Reward{*definition.Reward}); err != nil {
 			return fmt.Errorf("validate CN onboarding reward: %w", err)
@@ -289,5 +298,10 @@ func (s *store) advanceOnboardingLocked(event onboardingEvent) error {
 		return err
 	}
 	s.onboarding.CurrentAnnounced = false
+	if sendMail {
+		for _, reward := range mail.Rewards {
+			s.appendRewardPresentLocked(reward, mail.Title, mail.Message)
+		}
+	}
 	return nil
 }

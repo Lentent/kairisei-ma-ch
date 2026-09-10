@@ -38,6 +38,13 @@ func (s *store) applyRewardOrPresentLocked(reward release.Reward, result *presen
 	if !inventoryReward(reward) || s.validateRewardBatchCapacityLocked([]release.Reward{reward}) == nil {
 		return s.applyRewardLocked(reward, result)
 	}
+	stored := s.appendRewardPresentLocked(reward, title, "")
+	result.Rewards = append(result.Rewards, receivedReward{Reward: stored, UniqueID: []int64{}, InPresentBox: true})
+	result.InPresentBox = true
+	return nil
+}
+
+func (s *store) appendRewardPresentLocked(reward release.Reward, title, comment string) release.Reward {
 	// Account request serialization and the store lock keep allocation and the
 	// completion receipt in the same saved state. Include unclaimed mission IDs.
 	used := make(map[int64]bool, len(s.presents)+len(s.presentHistories)+len(s.missions))
@@ -59,12 +66,10 @@ func (s *store) applyRewardOrPresentLocked(reward release.Reward, result *presen
 	}
 	empty := release.Reward{CardSkillLevels: []int16{}}
 	s.presents = append(s.presents, release.Present{
-		PresentID: presentID, IssuedAtUnix: time.Now().Unix(), Title: title, Reward: stored,
+		PresentID: presentID, IssuedAtUnix: time.Now().Unix(), Title: title, Comment: comment, Reward: stored,
 		Reward0: empty, Reward1: empty, Reward2: empty,
 	})
-	result.Rewards = append(result.Rewards, receivedReward{Reward: stored, UniqueID: []int64{}, InPresentBox: true})
-	result.InPresentBox = true
-	return nil
+	return stored
 }
 
 func battleAwardsInPresentBox(awards []teamBattleFameAward) int {

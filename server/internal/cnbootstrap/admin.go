@@ -433,6 +433,11 @@ func newCNAdminHandler(
 			return nil, errors.New("published gacha card resources are unavailable")
 		}
 	}
+	if policy := operations.playerPolicy.Load(); policy != nil {
+		if err := admin.validateTutorialMail(policy.Value.TutorialMail); err != nil {
+			return nil, fmt.Errorf("validate saved tutorial mail: %w", err)
+		}
+	}
 	if operations.content != nil {
 		for _, config := range operations.content.drops {
 			if err := admin.validateDropConfig(config); err != nil {

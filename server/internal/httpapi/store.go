@@ -100,6 +100,7 @@ type store struct {
 	presentHistories            []release.Present
 	popupReadIDs                map[int]struct{}
 	loginBonusPolicy            release.LoginBonusPolicy
+	tutorialCompletionMail      TutorialCompletionMail
 	loginBonusState             release.LoginBonusState
 	nextUniqueID                int64
 	nextSphereUniqueID          int64

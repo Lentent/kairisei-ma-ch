@@ -302,7 +302,6 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 	if err := operationStore.initializePlayerPolicy(catalog, naviMasterPath); err != nil {
 		return nil, err
 	}
-	accountStore.initialResources = operationStore.initialResources
 	basePreparer := prepareRuntimeState
 	prepareRuntimeState = func(state release.State) (release.State, error) {
 		prepared, err := basePreparer(state)

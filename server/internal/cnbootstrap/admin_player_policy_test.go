@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -25,13 +26,19 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 	if err := o.loadPlayerPolicy(); err != nil {
 		t.Fatal(err)
 	}
-	a := &cnAdmin{operations: o}
+	a := &cnAdmin{operations: o, catalogByKey: map[string]cnAdminCatalogEntry{
+		cnAdminCatalogKey(10, 0):       {RewardType: 10},
+		cnAdminCatalogKey(6, 10000010): {RewardType: 6, RewardTypeID: 10000010, LevelMax: 60, FameMax: 90, LoveMax: 100},
+	}}
 	r := chi.NewRouter()
 	r.Put("/policy", a.savePlayerPolicy)
 	var config cnPlayerPolicy
 	data, _ := json.Marshal(o.playerDefaults)
 	_ = json.Unmarshal(data, &config)
-	config.Initial = cnInitialResources{Gold: 123, Crystals: 456, FriendPoints: 78}
+	config.TutorialMail = httpapi.TutorialCompletionMail{Enabled: true, Title: "毕业礼物", Message: "全部训练完成奖励", Rewards: []release.Reward{
+		{Type: 10, Num: 456, CardSkillLevels: []int16{}},
+		{Type: 6, RewardTypeID: 10000010, Num: 2, CardLevel: 60, CardFame: 90, CardLove: 100, CardSkillLevels: []int16{1}},
+	}}
 	config.Notice.Body = "<script>alert(1)</script>\n活动公告"
 	config.Login.Cycle[0].Reward.Num = 31
 	config.StoryCrystals = 75
@@ -40,6 +47,11 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 	callContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 0, "config": config}, 409)
 	bad := config
 	bad.StoryCrystals = -1
+	callContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
+	bad = config
+	bad.TutorialMail.Rewards = []release.Reward{{Type: 6, RewardTypeID: 99999999, Num: 1}}
+	callContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
+	bad.TutorialMail.Rewards = append(config.TutorialMail.Rewards, config.TutorialMail.Rewards[0])
 	callContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
 	w := httptest.NewRecorder()
 	o.localNotice(w, httptest.NewRequest("GET", "/", nil))
@@ -57,10 +69,9 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := restarted.playerPolicy.Load()
-	if p.Revision != 1 || p.Value.Initial != config.Initial || p.Runtime.LoginBonus.Cycle[0].Reward.Num != 31 || p.Runtime.Navigators[0].Price != 222 {
+	if p.Revision != 1 || !reflect.DeepEqual(p.Runtime.TutorialMail, config.TutorialMail) || p.Runtime.LoginBonus.Cycle[0].Reward.Num != 31 || p.Runtime.Navigators[0].Price != 222 {
 		t.Fatal("public policy was not restored")
 	}
-	accounts.initialResources = restarted.initialResources
 	for i, uuid := range []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"} {
 		identity, err := accounts.resolveLogin(uuid)
 		if err != nil {
@@ -73,7 +84,7 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if state.User.Gold != 123 || state.User.CoinFree != 456 || state.User.FriendPoint != 78 || state.Onboarding.Step != 0 {
+		if state.User.Gold != 0 || state.User.CoinFree != 0 || state.User.FriendPoint != 0 || state.Onboarding.Step != 0 || len(state.Engagement.Presents) != 0 {
 			t.Fatalf("new user balance/flow: %+v", state.User)
 		}
 		state.User.Gold = 9
