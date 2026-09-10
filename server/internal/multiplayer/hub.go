@@ -27,6 +27,8 @@ const (
 )
 
 var ErrCompletedBattleUnavailable = errors.New("completed room is unavailable")
+var ErrCompletedBattlePending = errors.New("room battle has not completed")
+var ErrCompletedBattleIneligible = errors.New("completed room result is unavailable for this account")
 
 // Availability can change between listing, reservation and entry. Keep these
 // business rejections distinct from invalid profiles and infrastructure errors.
@@ -415,6 +417,9 @@ func (h *Hub) SettlementFor(roomID int64, userID int) (CompletedBattle, error) {
 	defer h.mu.Unlock()
 	h.pruneCompletedLocked(now)
 	completed, exists := h.completed[roomID]
+	if !exists && h.rooms[roomID] != nil {
+		return CompletedBattle{}, ErrCompletedBattlePending
+	}
 	if !exists && h.repository != nil {
 		persisted, expiresAt, err := h.repository.LoadCompleted(roomID, now)
 		if err != nil {
@@ -446,7 +451,7 @@ func (h *Hub) SettlementFor(roomID int64, userID int) (CompletedBattle, error) {
 	}
 	claimed, eligible := completed.claimed[userID]
 	if !eligible || claimed {
-		return CompletedBattle{}, errors.New("completed room result is unavailable for this account")
+		return CompletedBattle{}, ErrCompletedBattleIneligible
 	}
 	return cloneCompletedBattle(completed.CompletedBattle), nil
 }

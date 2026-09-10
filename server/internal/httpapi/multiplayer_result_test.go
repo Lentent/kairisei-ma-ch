@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -71,10 +72,53 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 type resultCompletionRepository struct {
 	multiplayer.CompletionRepository
 	completed multiplayer.CompletedBattle
+	err       error
+}
+
+func TestLostMultiplayerResultDoesNotBlockLogin(t *testing.T) {
+	for _, ineligible := range []bool{false, true} {
+		hub := multiplayer.NewHub()
+		if ineligible {
+			if err := hub.AttachCompletionRepository(resultCompletionRepository{completed: multiplayer.CompletedBattle{RoomID: 123, OnlineUserIDs: []int{1002}}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s := &store{gold: 123}
+		runtime := &release.Release{}
+		runtime.State.User.UserID = 1001
+		a := &API{release: runtime, store: s, multiplayer: hub}
+		for i := 0; i < 2; i++ {
+			w := httptest.NewRecorder()
+			a.teamBattleResult(w, httptest.NewRequest(http.MethodPost, "/TeamBattleResult", strings.NewReader(`{"roomid":123}`)))
+			lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
+			var common commonResponse
+			if w.Code != 200 || len(lines) != 3 || json.Unmarshal([]byte(lines[0]), &common) != nil || common.ResultCode != -3207 || common.ResultDeleteSaveData != 0 {
+				t.Fatalf("lost result still blocks native recovery: %d %s", w.Code, w.Body.String())
+			}
+		}
+		if s.gold != 123 || len(s.teamBattleReceipts) != 0 {
+			t.Fatal("lost result mutated rewards")
+		}
+	}
 }
 
 func (resultCompletionRepository) NextRoomID(minimum int64) (int64, error) { return minimum, nil }
 
 func (repository resultCompletionRepository) LoadCompleted(int64, time.Time) (multiplayer.CompletedBattle, time.Time, error) {
-	return repository.completed, time.Now().Add(time.Minute), nil
+	return repository.completed, time.Now().Add(time.Minute), repository.err
+}
+
+func TestMultiplayerResultStorageFailureRemainsRetryable(t *testing.T) {
+	hub := multiplayer.NewHub()
+	if err := hub.AttachCompletionRepository(resultCompletionRepository{err: errors.New("temporary storage failure")}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &release.Release{}
+	runtime.State.User.UserID = 1001
+	a := &API{release: runtime, store: &store{}, multiplayer: hub}
+	w := httptest.NewRecorder()
+	a.teamBattleResult(w, httptest.NewRequest(http.MethodPost, "/TeamBattleResult", strings.NewReader(`{"roomid":123}`)))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("storage failure discarded a recoverable battle: %d %s", w.Code, w.Body.String())
+	}
 }

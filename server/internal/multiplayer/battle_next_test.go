@@ -1,6 +1,7 @@
 package multiplayer
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -132,7 +133,7 @@ func TestMultiplayerWavesFinishOnceAndShareAllDrops(t *testing.T) {
 			}
 		}
 		if wave < 5 {
-			if _, err := hub.SettlementFor(123, 1001); err == nil || !current.nextBattlePending {
+			if _, err := hub.SettlementFor(123, 1001); !errors.Is(err, ErrCompletedBattlePending) || !current.nextBattlePending {
 				t.Fatal("intermediate wave settled as a completed quest")
 			}
 			// A repeated old direction ACK must not emit another transition.

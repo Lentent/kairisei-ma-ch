@@ -1109,7 +1109,7 @@ func collectCNBattlePersistedStates(
 
 func applyCNBattleRuntimeMaster(state *release.State, master cnBattleRuntimeMaster) error {
 	var err error
-	master, err = projectCNBattleOwnDeckVariants(master)
+	master, err = projectCNBattleRuntime(master)
 	if err != nil {
 		return err
 	}

@@ -416,6 +416,15 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	completed, err := a.multiplayer.SettlementFor(payload.RoomID, a.release.State.User.UserID)
 	if err != nil {
+		if errors.Is(err, multiplayer.ErrCompletedBattleIneligible) ||
+			errors.Is(err, multiplayer.ErrCompletedBattleUnavailable) {
+			// ResultMgr.onTeamBattleResult clears the pending battle report
+			// before handling the native error. HTTP 409 never reaches it and
+			// would make every subsequent login resubmit the same lost room.
+			// A live, unfinished room or a storage failure remains retryable.
+			a.writeProtocolResult(writer, map[string]any{}, -3207, "战斗记录已失效，无法结算本次奖励，请重新进入副本。")
+			return
+		}
 		writeError(writer, http.StatusConflict, err.Error())
 		return
 	}

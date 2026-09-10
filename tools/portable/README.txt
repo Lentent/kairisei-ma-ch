@@ -16,7 +16,7 @@ Linux 末尾加 --dry-run 可检查参数；Ctrl+C 或 SIGTERM 正常停止。
 Admin 默认 http://127.0.0.1:26022/，仅允许在服务器本机访问。
 
 安装与连接
-安装同次发布的 client.apk；APK 在服务端分卷之外单独提供，可覆盖安装。
+安装同次发布的 APK；APK 在服务端分卷之外单独提供，可覆盖安装。
 QQ 可能打开旧的同名 APK，请下载后用文件管理器打开本次文件安装。
 首次打开授予资源存储权限，先进入标题页创建 Android/data 下的目录，再退出。
 手机用 ZArchiver 等文件管理器将 local_server.txt 复制到：

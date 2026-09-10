@@ -235,7 +235,7 @@ func newCNAdminHandler(
 	if err != nil {
 		return nil, err
 	}
-	master, err = projectCNBattleOwnDeckVariants(master)
+	master, err = projectCNBattleRuntime(master)
 	if err != nil {
 		return nil, err
 	}

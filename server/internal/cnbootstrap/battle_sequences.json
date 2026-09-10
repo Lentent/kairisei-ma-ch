@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "confidence": "INFERRED",
+  "source": "CN enemy_party/enemy/enemy_lvup/skill_role_enemy: Nameless PARTS_ALL_BREAK sets AWAKE then FORCE_BATTLE_END; corresponding ems_01111 parties retain each difficulty's stats. Sequence binding is a local restoration, not recovered server data.",
+  "sequences": [
+    {"boss_id": 30920106, "battles": [{"enemy_party_id": 30920106, "enemy_type": 1}, {"enemy_party_id": 30920116, "enemy_type": 4}]},
+    {"boss_id": 30920107, "battles": [{"enemy_party_id": 30920107, "enemy_type": 1}, {"enemy_party_id": 30920117, "enemy_type": 4}]},
+    {"boss_id": 30920108, "battles": [{"enemy_party_id": 30920108, "enemy_type": 1}, {"enemy_party_id": 30920118, "enemy_type": 4}]}
+  ]
+}
