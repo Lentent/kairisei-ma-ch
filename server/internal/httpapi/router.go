@@ -268,6 +268,7 @@ func (a *API) register(router chi.Router) {
 	router.Post(routes.CardFameCancelTrain, a.cardFameCancelTrain)
 	router.Post(routes.CardFameTrainFinish, a.cardFameTrainFinish)
 	router.Post(routes.HowToGetCardShow, a.howToGetCardShow)
+	router.Post("/__domain/MobileServiceInfo", a.mobileServiceCompatibility)
 	router.Get(routes.SphereShow, a.sphereShow)
 	router.Post(routes.SphereShow, a.sphereShow)
 	if routes.SphereFusion != "" {
@@ -3394,8 +3395,13 @@ func (a *API) writeProtocolResponse(
 	common.Revision = a.release.State.CatalogVersion
 	if len(common.Notifications) == 1 {
 		presents, _ := a.store.presentState()
-		common.Notifications[0].PresentNum =
-			int16(len(presents))
+		unreceived := 0
+		for _, present := range presents {
+			if present.State == 0 {
+				unreceived++
+			}
+		}
+		common.Notifications[0].PresentNum = int16(min(unreceived, math.MaxInt16))
 		_, pvpChallenge := a.store.pvpStatus()
 		common.Notifications[0].Challenge = pvpChallenge
 		common.Notifications[0].PVPReset.StartTime = a.pvpConfig.ResetStartTime
@@ -3583,6 +3589,11 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 }
 
 func writeError(writer http.ResponseWriter, status int, message string) {
+	if capture, ok := writer.(*statusWriter); ok {
+		// Keep the actual failure with its request ID. Never retain response
+		// bodies or request credentials just to diagnose a transport rejection.
+		capture.errorText = message
+	}
 	writeJSON(writer, status, map[string]any{
 		"res_code": status,
 		"res_str":  message,
@@ -3591,7 +3602,8 @@ func writeError(writer http.ResponseWriter, status int, message string) {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status int
+	status    int
+	errorText string
 }
 
 func (writer *statusWriter) WriteHeader(status int) {
@@ -3607,13 +3619,16 @@ func (a *API) logRequest(next http.Handler) http.Handler {
 			status:         http.StatusOK,
 		}
 		next.ServeHTTP(capture, request)
-		a.logger.Info(
-			"http request",
+		fields := []any{
 			"request_id", middleware.GetReqID(request.Context()),
 			"method", request.Method,
 			"path", request.URL.Path,
 			"status", capture.status,
 			"elapsed_ms", time.Since(started).Milliseconds(),
-		)
+		}
+		if capture.errorText != "" {
+			fields = append(fields, "error", capture.errorText)
+		}
+		a.logger.Info("http request", fields...)
 	})
 }

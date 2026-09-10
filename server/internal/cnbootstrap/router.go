@@ -452,6 +452,7 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 	router.Post("/UserCreate", cnBootstrapExactBusiness(businessHandler, "UserCreate", "/UserCreate", "name", "arthur_type"))
 	router.Post("/UserSetName", cnBootstrapExactBusiness(businessHandler, "UserSetName", "/UserSetName", "name"))
 	router.Post("/UserSetComment", cnBootstrapExactBusiness(businessHandler, "UserSetComment", "/UserSetComment", "comment"))
+	router.Post("/GetMobileServiceToken", cnBootstrapExactBusiness(businessHandler, "GetMobileServiceToken", "/__domain/MobileServiceInfo", "sprite"))
 	router.Post("/ItemShow", cnBootstrapItemShow(businessHandler))
 	router.Post("/ItemUse", cnBootstrapExactBusiness(businessHandler, "ItemUse", "/ItemUse", "itemid"))
 	router.Post("/ItemExchange", cnPayloadAdapter(businessHandler, "ItemExchange", "/ItemExchange", []string{"itemid", "change_sets"}, adaptCNNamedRewardMethod))

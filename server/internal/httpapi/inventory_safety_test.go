@@ -291,9 +291,9 @@ func TestPresentMultiReceiveUsesClientFilterLimitAndPartialResults(t *testing.T)
 			case "twenty per batch":
 				for id := int64(1); id <= 21; id++ {
 					s.presents = append(s.presents, gold(id))
-					if id <= 20 {
-						wantIDs = append(wantIDs, id)
-					}
+				}
+				for id := int64(21); id >= 2; id-- {
+					wantIDs = append(wantIDs, id)
 				}
 				wantGold = 100
 			case "full item keeps other rewards":
@@ -309,13 +309,14 @@ func TestPresentMultiReceiveUsesClientFilterLimitAndPartialResults(t *testing.T)
 				s.presents = []release.Present{item, expiringGold}
 				receiveTypes, wantIDs = []int{1}, []int64{1}
 			}
+			beforeCount := len(s.presents)
 			result, err := s.receivePresents(receiveTypes, true)
-			if err != nil || !slices.Equal(result.PresentID, wantIDs) || !slices.Equal(result.FailedID, wantFailed) || s.gold != wantGold || len(s.presents) != 1 {
+			if err != nil || !slices.Equal(result.PresentID, wantIDs) || !slices.Equal(result.FailedID, wantFailed) || s.gold != wantGold || len(s.presents) != beforeCount || len(s.presentHistories) != 0 {
 				t.Fatalf("gift selection/grant differs: ids=%v failed=%v gold=%d remaining=%d err=%v", result.PresentID, result.FailedID, s.gold, len(s.presents), err)
 			}
 			if name == "full item keeps other rewards" {
 				full, err := s.receivePresent(1)
-				if err != nil || !slices.Equal(full.FailedID, []int64{1}) || len(s.presents) != 1 {
+				if err != nil || !slices.Equal(full.FailedID, []int64{1}) || len(s.presents) != 2 {
 					t.Fatalf("full gift must remain claimable: %+v %v", full, err)
 				}
 				s.items[10] = release.Item{ItemID: 10}
@@ -324,17 +325,17 @@ func TestPresentMultiReceiveUsesClientFilterLimitAndPartialResults(t *testing.T)
 					t.Fatalf("gift failed after freeing space: %+v %v", claimed, err)
 				}
 				retry, err := s.receivePresent(1)
-				if err != nil || !slices.Equal(retry.FailedID, []int64{1}) || s.items[10].Num != 1 || len(s.presentHistories) != 2 {
+				if err != nil || !slices.Equal(retry.FailedID, []int64{1}) || s.items[10].Num != 1 || len(s.presentHistories) != 0 {
 					t.Fatalf("retry duplicated reward/history: %+v %v", retry, err)
 				}
 			}
 			if name == "nonclaimable keeps other rewards" {
 				result, err := s.receivePresent(1)
-				if err != nil || !slices.Equal(result.FailedID, []int64{1}) || s.gold != 5 || len(s.presentHistories) != 1 {
+				if err != nil || !slices.Equal(result.FailedID, []int64{1}) || s.gold != 5 || len(s.presentHistories) != 0 {
 					t.Fatalf("nonclaimable gift was granted: %+v %v", result, err)
 				}
 				deleted, err := s.deletePresents(1)
-				if err != nil || !slices.Equal(deleted, []int64{1}) || s.gold != 5 || len(s.presents) != 0 {
+				if err != nil || !slices.Equal(deleted, []int64{1}) || s.gold != 5 || len(s.presents) != 1 || len(s.presentHistories) != 1 {
 					t.Fatalf("discarding gift changed reward or failed: %v %v", deleted, err)
 				}
 			}

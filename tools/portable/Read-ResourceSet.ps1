@@ -1,11 +1,7 @@
 # Resource-set packages need only Windows PowerShell at runtime.
 function Read-PortableResourceSet {
-    param([string]$ManifestPath, [string]$ExpectedSHA256)
+    param([string]$ManifestPath)
     $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
-    if ($ExpectedSHA256 -notmatch '^[0-9a-f]{64}$' -or
-        (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $ExpectedSHA256) {
-        throw 'Resource-set manifest does not match deployment.json.'
-    }
     $root = Split-Path -Parent ([IO.Path]::GetFullPath($ManifestPath))
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.schema_version -ne 1 -or $manifest.client_profile -ne 'cn602-bootstrap' -or

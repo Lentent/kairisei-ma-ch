@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -506,7 +508,16 @@ func (storage *cnSaveDatabase) persistWithAudit(state release.State, audit *cnAd
 }
 
 func (storage *cnSaveDatabase) open() (*sql.DB, error) {
-	database, err := sql.Open("sqlite", storage.databasePath)
+	// Acquire the writer reservation before taking a read snapshot. A deferred
+	// read-then-write transaction can fail with SQLITE_BUSY_SNAPSHOT immediately,
+	// even with busy_timeout, when another account commits between the two.
+	// modernc keeps explicitly read-only transactions deferred.
+	path := filepath.ToSlash(storage.databasePath)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_txlock=immediate"}).String()
+	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open CN SQLite database: %w", err)
 	}

@@ -129,9 +129,11 @@ if (Test-Path -LiteralPath $deploymentPath -PathType Leaf) {
 }
 if (Test-Path -LiteralPath $resourceSetPath -PathType Leaf) {
     if (-not (Test-Path -LiteralPath $deploymentPath -PathType Leaf)) { throw 'Resource-set package needs deployment.json.' }
-    $resourceSetSHA256 = [string]$deployment.resource_set_sha256
+    # Runtime identity is derived from the actual manifest, not duplicated in
+    # the editable deployment settings. Used only to detect a running old set.
+    $resourceSetSHA256 = (Get-FileHash -LiteralPath $resourceSetPath -Algorithm SHA256).Hash.ToLowerInvariant()
     . (Join-Path $packageRoot 'Read-ResourceSet.ps1')
-    $resourceSet = Read-PortableResourceSet -ManifestPath $resourceSetPath -ExpectedSHA256 $resourceSetSHA256
+    $resourceSet = Read-PortableResourceSet -ManifestPath $resourceSetPath
     if ($resourceSet.Manifest.policy.publishable -ne $true -or $deployment.validation_only) {
         if (-not $ValidationOnly) {
             throw 'Candidate package requires -ValidationOnly; use the packaged test launcher or pass the switch explicitly.'

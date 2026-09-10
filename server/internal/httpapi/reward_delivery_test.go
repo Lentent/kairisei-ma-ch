@@ -100,10 +100,17 @@ func TestSettlementOverflowPreservesProgressAndClaimableReward(t *testing.T) {
 			if projected[0].AddElapsedSec != 125 || projected[0].IssuedAtUnix != 0 || reloaded.presents[0].IssuedAtUnix != issued {
 				t.Fatal("gift age projection changed persisted issuance time")
 			}
-			if _, err := reloaded.receivePresent(id); err != nil || reloaded.items[10].Num != 1 || len(reloaded.presents) != 0 {
+			if _, err := reloaded.receivePresent(id); err != nil || reloaded.items[10].Num != 1 || len(reloaded.presents) != 1 || reloaded.presents[0].State != 1 {
 				t.Fatalf("saved overflow reward is not claimable after freeing space: %v", err)
 			}
 			_, _ = reloaded.receivePresent(id)
+			if _, err := reloaded.deletePresents(id); err != nil {
+				t.Fatal(err)
+			}
+			// A cached row may submit deletion again after it has been archived.
+			if _, err := reloaded.deletePresents(id); err != nil {
+				t.Fatal(err)
+			}
 			if reloaded.items[10].Num != 1 || len(reloaded.presentHistories) != 1 {
 				t.Fatal("retry duplicated saved reward")
 			}

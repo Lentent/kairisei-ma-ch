@@ -1002,22 +1002,9 @@ func validateCNSave(save cnSaveState) error {
 			seenFloors[floor] = struct{}{}
 		}
 	}
-	if save.TeamBattleConfigVersion >= cnTeamBattleDeckConfigVersion {
-		activeDecks := make(map[int8]struct{}, 4)
-		for _, deck := range save.Decks {
-			if deck.ArthurType >= 1 && deck.ArthurType <= 4 && deck.IsActive != 0 {
-				activeDecks[deck.ArthurType] = struct{}{}
-			}
-		}
-		for arthurType := int8(1); arthurType <= 4; arthurType++ {
-			if _, exists := activeDecks[arthurType]; !exists {
-				return fmt.Errorf(
-					"CN save team battle configuration requires an active Arthur type %d deck",
-					arthurType,
-				)
-			}
-		}
-	}
+	// CardMgr.GetChangeDeckList clears is_active when an edited deck becomes
+	// incomplete. Saving that draft is valid; entering battle checks the actual
+	// chosen decks (and any own-deck AI replacements) separately.
 	for _, replay := range save.TeamBattleReplays {
 		if replay.BossID <= 0 || replay.EnemyPartyID <= 0 ||
 			replay.EnemyType < 0 || replay.EnemyType > 4 ||

@@ -2397,10 +2397,8 @@ func (s *store) receivePresent(presentID int64) (presentReceiveResult, error) {
 	if err := s.applyRewardLocked(s.presents[index].Reward, &result); err != nil {
 		return presentReceiveResult{}, err
 	}
-	received := clonePresent(s.presents[index])
-	received.State = 1
-	s.presentHistories = append(s.presentHistories, received)
-	s.presents = append(s.presents[:index], s.presents[index+1:]...)
+	// Native MovePresent2Received keeps the entry visible until Delete.
+	s.presents[index].State = 1
 	return result, nil
 }
 
@@ -2421,7 +2419,30 @@ func (s *store) receivePresents(receiveTypes []int, receiveCoin bool) (presentRe
 	rewards := make([]release.Reward, 0, presentMultiReceiveMax)
 	result := presentReceiveResult{}
 	candidates := 0
-	for index, present := range s.presents {
+	// Match PresentMgr.ResortPresentList before its filtered Take(20).
+	order := make([]int, len(s.presents))
+	for i := range order {
+		order[i] = i
+	}
+	now := time.Now().Unix()
+	age := func(p release.Present) uint32 {
+		if p.IssuedAtUnix > 0 {
+			return uint32(min(max(0, now-p.IssuedAtUnix), math.MaxUint32))
+		}
+		return p.AddElapsedSec
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := s.presents[order[i]], s.presents[order[j]]
+		if a.State != b.State {
+			return a.State < b.State
+		}
+		if age(a) != age(b) {
+			return age(a) < age(b)
+		}
+		return int32(b.PresentID-a.PresentID) < 0
+	})
+	for _, index := range order {
+		present := s.presents[index]
 		if _, ok := typeSet[s.presentReceiveTypeLocked(present)]; !ok {
 			continue
 		}
@@ -2452,25 +2473,14 @@ func (s *store) receivePresents(receiveTypes []int, receiveCoin bool) (presentRe
 		selected = append(selected, index)
 		rewards = prospective
 	}
-	remaining := make([]release.Present, 0, len(s.presents)-len(selected))
-	selectedSet := make(map[int]struct{}, len(selected))
 	for _, index := range selected {
-		selectedSet[index] = struct{}{}
-	}
-	for index, present := range s.presents {
-		if _, ok := selectedSet[index]; !ok {
-			remaining = append(remaining, present)
-			continue
-		}
+		present := s.presents[index]
 		if err := s.applyRewardLocked(present.Reward, &result); err != nil {
 			return presentReceiveResult{}, err
 		}
 		result.PresentID = append(result.PresentID, present.PresentID)
-		received := clonePresent(present)
-		received.State = 1
-		s.presentHistories = append(s.presentHistories, received)
+		s.presents[index].State = 1
 	}
-	s.presents = remaining
 	return result, nil
 }
 
@@ -2497,13 +2507,19 @@ func (s *store) deletePresents(presentID int64) ([]int64, error) {
 			}
 		}
 		if index < 0 {
-			return nil, errors.New("present is unavailable")
+			for _, archived := range s.presentHistories {
+				if archived.PresentID == presentID {
+					// A delayed/retried native Delete must still remove its cached row.
+					return []int64{presentID}, nil
+				}
+			}
+			return nil, &businessError{-1, "这封礼物已不存在，请重新打开礼物箱。"}
 		}
 		if s.presents[index].State != 1 {
-			return nil, errors.New("present cannot be deleted in its current state")
+			return nil, &businessError{-1, "请先领取这封礼物，再删除。"}
 		}
 		if s.presents[index].Reason == 19 {
-			return nil, errors.New("present reason cannot be deleted")
+			return nil, &businessError{-1, "这封礼物暂时不能删除。"}
 		}
 		selected[index] = struct{}{}
 	}
@@ -6221,16 +6237,16 @@ func (s *store) playGacha(
 		}
 	}
 	if index < 0 || payType != s.gachas[index].PayType {
-		return gachaPlayResult{}, errors.New("unknown gacha or payment type")
+		return gachaPlayResult{}, errGachaUnavailable
 	}
 	profile := s.currentGachaLocked(s.gachas[index])
 	gacha := &profile
 	if gacha.PlayCount == math.MaxInt || (gacha.UnownedOnly && len(gacha.CardIDs) == 0) {
-		return gachaPlayResult{}, errors.New("gacha has no remaining eligible rewards")
+		return gachaPlayResult{}, errGachaUnavailable
 	}
 	if !s.gachaAvailableForPlayLocked(gachaID) ||
 		(isOnboardingGachaID(gachaID) && gacha.PlayCount != 0) {
-		return gachaPlayResult{}, errors.New("gacha is not available in the current onboarding step")
+		return gachaPlayResult{}, errGachaUnavailable
 	}
 	if err := validateGachaSelection(*gacha, selectedRewards); err != nil {
 		return gachaPlayResult{}, err

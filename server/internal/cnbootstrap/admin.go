@@ -1161,7 +1161,7 @@ func (admin *cnAdmin) sendAccountMail(writer http.ResponseWriter, request *http.
 		writeCNAdminError(writer, http.StatusNotFound, "account not found")
 		return
 	}
-	for groupIndex, group := range [][]release.Present{state.Engagement.Presents, state.Engagement.Histories} {
+	for _, group := range [][]release.Present{state.Engagement.Presents, state.Engagement.Histories} {
 		for _, existing := range group {
 			if existing.AdminIdempotencyKey == mail.IdempotencyKey {
 				if existing.PresentID != presentID {
@@ -1169,10 +1169,9 @@ func (admin *cnAdmin) sendAccountMail(writer http.ResponseWriter, request *http.
 					return
 				}
 				// A key identifies one immutable mail, not any subsequent request
-				// with that key. State becomes 1 on receipt too, so only compare
-				// discardability while the mail is still in the unclaimed box.
-				if !cnAdminMailPayloadMatches(existing, mail, reward) ||
-					(groupIndex == 0 && (existing.State == 1) != mail.Discardable) {
+				// with that key. Receipt changes State in-place; it is not part
+				// of the immutable mail content, even before explicit deletion.
+				if !cnAdminMailPayloadMatches(existing, mail, reward) {
 					writeCNAdminError(writer, http.StatusConflict, "mail idempotency key was already used with different content")
 					return
 				}

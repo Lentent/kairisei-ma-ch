@@ -61,6 +61,7 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	auditCompletePlayerPolicy(t, handler)
 	auditCompleteFollowBusiness(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	auditCompleteSpheres(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
+	auditCompleteBusinessRecovery(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	if profile := os.Getenv("CN602_ACCOUNT_HEAP_PROFILE"); profile != "" {
 		profileCompleteRuntimeAccounts(t, handler, profile)
 	}
@@ -256,7 +257,7 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(after.Cards) != 6000 || len(after.Engagement.Presents) != len(before.Engagement.Presents)-1 || len(after.Engagement.Histories) != len(before.Engagement.Histories)+1 || after.Cards[len(after.Cards)-1].CardID != present.Reward.RewardTypeID {
+			if len(after.Cards) != 6000 || len(after.Engagement.Presents) != len(before.Engagement.Presents) || len(after.Engagement.Histories) != len(before.Engagement.Histories) || after.Cards[len(after.Cards)-1].CardID != present.Reward.RewardTypeID {
 				t.Fatal("mailed draw was lost or duplicated when claiming after freeing capacity")
 			}
 		}
