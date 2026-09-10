@@ -155,7 +155,9 @@ func TestCardEvolutionRecipes(t *testing.T) {
 	}{
 		{"normal resets level", 0, 3, 0, false, false, false},
 		{"limit keeps level with 25+25+3 materials", 3, 53, 0, true, false, false},
+		{"limit consumes last mixed materials", 3, 53, 0, true, false, false},
 		{"limit insufficient materials", 3, 53, 0, true, false, true},
+		{"limit insufficient gold", 3, 53, 0, true, false, true},
 		{"knights accepts 800 materials", 2, 800, 0, false, false, false},
 		{"god keeps level", 1, 1, 3, true, false, false},
 		{"god low fame", 1, 1, 2, true, false, true},
@@ -193,10 +195,19 @@ func TestCardEvolutionRecipes(t *testing.T) {
 					s.stackCards = append(s.stackCards, release.CardStack{CardID: material.CardID, Num: material.Num + 1})
 					materialIDs = append(materialIDs, material.CardID)
 				}
-				if input.rejected {
+				if input.name == "limit insufficient materials" {
 					s.stackCards[1].Num = 24
 				}
+				if input.name == "limit consumes last mixed materials" {
+					for i := range s.stackCards {
+						s.stackCards[i].Num--
+					}
+				}
 			}
+			if input.name == "limit insufficient gold" {
+				s.gold = transition.Gold - 1
+			}
+			beforeGold := s.gold
 			beforeStacks := slices.Clone(s.stackCards)
 			beforeCards := len(s.cards) + len(s.containerCards)
 			body, err := json.Marshal(map[string]any{
@@ -214,11 +225,14 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				if input.name == "limit insufficient materials" {
 					wantCode = -1200
 				}
+				if input.name == "limit insufficient gold" {
+					wantCode = -1030
+				}
 				var common commonResponse
 				if response.Code != http.StatusOK || json.Unmarshal([]byte(strings.Split(response.Body.String(), "\n")[0]), &common) != nil || common.ResultCode != wantCode || common.ResultErrorAction != 2 || common.ResultDeleteSaveData != 0 {
 					t.Fatalf("expected evolution business rejection: %s", response.Body.String())
 				}
-				if s.gold != 500 || !equalCardInfo(s.cards[0], base) || len(s.cards)+len(s.containerCards) != beforeCards || !slices.Equal(s.stackCards, beforeStacks) || len(s.cardCollectionIDs) != 0 {
+				if s.gold != beforeGold || !equalCardInfo(s.cards[0], base) || len(s.cards)+len(s.containerCards) != beforeCards || !slices.Equal(s.stackCards, beforeStacks) || len(s.cardCollectionIDs) != 0 {
 					t.Fatalf("invalid evolution changed state: %s", response.Body.String())
 				}
 				return
@@ -235,8 +249,15 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				t.Fatalf("evolution result or consumption differs: %+v", result)
 			}
 			if input.kind != 1 {
+				remaining := 1
+				if input.name == "limit consumes last mixed materials" {
+					remaining = 0
+					if len(toWireStackCards(s.stackState())) != 0 {
+						t.Fatal("depleted evolution materials reappeared after inventory refresh")
+					}
+				}
 				for _, material := range s.stackCards {
-					if material.Num != 1 {
+					if material.Num != remaining {
 						t.Fatal("evolution consumed wrong stack quantity")
 					}
 				}
