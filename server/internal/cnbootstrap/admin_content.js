@@ -1,5 +1,5 @@
 'use strict';
-const dropEditor={rows:[],row:null,config:null,base:null,revision:0,dirty:false};
+const dropEditor={kind:'all',rows:[],row:null,config:null,base:null,revision:0,dirty:false};
 const exchangeEditor={shops:[],shop:null,currencies:[],selected:new Set(),page:0,revision:0,nextShop:0,nextLineup:0,dirty:false};
 const contentPicker={selected:new Map(),rows:[],page:0,serial:0,apply:null,labels:new Map()};
 const contentKey=r=>`${r.type??r.reward_type}:${r.reward_typeid??r.reward_type_id}`;
@@ -16,8 +16,16 @@ async function resolveContentLabels(rewards){
 function downloadContent(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 async function importContent(input){try{const file=input.files[0];if(!file)return null;if(file.size>1024*1024)throw new Error('方案文件超过1MiB');return JSON.parse(await file.text())}finally{input.value=''}}
 
-async function loadDropEditor(){const data=await api('/api/boss-drops');dropEditor.rows=data.bosses;filterDropSelect();await selectDrop(Number($('#drop-select').value))}
-function filterDropSelect(){const q=$('#drop-search').value.trim().toLowerCase(),id=dropEditor.row?.boss_id;const rows=dropEditor.rows.filter(b=>!q||`${b.name} ${b.difficulty} ${b.boss_id}`.toLowerCase().includes(q));$('#drop-select').innerHTML=rows.map(b=>`<option value="${b.boss_id}">${esc(b.name)} · ${esc(b.difficulty)} · ${b.boss_id}</option>`).join('');if(rows.some(b=>b.boss_id===id))$('#drop-select').value=id}
+async function loadDropEditor(){const data=await api('/api/boss-drops');dropEditor.rows=data.bosses;filterDropSelect();await selectDrop(Number($('#drop-select').value)||dropEditor.row?.boss_id)}
+function filterDropSelect(){
+  const q=$('#drop-search').value.trim().toLowerCase(),id=dropEditor.row?.boss_id;
+  const rows=dropEditor.rows.filter(b=>(dropEditor.kind==='all'||b.category===dropEditor.kind)&&(!q||`${b.name} ${b.difficulty} ${b.boss_id}`.toLowerCase().includes(q)));
+  $$('#drop-kinds button').forEach(b=>b.classList.toggle('active',b.dataset.kind===dropEditor.kind));
+  const preserve=!!dropEditor.row;
+  $('#drop-select').innerHTML=(preserve||!rows.length?`<option value="">${rows.length?'请选择难度（当前草稿保留）':'没有匹配的难度'}</option>`:'')+rows.map(b=>`<option value="${b.boss_id}">${esc(b.name)} · ${esc(b.difficulty)} · ${b.boss_id}</option>`).join('');
+  if(rows.some(b=>b.boss_id===id))$('#drop-select').value=id;
+}
+$$('#drop-kinds button').forEach(b=>b.onclick=()=>{dropEditor.kind=b.dataset.kind;filterDropSelect()});
 async function selectDrop(id){
   if(!id)return;const data=await api(`/api/boss-drops?boss_id=${id}`);
   dropEditor.row=data.boss;dropEditor.base=data.base;dropEditor.config=structuredClone(data.config);dropEditor.config.enemy_drops??=[];dropEditor.revision=data.revision;dropEditor.dirty=false;
@@ -26,7 +34,7 @@ async function selectDrop(id){
   const siblings=dropEditor.rows.filter(b=>b.group_id===data.boss.group_id&&b.boss_id!==id);
   $('#drop-copy-from').innerHTML=siblings.map(b=>`<option value="${b.boss_id}">${esc(b.difficulty)} · ${b.boss_id}</option>`).join('');
   $('#drop-copy-targets').innerHTML=siblings.map(b=>`<label><input type="checkbox" value="${b.boss_id}"> ${esc(b.difficulty)}</label>`).join('');
-  $('#drop-version').textContent=`配置 v${data.revision}`;$('#drop-summary').textContent='选择怪物或部位后可批量添加奖励';renderDropRows();
+  $('#drop-current').textContent=`正在编辑：${data.boss.name} · ${data.boss.difficulty} · ${id}`;$('#drop-version').textContent=`配置 v${data.revision}`;$('#drop-summary').textContent='选择怪物或部位后可批量添加奖励';renderDropRows();
 }
 function renderDropRows(){
   const targets=dropEditor.row?.targets||[],drops=dropEditor.config?.enemy_drops||[];
@@ -36,7 +44,7 @@ function renderDropRows(){
   $$('#drop-rows [data-remove]').forEach(b=>b.onclick=()=>{drops.splice(Number(b.dataset.remove),1);changedContent('drops');renderDropRows()});
 }
 $('#drop-search').oninput=filterDropSelect;
-$('#drop-select').onchange=()=>{const id=Number($('#drop-select').value);if(dropEditor.dirty&&!confirm('切换难度会放弃未保存的修改，继续？')){$('#drop-select').value=dropEditor.row.boss_id;return}return contentAction('drops',()=>selectDrop(id))};
+$('#drop-select').onchange=()=>{const id=Number($('#drop-select').value);if(!id)return;if(dropEditor.dirty&&!confirm('切换难度会放弃未保存的修改，继续？')){$('#drop-select').value=dropEditor.row.boss_id;return}return contentAction('drops',()=>selectDrop(id))};
 $('#drop-add').onclick=()=>openContentPicker(rows=>{const target=dropEditor.row.targets[Number($('#drop-target').value)];if(!target)throw new Error('请选择掉落目标');if(dropEditor.config.enemy_drops.length+rows.length>120)throw new Error('每个难度最多120项');for(const row of rows)dropEditor.config.enemy_drops.push({battle_index:target.battle_index,enemy_index:target.enemy_index,reward:contentReward(row),chance_per_million:1000000});changedContent('drops');renderDropRows()});
 $('#drop-set-chance').onclick=()=>{const chance=Number($('#drop-chance-all').value);if(!Number.isFinite(chance)||chance<0||chance>100)return toast('概率须为0至100',true);for(const d of dropEditor.config.enemy_drops)d.chance_per_million=Math.round(chance*10000);changedContent('drops');renderDropRows()};
 $('#drop-base').onclick=()=>{if(!dropEditor.base)return;if(!confirm('载入包内默认掉落？保存前可继续编辑。'))return;dropEditor.config=structuredClone(dropEditor.base);dropEditor.config.enemy_drops??=[];changedContent('drops');renderDropRows()};
@@ -94,3 +102,6 @@ function renderContentCatalog(){
 $('#content-select-page').onclick=()=>{contentPicker.rows.filter(c=>c.resource_state!=='unavailable').forEach(c=>contentPicker.selected.set(contentKey(c),c));renderContentCatalog()};$('#content-clear').onclick=()=>{contentPicker.selected.clear();renderContentCatalog()};
 $('#content-cancel').onclick=()=>{$('#content-picker').classList.remove('open');contentPicker.serial++};
 $('#content-apply').onclick=()=>{try{contentPicker.apply([...contentPicker.selected.values()]);$('#content-picker').classList.remove('open')}catch(e){toast(e.message,true)}};
+
+$('#exchange-unselect-page').onclick=()=>{filteredOffers().slice(exchangeEditor.page*30,(exchangeEditor.page+1)*30).forEach(l=>exchangeEditor.selected.delete(l.lineupid));renderExchangeRows()};
+$('#content-unselect-page').onclick=()=>{contentPicker.rows.forEach(c=>contentPicker.selected.delete(contentKey(c)));renderContentCatalog()};

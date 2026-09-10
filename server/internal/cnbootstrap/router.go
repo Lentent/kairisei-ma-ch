@@ -532,7 +532,7 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 	router.Post("/TeamBattleSoloPartnerShow", cnBootstrapExactBusiness(businessHandler, "TeamBattleSoloPartnerShow", "/TeamBattleSoloPartnerShow", "bossid"))
 	router.Post("/TeamBattleSoloPartnerRentalDeck", cnBootstrapExactBusiness(businessHandler, "TeamBattleSoloPartnerRentalDeck", "/TeamBattleSoloPartnerRentalDeck", "userid"))
 	router.Post("/TeamBattleRecommendDeckShow", cnBootstrapSessionOnlyBusiness(businessHandler, "TeamBattleRecommendDeckShow", http.MethodPost, "/TeamBattleRecommendDeckShow"))
-	router.Post("/TeamBattlePastBossShow", cnBootstrapSessionOnlyBusiness(businessHandler, "TeamBattlePastBossShow", http.MethodPost, "/TeamBattlePastBossShow"))
+	router.Post("/TeamBattlePastBossShow", cnBootstrapPastBossShow(businessHandler, operationStore))
 	router.Post("/TeamBattleClearDeckShow", cnBootstrapExactBusiness(businessHandler, "TeamBattleClearDeckShow", "/TeamBattleClearDeckShow", "bossid"))
 	router.Post("/TeamBattleScoreRewardLineup", cnBootstrapExactBusiness(businessHandler, "TeamBattleScoreRewardLineup", "/TeamBattleScoreRewardLineup", "bossid"))
 	router.Post("/DailyClearRankShow", cnBootstrapExactBusiness(businessHandler, "DailyClearRankShow", "/DailyClearRankShow", "bossid", "is_multi"))

@@ -136,3 +136,5 @@ for(const [group,prop] of [['kinds','kind'],['sources','source'],['jobs','job']]
 $('#catalog-search').oninput=()=>{state.catalogPage=0;state.catalogRequest++;clearTimeout(loadCatalog.timer);loadCatalog.timer=setTimeout(loadCatalog,200)};
 window.addEventListener('beforeunload',event=>{if(mailWorkspace.running){event.preventDefault();event.returnValue=''}});
 updateMailControls();
+
+$('#catalog-unselect-page').onclick=()=>{state.catalog.forEach(e=>mailWorkspace.basket.delete(rewardKey(e)));renderBasket();renderCatalog()};

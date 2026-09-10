@@ -51,6 +51,35 @@ func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *cnO
 	}
 }
 
+func cnBootstrapPastBossShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := requireCNSessionOnly(r, "TeamBattlePastBossShow"); err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		allowed, err := operations.battleGroupAllowlist(cnPastBattlePublicationKey)
+		if err != nil {
+			http.Error(w, "read local past boss publication", http.StatusInternalServerError)
+			return
+		}
+		forwardCNBusiness(w, adaptCNBusinessRequest(r, http.MethodPost, "/TeamBattlePastBossShow", nil), businessHandler, func(content []byte) ([]byte, error) {
+			return adaptCNProtocolMethod(content, func(method map[string]json.RawMessage) (any, error) {
+				if allowed != nil {
+					groups, err := filterCNTeamBattleGroups(method["0"], allowed)
+					if err != nil {
+						return nil, err
+					}
+					method["0"], err = json.Marshal(groups)
+					if err != nil {
+						return nil, err
+					}
+				}
+				return method, nil
+			})
+		})
+	}
+}
+
 func cnBootstrapTeamBattleResult(businessHandler http.Handler) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "TeamBattleResult")

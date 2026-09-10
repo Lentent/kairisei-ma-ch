@@ -101,7 +101,7 @@ func (operations *cnOperationStore) writeDocument(key string, expected int, valu
 		return doc, errCNAdminConflict
 	}
 	operation := strings.Split(key, ":")[0]
-	if key == cnTeamBattlePublicationKey {
+	if key == cnTeamBattlePublicationKey || key == cnPastBattlePublicationKey {
 		operation = "boss-policy"
 	} else if key == cnGachaPublicationKey {
 		operation = "gacha-policy"

@@ -71,6 +71,7 @@ func (handler *cnDeploymentHandler) AdminHandler() http.Handler {
 }
 
 type cnAdminBattleGroup struct {
+	PastName      string   `json:"past_name,omitempty"`
 	GroupID       int      `json:"group_id"`
 	Name          string   `json:"name"`
 	PictureID     int      `json:"picture_id"`
@@ -130,6 +131,7 @@ type cnAdmin struct {
 	assetURLs        map[string]struct{}
 	assetsRoot       string
 	knownGroups      map[int]struct{}
+	pastGroups       []cnAdminBattleGroup
 	bossCount        int
 	multiplayerHub   *multiplayer.Hub
 	advertiseHost    string
@@ -394,6 +396,10 @@ func newCNAdminHandler(
 		}
 		groups[index].ImageURL = imageURL
 	}
+	pastGroups, err := buildCNAdminPastGroups(master.PastBossGroups, groups, catalogByKey)
+	if err != nil {
+		return nil, err
+	}
 	assetURLs := make(map[string]struct{}, len(catalog)+len(groups))
 	for _, entry := range catalog {
 		if entry.ImageURL != "" {
@@ -408,6 +414,7 @@ func newCNAdminHandler(
 	admin := &cnAdmin{
 		accounts: accounts, business: business, operations: operations,
 		groups: groups, catalog: catalog, catalogByKey: catalogByKey,
+		pastGroups: pastGroups,
 		assetsRoot: assetsRoot, assetURLs: assetURLs,
 		knownGroups: knownGroups, bossCount: len(knownBosses),
 		multiplayerHub: multiplayerHub, advertiseHost: advertiseHost,
@@ -1398,8 +1405,13 @@ func applyCNAdminTargetLevel(state *release.State, policy release.PlayerProgress
 	return validateCNPlayerProgressionState(state.User, policy)
 }
 
-func (admin *cnAdmin) bossGroups(writer http.ResponseWriter, _ *http.Request) {
-	writeCNAdminJSON(writer, http.StatusOK, map[string]any{"state": "PASS", "groups": admin.groups})
+func (admin *cnAdmin) bossGroups(writer http.ResponseWriter, request *http.Request) {
+	_, groups, _, err := admin.bossCatalog(request)
+	if err != nil {
+		writeCNAdminError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeCNAdminJSON(writer, http.StatusOK, map[string]any{"state": "PASS", "groups": groups})
 }
 
 func (admin *cnAdmin) publicationState() (cnAdminPublicationState, error) {
@@ -1426,8 +1438,18 @@ func cnAdminPublicationFromDocument(doc cnAdminDocument) (cnAdminPublicationStat
 	}, nil
 }
 
-func (admin *cnAdmin) bossPolicy(writer http.ResponseWriter, _ *http.Request) {
-	policy, err := admin.publicationState()
+func (admin *cnAdmin) bossPolicy(writer http.ResponseWriter, request *http.Request) {
+	key, _, _, err := admin.bossCatalog(request)
+	if err != nil {
+		writeCNAdminError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	doc, err := admin.operations.readDocument(key)
+	if err != nil {
+		writeCNAdminError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	policy, err := cnAdminPublicationFromDocument(doc)
 	if err != nil {
 		writeCNAdminError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -1440,6 +1462,11 @@ func (admin *cnAdmin) setBossPolicy(writer http.ResponseWriter, request *http.Re
 		writeCNAdminError(writer, http.StatusForbidden, err.Error())
 		return
 	}
+	key, _, known, err := admin.bossCatalog(request)
+	if err != nil {
+		writeCNAdminError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
 	var publication cnTeamBattlePublication
 	if err := decodeCNAdminJSON(request, &publication); err != nil {
 		writeCNAdminError(writer, http.StatusBadRequest, err.Error())
@@ -1447,13 +1474,13 @@ func (admin *cnAdmin) setBossPolicy(writer http.ResponseWriter, request *http.Re
 	}
 	if publication.Mode == "allowlist" {
 		for _, groupID := range publication.GroupIDs {
-			if _, exists := admin.knownGroups[groupID]; !exists {
+			if _, exists := known[groupID]; !exists {
 				writeCNAdminError(writer, http.StatusBadRequest, fmt.Sprintf("unknown group ID %d", groupID))
 				return
 			}
 		}
 	}
-	doc, err := admin.operations.setTeamBattlePublication(publication)
+	doc, err := admin.operations.setBattlePublication(key, publication)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errCNAdminConflict) {

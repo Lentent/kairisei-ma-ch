@@ -45,6 +45,7 @@ type cnDropTarget struct {
 	Name        string `json:"name"`
 }
 type cnDropBoss struct {
+	Category   string         `json:"category"`
 	BossID     int            `json:"boss_id"`
 	GroupID    int            `json:"group_id"`
 	Name       string         `json:"name"`
@@ -75,6 +76,16 @@ func (o *cnOperationStore) initializeContent(base release.State, battleMasterPat
 		}
 	}
 	standalone := map[int]bool{}
+	pastBosses := map[int]bool{}
+	for _, raw := range base.TeamBattlePastBossGroups {
+		var g cnBattlePastBossGroupIdentity
+		if err := json.Unmarshal(raw, &g); err != nil {
+			return err
+		}
+		for _, b := range g.Bosses {
+			pastBosses[b.BossID] = true
+		}
+	}
 	for _, p := range base.TeamBattleRewards {
 		if p.StageQuestAreaID == 0 && p.TowerID == 0 {
 			standalone[p.BossID] = true
@@ -112,6 +123,12 @@ func (o *cnOperationStore) initializeContent(base release.State, battleMasterPat
 					continue
 				}
 				row := cnDropBoss{BossID: b.ID, GroupID: group.ID, Name: group.Name, Difficulty: b.Difficulty, Targets: []cnDropTarget{}}
+				row.Category = "boss"
+				if pastBosses[b.ID] {
+					row.Category = "past"
+				} else if _, material := cnBattleMaterialGroupIcons[b.ID/100]; material {
+					row.Category = "material"
+				}
 				r := replays[b.ID]
 				waves := r.Battles
 				if len(waves) == 0 {

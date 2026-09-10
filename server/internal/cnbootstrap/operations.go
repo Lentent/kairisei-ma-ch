@@ -19,6 +19,7 @@ import (
 
 const (
 	cnTeamBattlePublicationKey = "team_battle_publication"
+	cnPastBattlePublicationKey = "past_battle_publication"
 	cnGachaPublicationKey      = "gacha_publication"
 )
 
@@ -37,6 +38,10 @@ type cnGachaPublication struct {
 }
 
 func (operations *cnOperationStore) setTeamBattlePublication(publication cnTeamBattlePublication) (cnAdminDocument, error) {
+	return operations.setBattlePublication(cnTeamBattlePublicationKey, publication)
+}
+
+func (operations *cnOperationStore) setBattlePublication(key string, publication cnTeamBattlePublication) (cnAdminDocument, error) {
 	if publication.ExpectedRevision == nil {
 		return cnAdminDocument{}, errors.New("缺少配置版本，请重新载入后发布")
 	}
@@ -66,7 +71,7 @@ func (operations *cnOperationStore) setTeamBattlePublication(publication cnTeamB
 	}
 	expected := *publication.ExpectedRevision
 	publication.ExpectedRevision = nil
-	return operations.writeDocument(cnTeamBattlePublicationKey, expected, publication)
+	return operations.writeDocument(key, expected, publication)
 }
 
 type cnAdminAudit struct {
@@ -276,6 +281,10 @@ func (operations *cnOperationStore) gachaIDPublished(gachaID int, active map[int
 // It is read at the HTTP presentation boundary so an operations change does
 // not rebuild immutable master data and does not require a server restart.
 func (operations *cnOperationStore) teamBattleGroupAllowlist() (map[int]struct{}, error) {
+	return operations.battleGroupAllowlist(cnTeamBattlePublicationKey)
+}
+
+func (operations *cnOperationStore) battleGroupAllowlist(key string) (map[int]struct{}, error) {
 	database, err := operations.storage.open()
 	if err != nil {
 		return nil, err
@@ -286,7 +295,7 @@ func (operations *cnOperationStore) teamBattleGroupAllowlist() (map[int]struct{}
 	err = database.QueryRowContext(
 		context.Background(),
 		`SELECT payload_json, payload_sha256 FROM cn_global_operation WHERE operation_key = ?`,
-		cnTeamBattlePublicationKey,
+		key,
 	).Scan(&content, &expectedDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

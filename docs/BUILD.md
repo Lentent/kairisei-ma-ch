@@ -45,21 +45,50 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -trimpath '-ldfla
 
 ## 使用构建结果
 
-运行仍需要另行取得的、同一版本的完整服务端资源包。源码仓库不包含游戏 APK、原版资源、账号存档、密钥，也不承诺从源码生成这些游戏资源或 APK。
+**RAR 解压出来的整个文件夹就是运行目录，里面的 `resource-set/` 就是游戏资源。源码目录只用于编译。**
 
-将所有 RAR 分卷放在一起，从 part1 完整解压，例如放到 `_local/deployment/kairisei-ma-cn602-server/`。正常停止该包的服务端后，将 `_local/bin/` 中对应系统的程序覆盖到解压目录。资源仍使用整套 `resource-set/` 与配套 `deployment.json`；不要再使用旧版 `_local/resources` 的复制方式，也不要更改资源清单来适配源码。
+1. 将完整服务端包的所有 RAR 分卷放在一起，从 `part1.rar` 解压。
+2. 保留解压出来的整个 `kairisei-ma-cn602-server/` 文件夹，放在哪里都可以，例如 Windows 的 `D:\Games\kairisei-ma-cn602-server\`。
+3. 正常停止服务，将源码编译得到的 `_local/bin/` 中对应程序复制到这个文件夹，替换同名程序，再从这个文件夹启动。
 
-Windows 可继续使用解压目录里的启动器，或从源码仓库调用发布包当前的启停脚本：
+解压后的相对位置应保持如下（只列出主要文件）：
 
-```powershell
-.\tools\powershell\Start-Server.ps1 -AdvertiseHost 192.168.1.100
-.\tools\powershell\Stop-Server.ps1
-# 其他解压位置可加 -PackageRoot '完整解压目录'
+```text
+kairisei-ma-cn602-server/       ← 运行目录，也是 -PackageRoot 指向的位置
+├── kairi-server.exe            ← Windows：替换为自己编译的这个文件
+├── kairi-server-linux-amd64    ← Linux x64：替换这个文件
+├── kairi-server-linux-arm64    ← Linux ARM64：替换这个文件
+├── Kairisei-Launcher.exe       ← Windows 图形启动器
+├── Start-Server.ps1
+├── Stop-Server.ps1
+├── Start-Server-linux-amd64.sh
+├── Start-Server-linux-arm64.sh
+├── deployment.json            ← 保留包内配套文件
+├── resource-set/               ← 保留解压出来的整个资源目录
+│   ├── resource-set.json
+│   └── ...                    ← 其余资源及配置，保持原来的内部路径
+├── cdn.json                    ← 可选 CDN 下载配置
+└── _local/data/                ← 首次启动后生成的数据库与存档
 ```
 
-测试资源包仍需按包内说明传 `-ValidationOnly`。停止使用发布包的正常关闭通道，等待 SQLite 写入完成。
+例如，Windows 将 **源码目录的 `_local/bin/kairi-server.exe`** 复制到 **`D:\Games\kairisei-ma-cn602-server\kairi-server.exe`**，然后双击同目录的 `Kairisei-Launcher.exe` 即可。
 
-Linux 更换自己编译的程序后，应只更新 `linux-startup.sha256` 中对应程序的 SHA-256 行（用 `sha256sum kairi-server-linux-arm64` 或 amd64 文件生成），保留其余启动文件与资源的校验行，再使用该包的 Linux 启动脚本。修改服务端代码不会改变 CDN 资源内容，不需要重复上传资源。
+**`resource-set/` 与 `deployment.json`、服务端程序放在同一层。** 不需要把资源复制进源码的 `server/` 或 `_local/bin/`，也不需要单独拆开资源目录。仅修改服务端代码时，保留原资源和配置，不需要重新下载资源或上传 CDN。
+
+Linux 同样替换自己系统对应的程序。替换后，运行 `sha256sum kairi-server-linux-arm64`（x64 则为 `kairi-server-linux-amd64`），将结果替换到运行目录 `linux-startup.sha256` 中该程序原来的那一行，其余行保留；再使用包内对应的 Linux 启动脚本。
+
+### 可选：从源码目录调用 Windows 启停脚本
+
+如果使用图形启动器，无需执行这一节。命令在**源码仓库根目录**运行，`-PackageRoot` 填上面整个运行目录，不能填它里面的 `resource-set/`：
+
+```powershell
+.\tools\powershell\Start-Server.ps1 -PackageRoot 'D:\Games\kairisei-ma-cn602-server' -AdvertiseHost 192.168.1.100 -ValidationOnly
+.\tools\powershell\Stop-Server.ps1 -PackageRoot 'D:\Games\kairisei-ma-cn602-server'
+```
+
+上例适用于当前测试包，`-ValidationOnly` 是测试包启动所需参数。省略 `-PackageRoot` 时，脚本默认查找源码仓库下的 `_local/deployment/kairisei-ma-cn602-server/`；这只是默认位置，不要求把已有服务端搬过去。
+
+源码仓库不附带 APK 和游戏资源，构建脚本只生成服务端程序；资源直接使用完整发布包解压得到的 `resource-set/`。
 
 ## 配置与持久化
 

@@ -45,7 +45,7 @@ func TestCNAdminLoadsViewsOnDemandAndBoundsBossRendering(t *testing.T) {
 	for _, contract := range []string{
 		`async function loadView(name,force=false)`,
 		`if(name==='dashboard'){const status=await api('/api/status')`,
-		`else if(name==='bosses'){const [groups,policy]=await Promise.all`,
+		`else if(name==='bosses'){await loadBossPublication(state.bossCatalog)}`,
 		`const visible=rows.slice(state.bossPage*120,(state.bossPage+1)*120)`,
 		`data-kind="material">素材副本`,
 		`最多 ${g.max_segments||1} 波`,

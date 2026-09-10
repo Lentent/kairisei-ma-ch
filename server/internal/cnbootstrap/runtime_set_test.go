@@ -57,6 +57,7 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	auditCompleteAdminContent(t, handler)
+	auditCompletePastAdmin(t, handler)
 	auditCompletePlayerPolicy(t, handler)
 	auditCompleteFollowBusiness(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	auditCompleteSpheres(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
