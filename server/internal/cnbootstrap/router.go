@@ -49,9 +49,10 @@ const (
 	// CN 6.0.2 MODULE_SWITCH values confirmed from the client enum,
 	// MenuItemsSwitch.Awake and DeckSl.openInitialize: EVERYDAY_TASK=2,
 	// ACTIVITY=3, RECOMMAND_DECK=4, PVP_FUNCTION=28,
-	// NEW_CARD_TO_SPIRIT=31, AVATAR_SHOP=34, CHANGE_MODEL=35.
+	// NEW_CARD_TO_SPIRIT=31, AVATAR_SHOP=34, CHANGE_MODEL=35,
+	// COPY_DONOT_RETURN_HOME=37 (original result return to dungeon selection).
 	// Only locally bounded Home functions are advertised as open.
-	cn602LocalModuleSwitchState = int64(1<<2 | 1<<3 | 1<<4 | 1<<22 | 1<<28 | 1<<29 | 1<<31 | 1<<34 | 1<<35)
+	cn602LocalModuleSwitchState = int64(1<<2 | 1<<3 | 1<<4 | 1<<22 | 1<<28 | 1<<29 | 1<<31 | 1<<34 | 1<<35 | 1<<37)
 )
 
 var cn602LegacyVersionNamespaces = [...]string{"cpk-csv6-full1", "cpk-csv6-full2", "cpk-csv6-full3", "cpk-csv6-full4", "cpk-csv6-full5-eel1", "cpk-csv6-full6-cnunion1"}

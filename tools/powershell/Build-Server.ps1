@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $outputRoot = Join-Path $projectRoot '_local/bin'
-$go = (Get-Command go -CommandType Application -ErrorAction Stop).Source
+$go = (Get-Command go -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 if ($DryRun -or -not $PSCmdlet.ShouldProcess($outputRoot, 'Build selected server binaries; replace previous build outputs')) {
     [ordered]@{ source = $projectRoot; output = $outputRoot; targets = $Targets; tests = -not $SkipTests } | ConvertTo-Json
     return

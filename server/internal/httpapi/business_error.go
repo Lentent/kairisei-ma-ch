@@ -21,6 +21,13 @@ var (
 	errInsufficientPaidCrystals = &businessError{-1060, "付费水晶不足，请补充后再试。"}
 	errInsufficientGold         = &businessError{-1030, "金币不足。"}
 	errInsufficientMaterials    = &businessError{-1200, "素材或道具不足，请重新选择。"}
+	errCardUnavailable          = &businessError{-1, "所选卡牌已不存在，请刷新后重新选择。"}
+	errCardInDeck               = &businessError{-1, "所选卡牌正在卡组中使用，请先从卡组中移除。"}
+	errCardLocked               = &businessError{-1, "所选卡牌已锁定，请先解锁。"}
+	errSphereUnavailable        = &businessError{-1, "所选秘石已不存在，请刷新后重新选择。"}
+	errSphereLocked             = &businessError{-1, "所选秘石已锁定，请先解锁。"}
+	errBuddyUnavailable         = &businessError{-1, "所选传承卡已不存在，请刷新后重新选择。"}
+	errBuddyLocked              = &businessError{-1, "所选传承卡已锁定，请先解锁。"}
 	errInsufficientFriendPoints = &businessError{-1, "友情点不足。"}
 	errInsufficientStive        = &businessError{-1, "名声训练点数不足。"}
 	errItemExpired              = &businessError{-1201, "道具已过期。"}

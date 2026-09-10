@@ -159,8 +159,11 @@ func (s *store) fuseSphere(baseUniqueID int64, inputs []sphereFusionInput) (rele
 				return release.Sphere{}, 0, 0, 0, nil, errors.New("invalid sphere fusion material")
 			}
 			index := s.sphereIndexByUniqueIDLocked(input.ID)
-			if index < 0 || s.spheres[index].IsLock != 0 {
-				return release.Sphere{}, 0, 0, 0, nil, errors.New("sphere fusion material is unavailable or locked")
+			if index < 0 {
+				return release.Sphere{}, 0, 0, 0, nil, errSphereUnavailable
+			}
+			if s.spheres[index].IsLock != 0 {
+				return release.Sphere{}, 0, 0, 0, nil, errSphereLocked
 			}
 			if _, duplicate := remove[input.ID]; duplicate {
 				return release.Sphere{}, 0, 0, 0, nil, errors.New("duplicate sphere fusion material")
@@ -270,8 +273,11 @@ func (s *store) evolveSphere(baseUniqueID int64, materialUniqueID int64, materia
 			return release.Sphere{}, 0, 0, nil, errors.New("sphere evolution material equals the base")
 		}
 		materialIndex := s.sphereIndexByUniqueIDLocked(materialUniqueID)
-		if materialIndex < 0 || s.spheres[materialIndex].IsLock != 0 {
-			return release.Sphere{}, 0, 0, nil, errors.New("sphere evolution material is unavailable or locked")
+		if materialIndex < 0 {
+			return release.Sphere{}, 0, 0, nil, errSphereUnavailable
+		}
+		if s.spheres[materialIndex].IsLock != 0 {
+			return release.Sphere{}, 0, 0, nil, errSphereLocked
 		}
 		materialDefinition := s.sphereDefinitions[s.spheres[materialIndex].SphereID]
 		if materialDefinition.SameSphereID != definition.SameSphereID {
@@ -326,8 +332,11 @@ func (s *store) sellSpheres(uniqueIDs []int64) (int, int, int, []deckInfo, error
 	getGold := int64(0)
 	for _, uniqueID := range uniqueIDs {
 		index := s.sphereIndexByUniqueIDLocked(uniqueID)
-		if index < 0 || s.spheres[index].IsLock != 0 {
-			return 0, 0, 0, nil, errors.New("sphere sell material is unavailable or locked")
+		if index < 0 {
+			return 0, 0, 0, nil, errSphereUnavailable
+		}
+		if s.spheres[index].IsLock != 0 {
+			return 0, 0, 0, nil, errSphereLocked
 		}
 		if _, duplicate := remove[uniqueID]; duplicate {
 			return 0, 0, 0, nil, errors.New("duplicate sphere sell selection")

@@ -36,12 +36,16 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 		name        string
 		stock, used []int
 		gold        int
+		ids         []int
 	}{
-		{"last", []int{1}, []int{1}, 50000000},
-		{"deplete", []int{3}, []int{3}, 50000000},
-		{"mixed", []int{1, 2, 3}, []int{1, 2, 3}, 50000000},
-		{"mixed remainder", []int{2, 4, 3}, []int{1, 2, 3}, 50000000},
-		{"gold", []int{1, 2, 3}, []int{1, 2, 3}, 0},
+		{"last", []int{1}, []int{1}, 50000000, nil},
+		{"deplete", []int{3}, []int{3}, 50000000, nil},
+		{"mixed", []int{1, 2, 3}, []int{1, 2, 3}, 50000000, nil},
+		{"mixed remainder", []int{2, 4, 3}, []int{1, 2, 3}, 50000000, nil},
+		{"gold", []int{1, 2, 3}, []int{1, 2, 3}, 0, nil},
+		{"MR nine", []int{9}, []int{9}, 50000000, []int{20000004}},
+		{"MR hundred", []int{100}, []int{100}, 50000000, []int{20000004}},
+		{"MR mixed", []int{9, 9}, []int{9, 9}, 50000000, []int{20000004, 20000031}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			identity, err := accounts.resolveLogin(fmt.Sprintf("00000000-0000-0000-0475-%012d", caseID+1))
@@ -65,8 +69,14 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 			state.Onboarding.Step = cnOnboardingStepCount
 			state.StackCards = nil
 			selected := []int{}
+			materialIDs := append([]int(nil), scenario.ids...)
+			if len(materialIDs) == 0 {
+				for i := range scenario.stock {
+					materialIDs = append(materialIDs, 20000001+i)
+				}
+			}
 			for i, count := range scenario.stock {
-				id := 20000001 + i
+				id := materialIDs[i]
 				for _, template := range cards.StackCardTemplates {
 					if template.CardID == id {
 						template.Num = count
@@ -170,12 +180,12 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 			for i, stock := range scenario.stock {
 				remaining, listed := 0, false
 				for _, stack := range stacks {
-					if stack.CardID == 20000001+i {
+					if stack.CardID == materialIDs[i] {
 						remaining, listed = stack.Num, true
 					}
 				}
 				if remaining != stock-scenario.used[i] || listed && remaining == 0 {
-					t.Errorf("refreshed material %d: num=%d listed=%v, want %d", 20000001+i, remaining, listed, stock-scenario.used[i])
+					t.Errorf("refreshed material %d: num=%d listed=%v, want %d", materialIDs[i], remaining, listed, stock-scenario.used[i])
 				}
 			}
 			code, _ = call("/CardFusion2", string(payload), "stale-selection")

@@ -5036,8 +5036,11 @@ func (s *store) sellContainerCards(uniqueIDs []int64) (int, int, error) {
 	getGold := 0
 	for _, uniqueID := range uniqueIDs {
 		index := cardIndexByUniqueID(s.containerCards, uniqueID)
-		if index < 0 || s.containerCards[index].IsLock != 0 {
-			return 0, 0, errors.New("invalid container sell card")
+		if index < 0 {
+			return 0, 0, errCardUnavailable
+		}
+		if err := s.checkCardConsumptionLocked(s.containerCards[index]); err != nil {
+			return 0, 0, err
 		}
 		definition, exists := s.cardDefinitions[s.containerCards[index].CardID]
 		if !exists || definition.SellGold < 0 {
@@ -5091,8 +5094,14 @@ func (s *store) fuseCard(
 	materialIndexes := make(map[int]struct{}, len(materialUniqueIDs))
 	for _, uniqueID := range materialUniqueIDs {
 		index := cardIndexByUniqueID(s.cards, uniqueID)
-		if index < 0 || index == baseIndex || s.uniqueIDInDeck(uniqueID) || s.cards[index].IsLock != 0 {
+		if index < 0 {
+			return cardInfo{}, cardInfo{}, 0, nil, errCardUnavailable
+		}
+		if index == baseIndex {
 			return cardInfo{}, cardInfo{}, 0, nil, errors.New("invalid fusion material card")
+		}
+		if err := s.checkCardConsumptionLocked(s.cards[index]); err != nil {
+			return cardInfo{}, cardInfo{}, 0, nil, err
 		}
 		materialIndexes[index] = struct{}{}
 	}
@@ -5102,8 +5111,11 @@ func (s *store) fuseCard(
 	containerMaterialIndexes := make(map[int]struct{}, len(containerMaterialUniqueIDs))
 	for _, uniqueID := range containerMaterialUniqueIDs {
 		index := cardIndexByUniqueID(s.containerCards, uniqueID)
-		if index < 0 || s.containerCards[index].IsLock != 0 {
-			return cardInfo{}, cardInfo{}, 0, nil, errors.New("invalid container fusion material card")
+		if index < 0 {
+			return cardInfo{}, cardInfo{}, 0, nil, errCardUnavailable
+		}
+		if err := s.checkCardConsumptionLocked(s.containerCards[index]); err != nil {
+			return cardInfo{}, cardInfo{}, 0, nil, err
 		}
 		containerMaterialIndexes[index] = struct{}{}
 	}
@@ -5276,8 +5288,14 @@ func (s *store) evolveCard(
 	selectedMaterials := make(map[int]int, len(materialUniqueIDs)+len(containerMaterialUniqueIDs)+len(materialCardIDs))
 	for _, uniqueID := range materialUniqueIDs {
 		index := cardIndexByUniqueID(s.cards, uniqueID)
-		if index < 0 || index == baseIndex || s.uniqueIDInDeck(uniqueID) || s.cards[index].IsLock != 0 {
+		if index < 0 {
+			return cardInfo{}, 0, nil, errCardUnavailable
+		}
+		if index == baseIndex {
 			return cardInfo{}, 0, nil, errors.New("invalid evolution material card")
+		}
+		if err := s.checkCardConsumptionLocked(s.cards[index]); err != nil {
+			return cardInfo{}, 0, nil, err
 		}
 		materialIndexes[index] = struct{}{}
 		selectedMaterials[s.cards[index].CardID]++
@@ -5288,8 +5306,11 @@ func (s *store) evolveCard(
 	containerMaterialIndexes := make(map[int]struct{}, len(containerMaterialUniqueIDs))
 	for _, uniqueID := range containerMaterialUniqueIDs {
 		index := cardIndexByUniqueID(s.containerCards, uniqueID)
-		if index < 0 || s.containerCards[index].IsLock != 0 {
-			return cardInfo{}, 0, nil, errors.New("invalid container evolution material card")
+		if index < 0 {
+			return cardInfo{}, 0, nil, errCardUnavailable
+		}
+		if err := s.checkCardConsumptionLocked(s.containerCards[index]); err != nil {
+			return cardInfo{}, 0, nil, err
 		}
 		containerMaterialIndexes[index] = struct{}{}
 		selectedMaterials[s.containerCards[index].CardID]++
@@ -5402,8 +5423,11 @@ func (s *store) sellCards(
 	getGold := 0
 	for _, uniqueID := range uniqueIDs {
 		index := cardIndexByUniqueID(s.cards, uniqueID)
-		if index < 0 || s.uniqueIDInDeck(uniqueID) || s.cards[index].IsLock != 0 {
-			return 0, 0, nil, errors.New("invalid sell card")
+		if index < 0 {
+			return 0, 0, nil, errCardUnavailable
+		}
+		if err := s.checkCardConsumptionLocked(s.cards[index]); err != nil {
+			return 0, 0, nil, err
 		}
 		definition, exists := s.cardDefinitions[s.cards[index].CardID]
 		if !exists || definition.SellGold < 0 {
@@ -6694,6 +6718,18 @@ func (s *store) buyTradeShop(lineupID int, num int, uniqueIDs []int64) (tradeSho
 		Shops:      s.tradeShopStateLocked(),
 		Decks:      s.rankedDecksLocked(s.decks),
 	}, nil
+}
+
+// Selling and using a card as material share these ordinary availability
+// rules. They do not apply to the base card being strengthened or evolved.
+func (s *store) checkCardConsumptionLocked(card cardInfo) error {
+	if s.uniqueIDInDeck(card.UniqueID) {
+		return errCardInDeck
+	}
+	if card.IsLock != 0 {
+		return errCardLocked
+	}
+	return nil
 }
 
 func (s *store) uniqueIDInDeck(uniqueID int64) bool {

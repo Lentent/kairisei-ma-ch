@@ -59,6 +59,7 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	auditCompleteAdminContent(t, handler)
 	auditCompletePlayerPolicy(t, handler)
 	auditCompleteFollowBusiness(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
+	auditCompleteSpheres(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	if profile := os.Getenv("CN602_ACCOUNT_HEAP_PROFILE"); profile != "" {
 		profileCompleteRuntimeAccounts(t, handler, profile)
 	}

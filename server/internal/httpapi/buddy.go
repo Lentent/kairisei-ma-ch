@@ -200,8 +200,11 @@ func (s *store) fuseBuddy(baseUniqueID int64, inputs []buddyFusionInput) (buddyF
 				return buddyFusionResult{}, errors.New("invalid buddy fusion material")
 			}
 			index := s.buddyIndexByUniqueIDLocked(input.ID)
-			if index < 0 || s.buddies[index].IsLock != 0 {
-				return buddyFusionResult{}, errors.New("buddy fusion material is unavailable or locked")
+			if index < 0 {
+				return buddyFusionResult{}, errBuddyUnavailable
+			}
+			if s.buddies[index].IsLock != 0 {
+				return buddyFusionResult{}, errBuddyLocked
 			}
 			if _, duplicate := seenBuddies[input.ID]; duplicate {
 				return buddyFusionResult{}, errors.New("duplicate buddy fusion material")
@@ -355,9 +358,14 @@ func (s *store) prepareBuddyEvolutionMaterialLocked(base release.Buddy, material
 		if index >= 0 {
 			materialDefinition = s.buddyDefinitions[s.buddies[index].BuddyID]
 		}
-		if index < 0 || s.buddies[index].IsLock != 0 ||
-			materialDefinition.SameBuddyID != baseDefinition.SameBuddyID {
-			return buddyEvolutionMaterial{}, errors.New("buddy evolution material is unavailable, locked, or belongs to another family")
+		if index < 0 {
+			return buddyEvolutionMaterial{}, errBuddyUnavailable
+		}
+		if s.buddies[index].IsLock != 0 {
+			return buddyEvolutionMaterial{}, errBuddyLocked
+		}
+		if materialDefinition.SameBuddyID != baseDefinition.SameBuddyID {
+			return buddyEvolutionMaterial{}, errors.New("buddy evolution material belongs to another family")
 		}
 		remove[materialUniqueID] = struct{}{}
 		return buddyEvolutionMaterial{removeBuddies: remove, stackIndex: -1}, nil
@@ -492,8 +500,11 @@ func (s *store) sellBuddies(uniqueIDs []int64) (int, int, int, []deckInfo, error
 	getGold := int64(0)
 	for _, uniqueID := range uniqueIDs {
 		index := s.buddyIndexByUniqueIDLocked(uniqueID)
-		if index < 0 || s.buddies[index].IsLock != 0 {
-			return 0, 0, 0, nil, errors.New("buddy sell material is unavailable or locked")
+		if index < 0 {
+			return 0, 0, 0, nil, errBuddyUnavailable
+		}
+		if s.buddies[index].IsLock != 0 {
+			return 0, 0, 0, nil, errBuddyLocked
 		}
 		if _, duplicate := remove[uniqueID]; duplicate {
 			return 0, 0, 0, nil, errors.New("duplicate buddy sell selection")
