@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "config_version": 7,
+  "client_profile": "cn602-bootstrap",
+  "state": "PASS",
+  "official_service_topology_claimed": false,
+  "area_identity": {
+    "rule": "official_party_group_id",
+    "source_state": "CONFIRMED"
+  },
+  "stage_identity": {
+    "rule": "official_teambattle_boss_id",
+    "source_state": "CONFIRMED"
+  },
+  "entry_group": {
+    "stage_type": 0,
+    "source_state": "CONFIRMED_CLIENT_REGULAR_TEAMSLST_CONTRACT_WITH_INTERNAL_ACCOUNT_PROGRESSION"
+  },
+  "segment_selection": {
+    "enemy_type": 1,
+    "cost_initial": 3,
+    "burst_gauge_initial": 0,
+    "hold_max": 5,
+    "end_turn": 0,
+    "rule": "split_final_quest_count_rows_by_distinct_terminal_bgm_then_round_robin_remaining_rows_by_quest_ordinal",
+    "source_state": "PLACEHOLDER",
+    "reason": "Official CN rows prove each area party pool and a terminal BGM suffix with exactly one row per quest, but no retired response records the ordered battles array. The deterministic round-robin projection uses every official row once and keeps the terminal-BGM row last."
+  },
+  "map_layout": {
+    "area_pictid": 10000000,
+    "area_asset_name": "Bg_Stage10000000",
+    "stage_type": 1,
+    "three_stage_x": [300, 600, 900],
+    "single_stage_x": 600,
+    "stage_y": 0,
+    "source_state": "PLACEHOLDER_OFFICIAL_CN_ASSET",
+    "reason": "The package contains the original StageQuest scene and Bg_Stage10000000, but no retired area-coordinate response."
+  },
+  "historical_values": {
+    "profile": "cn602-normal-quest-history-profile.json",
+    "area_name": "INFERRED",
+    "quest_name": "INFERRED",
+    "battle_point_use": "INFERRED",
+    "player_experience": "INFERRED"
+  },
+  "repeatable_rewards": {
+    "gold_and_stack_card_rule": "reuse_cn602_battle_reward_tier_by_quest_number",
+    "gold_source_state": "PLACEHOLDER",
+    "stack_card_identity_source_state": "CONFIRMED",
+    "stack_card_count_source_state": "PLACEHOLDER",
+    "enemy_drop_rule": "one_existing_stack_card_per_released_nonterminal_enemy",
+    "enemy_drop_source_state": "INFERRED",
+    "enemy_drop_note": "LOCAL_POLICY: the final primary enemy retains the configured rewards; each other released monster grants one material from the same quest. Official per-enemy drop tables were not recovered."
+  },
+  "first_clear_reward": {
+    "type": 10,
+    "num": 50,
+    "reward_typeid": 0,
+    "card_lv": 0,
+    "card_fame": 0,
+    "card_love": 0,
+    "card_skill_lv": [],
+    "source_state": "PLACEHOLDER"
+  }
+}

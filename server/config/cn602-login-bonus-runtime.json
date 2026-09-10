@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "client_profile": "cn602-bootstrap",
+  "state": "PASS",
+  "evidence": {
+    "dto_and_popup_flow": "CONFIRMED: CN managed HomeShowReceiveData daily, beginner and total DTOs are consumed by LoginBonusExecutor and their native windows",
+    "inactive_array_nullability": "CONFIRMED: the executor tests only null and directly indexes element zero; inactive arrays must not be empty arrays",
+    "once_per_calendar_day": "INFERRED: daily login bonus is claimed at the first HomeShow in a configured local calendar day",
+    "reward_schedule": "PLACEHOLDER: retired CN daily, beginner and total service schedules are absent; these offline schedules are editable local operation policy",
+    "official_service_values_claimed": false
+  },
+  "config_version": 2,
+  "day_boundary_offset_minutes": 480,
+  "cycle": [
+    {
+      "day": 1,
+      "comment": "本地每日登录奖励 第1天",
+      "reward": {"type": 4, "num": 5000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 2,
+      "comment": "本地每日登录奖励 第2天",
+      "reward": {"type": 4, "num": 10000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 3,
+      "comment": "本地每日登录奖励 第3天",
+      "reward": {"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 4,
+      "comment": "本地每日登录奖励 第4天",
+      "reward": {"type": 4, "num": 15000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 5,
+      "comment": "本地每日登录奖励 第5天",
+      "reward": {"type": 10, "num": 2, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 6,
+      "comment": "本地每日登录奖励 第6天",
+      "reward": {"type": 4, "num": 20000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 7,
+      "comment": "本地每日登录奖励 第7天",
+      "reward": {"type": 10, "num": 5, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    }
+  ],
+  "beginner": [
+    {
+      "day": 1,
+      "comment": "本地新手登录奖励 第1天",
+      "reward": {"type": 4, "num": 10000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 2,
+      "comment": "本地新手登录奖励 第2天",
+      "reward": {"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 3,
+      "comment": "本地新手登录奖励 第3天",
+      "reward": {"type": 4, "num": 20000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 4,
+      "comment": "本地新手登录奖励 第4天",
+      "reward": {"type": 10, "num": 2, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 5,
+      "comment": "本地新手登录奖励 第5天",
+      "reward": {"type": 4, "num": 30000, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 6,
+      "comment": "本地新手登录奖励 第6天",
+      "reward": {"type": 10, "num": 3, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 7,
+      "comment": "本地新手登录奖励 第7天",
+      "reward": {"type": 10, "num": 5, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    }
+  ],
+  "total_milestones": [
+    {
+      "day": 7,
+      "comment": "本地累计登录 7天奖励",
+      "reward": {"type": 10, "num": 10, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 30,
+      "comment": "本地累计登录 30天奖励",
+      "reward": {"type": 10, "num": 20, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    },
+    {
+      "day": 60,
+      "comment": "本地累计登录 60天奖励",
+      "reward": {"type": 10, "num": 30, "reward_typeid": 0, "card_lv": 0, "card_fame": 0, "card_love": 0, "card_skill_lv": []}
+    }
+  ],
+  "source_state": {
+    "dto_and_popup_flow": "CONFIRMED",
+    "inactive_array_nullability": "CONFIRMED",
+    "calendar_claim_policy": "INFERRED",
+    "daily_reward_schedule": "PLACEHOLDER",
+    "beginner_total_reward_schedule": "PLACEHOLDER"
+  }
+}

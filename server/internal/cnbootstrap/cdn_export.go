@@ -1,0 +1,207 @@
+package cnbootstrap
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+type CDNObject struct {
+	Key        string `json:"key"`
+	Source     string `json:"source"`
+	Bytes      int64  `json:"bytes"`
+	SHA256     string `json:"sha256"`
+	SourcePath string `json:"-"`
+}
+
+type cdnObject = CDNObject
+
+type CDNManifest struct {
+	SchemaVersion     int         `json:"schema_version"`
+	ResourceSetSHA256 string      `json:"resource_set_sha256"`
+	Files             []CDNObject `json:"files"`
+	Root              string      `json:"-"`
+}
+
+// ExportCDNManifest uses the very same catalog and CPK version/alias builders as
+// login downloads. Only delivery payloads are exported, never account or master
+// files. File hashes are inherited from the complete verified resource set;
+// the sync tool checks the bytes before uploading a missing object.
+func ExportCDNManifest(manifestPath, outputPath string) error {
+	if manifestPath == "" || outputPath == "" {
+		return errors.New("CDN export requires -resource-set and -export-cdn-manifest")
+	}
+	result, err := BuildCDNManifest(manifestPath)
+	if err != nil {
+		return err
+	}
+	outputAbsolute, err := filepath.Abs(outputPath)
+	if err != nil {
+		return err
+	}
+	outputParent, err := filepath.EvalSymlinks(filepath.Dir(outputAbsolute))
+	if err != nil {
+		return err
+	}
+	outputAbsolute = filepath.Join(outputParent, filepath.Base(outputAbsolute))
+	if relative, err := filepath.Rel(result.Root, outputAbsolute); err == nil && filepath.IsLocal(relative) {
+		return errors.New("CDN manifest output must be outside the read-only resource set")
+	}
+	output, err := os.OpenFile(outputAbsolute, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	return errors.Join(encoder.Encode(result), output.Close())
+}
+
+// BuildCDNManifest also supplies resolved local paths for the built-in uploader.
+// It does not write files, open a database, or start any network listeners.
+func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
+	if manifestPath == "" {
+		return result, errors.New("CDN requires a complete resource-set.json")
+	}
+	absolute, err := filepath.Abs(manifestPath)
+	if err != nil {
+		return result, err
+	}
+	absolute, err = filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return result, err
+	}
+	root := filepath.Dir(absolute)
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return result, err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 32*1024*1024 {
+		return result, errors.New("invalid resource-set manifest size")
+	}
+	content, err := os.ReadFile(absolute)
+	if err != nil {
+		return result, err
+	}
+	var manifest struct {
+		SchemaVersion int               `json:"schema_version"`
+		ClientProfile string            `json:"client_profile"`
+		PathBase      string            `json:"path_base"`
+		Entrypoints   map[string]string `json:"entrypoints"`
+		Files         []struct {
+			Path   string `json:"path"`
+			Bytes  int64  `json:"bytes"`
+			SHA256 string `json:"sha256"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		return result, err
+	}
+	if manifest.SchemaVersion != 1 || manifest.ClientProfile != "cn602-bootstrap" || manifest.PathBase != "RESOURCE_SET_ROOT" {
+		return result, errors.New("CDN export requires a complete CN resource set")
+	}
+	inputs := make(map[string]string)
+	for _, key := range []string{"cn-patch-root", "cn-asset-map", "cn-cpk-root", "cn-cpk-aliases"} {
+		inputs[key], err = cdnSourcePath(root, manifest.Entrypoints[key])
+		if err != nil {
+			return result, fmt.Errorf("CDN entrypoint %s: %w", key, err)
+		}
+	}
+	indexed := make(map[string]cdnObject, len(manifest.Files))
+	for _, file := range manifest.Files {
+		if _, exists := indexed[file.Path]; exists {
+			return result, fmt.Errorf("duplicate resource file %q", file.Path)
+		}
+		indexed[file.Path] = cdnObject{Source: file.Path, Bytes: file.Bytes, SHA256: file.SHA256}
+	}
+	objects := make(map[string]cdnObject)
+	add := func(key, source string, size int64) error {
+		relative, err := filepath.Rel(root, source)
+		if err != nil {
+			return err
+		}
+		entry, ok := indexed[filepath.ToSlash(relative)]
+		if !ok {
+			return fmt.Errorf("CDN source is not registered: %s", source)
+		}
+		resolved, err := cdnSourcePath(root, entry.Source)
+		if err != nil {
+			return err
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return err
+		}
+		digest, err := hex.DecodeString(entry.SHA256)
+		if err != nil || len(digest) != sha256.Size || !info.Mode().IsRegular() || entry.Bytes <= 0 || entry.Bytes > 5*1024*1024*1024 || info.Size() != entry.Bytes || entry.Bytes != size {
+			return fmt.Errorf("CDN resource identity/size mismatch: %s", entry.Source)
+		}
+		entry.Key = key
+		entry.SourcePath = resolved
+		if _, exists := objects[key]; exists {
+			return fmt.Errorf("duplicate CDN key %q", key)
+		}
+		objects[key] = entry
+		return nil
+	}
+	patchRoot := inputs["cn-patch-root"]
+	catalog, err := buildCN602Catalog([]string{patchRoot}, inputs["cn-asset-map"])
+	if err != nil {
+		return result, err
+	}
+	patchDelivery, err := cnPatchDeliveryFromCatalog(catalog)
+	if err != nil {
+		return result, err
+	}
+	for _, file := range patchDelivery {
+		if err := add("patch/Android/patch/"+file.Name+".v"+file.CRC, filepath.Join(patchRoot, filepath.FromSlash(file.Name)), file.Size); err != nil {
+			return result, err
+		}
+	}
+	cpkRoot := inputs["cn-cpk-root"]
+	aliases, err := loadCPKAliases(cpkRoot, inputs["cn-cpk-aliases"])
+	if err != nil {
+		return result, err
+	}
+	cpkDelivery, err := loadCNCPKDelivery(cpkRoot, aliases)
+	if err != nil {
+		return result, err
+	}
+	for _, file := range cpkDelivery {
+		if err := add("cpk/CPK/"+file.Name+".v"+strconv.FormatUint(file.Version, 10), file.SourcePath, file.Size); err != nil {
+			return result, err
+		}
+	}
+	files := make([]cdnObject, 0, len(objects))
+	for _, object := range objects {
+		files = append(files, object)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Key < files[j].Key })
+	digest := sha256.Sum256(content)
+	if len(files) == 0 {
+		return result, errors.New("empty CDN delivery manifest")
+	}
+	return CDNManifest{SchemaVersion: 1, ResourceSetSHA256: hex.EncodeToString(digest[:]), Files: files, Root: root}, nil
+}
+
+func cdnSourcePath(root, relative string) (string, error) {
+	if relative == "" || relative == "." || !filepath.IsLocal(relative) || path.Clean(relative) != relative || strings.ContainsAny(relative, "\\:\r\n") {
+		return "", fmt.Errorf("unsafe resource path %q", relative)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(relative)))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("resource escapes root: %q", relative)
+	}
+	return resolved, nil
+}

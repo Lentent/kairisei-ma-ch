@@ -1,0 +1,170 @@
+package multiplayer
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
+	"kairisei.local/server/internal/release"
+)
+
+func roomSpecBattles(spec RoomSpec) []release.TeamBattleReplayBattle {
+	if len(spec.Battles) != 0 {
+		return spec.Battles
+	}
+	return []release.TeamBattleReplayBattle{{EnemyPartyID: spec.EnemyPartyID, EnemyType: int8(spec.EnemyType)}}
+}
+
+func roomSpecWaveDrops(spec RoomSpec, index int) []BattleDrop {
+	if spec.DropLedgerVersion == 0 {
+		return spec.Drops
+	}
+	var drops []BattleDrop
+	for _, drop := range spec.DropPlan {
+		if drop.BattleIndex == index {
+			drops = append(drops, BattleDrop{EnemyIndex: drop.EnemyIndex, RewardType: drop.Reward.Type, RewardTypeID: drop.Reward.RewardTypeID, Num: drop.Reward.Num})
+		}
+	}
+	return drops
+}
+
+func roomCountdownPayload(current *room) string {
+	waves := current.battles
+	if len(waves) == 0 { // Legacy one-wave fixtures/rooms.
+		waves = roomSpecBattles(RoomSpec{EnemyPartyID: current.enemyPartyID, EnemyType: current.enemyType})
+	}
+	fields := []string{strconv.Itoa(len(waves))}
+	for _, wave := range waves {
+		fields = append(fields, strconv.Itoa(wave.EnemyPartyID), strconv.Itoa(int(wave.EnemyType)), "0", "", "0", "")
+	}
+	return joinCSV(fields...)
+}
+
+// BattleFunctionBase.calcNextBattleIndex skips optional AWAKE encounters on
+// an ordinary win. Awakening does not advance the displayed progress counter.
+func roomNextBattle(current *room) (int, bool) {
+	if current.engineBattleEnd != 1 && current.engineBattleEnd != 4 {
+		return 0, false
+	}
+	index := current.battleIndex + 1
+	for index < len(current.battles) && current.battles[index].EnemyType == 4 && current.engineBattleEnd != 4 {
+		index++
+	}
+	return index, index < len(current.battles)
+}
+
+func roomBattleProgress(current *room, index int) int {
+	progress := index
+	for i := 0; i <= index && i < len(current.battles); i++ {
+		if current.battles[i].EnemyType == 4 {
+			progress--
+		}
+	}
+	return maxInt(0, progress)
+}
+
+func recordRoomWaveDrops(current *room) {
+	if current.engine == nil || current.waveDropsRecorded[current.battleIndex] {
+		return
+	}
+	if current.waveDropsRecorded == nil {
+		current.waveDropsRecorded = make(map[int]bool)
+	}
+	for index := 0; index < current.engine.enemyCount; index++ {
+		enemy := current.engine.enemies[index]
+		if enemy.HP <= 0 || enemy.Broken {
+			current.destroyedEnemyBits |= 1 << index
+		}
+		if enemy.DropReleased {
+			for _, drop := range current.dropPlan {
+				if drop.BattleIndex == current.battleIndex && drop.EnemyIndex == index {
+					current.releasedDrops = append(current.releasedDrops, cloneDropPlan([]release.TeamBattleEnemyDrop{drop})[0])
+				}
+			}
+		}
+	}
+	current.waveDropsRecorded[current.battleIndex] = true
+}
+
+// The original resume API takes prior segments' rewards as caller input.
+// A completed/pending wave may already be recorded in the settlement ledger;
+// keep that wave in 108 only, so reconnect does not also replay it as 109.
+func priorWaveResumeDrops(ledger []release.TeamBattleEnemyDrop, battleIndex int) []BattleDrop {
+	var drops []BattleDrop
+	for _, drop := range ledger {
+		if drop.BattleIndex < battleIndex {
+			drops = append(drops, BattleDrop{EnemyIndex: drop.EnemyIndex, RewardType: drop.Reward.Type,
+				Num: drop.Reward.Num, RewardTypeID: drop.Reward.RewardTypeID})
+		}
+	}
+	return drops
+}
+
+func (c *clientConn) handleGameNextFinish(payload string) error {
+	if payload != "" {
+		return errors.New("GameNextFinish payload is not empty")
+	}
+	hub := c.server.hub
+	hub.mu.Lock()
+	current, exists := hub.rooms[c.roomID]
+	if !exists || current.State != RoomStateBattle || current.connections[c.memberType] != c || c.comebackPending {
+		hub.mu.Unlock()
+		return errors.New("GameNextFinish has no active member")
+	}
+	if !current.nextBattlePending { // Retransmitted ACK must never start twice.
+		hub.mu.Unlock()
+		return nil
+	}
+	current.gameNextFinished[c.memberType] = true
+	roomID := current.RoomID
+	hub.mu.Unlock()
+	return c.server.tryAdvanceNextBattle(roomID)
+}
+
+func (s *Server) tryAdvanceNextBattle(roomID int64) error {
+	hub := s.hub
+	hub.mu.Lock()
+	current, exists := hub.rooms[roomID]
+	if !exists || current.State != RoomStateBattle || !current.nextBattlePending || !roomBarrierReady(current.connections, current.gameNextFinished) {
+		hub.mu.Unlock()
+		return nil
+	}
+	index := current.nextBattleIndex
+	wave := current.battles[index]
+	drops := roomSpecWaveDrops(RoomSpec{DropLedgerVersion: current.dropLedgerVersion, DropPlan: current.dropPlan}, index)
+	engine, err := current.engine.NextBattle(wave.EnemyPartyID, drops)
+	if err != nil {
+		hub.mu.Unlock()
+		return err
+	}
+	results, err := engine.Start()
+	if err != nil {
+		hub.mu.Unlock()
+		return fmt.Errorf("start next battle: %w", err)
+	}
+	result, err := roomStartResult(current, results)
+	if err != nil {
+		hub.mu.Unlock()
+		return err
+	}
+	current.engine, current.engineBattleEnd = engine, 0
+	current.battleIndex, current.progress = index, roomBattleProgress(current, index)
+	current.enemyPartyID, current.enemyType, current.drops = wave.EnemyPartyID, int(wave.EnemyType), drops
+	current.nextBattlePending = false
+	current.gameNextFinished = nil
+	current.gameStartFinished = make(map[int]bool)
+	current.turnPhaseStarted, current.userPhaseStarted, current.userAttackStarted = false, false, false
+	current.chaliceUserStarted, current.enemyPhaseStarted, current.chaliceEnemyStarted = false, false, false
+	current.turnNumber = 0
+	current.turnPhaseFinished, current.userAttackFinished = make(map[int]bool), make(map[int]bool)
+	current.chaliceUserFinished, current.enemyPhaseFinished, current.chaliceEnemyFinished = make(map[int]bool), make(map[int]bool), make(map[int]bool)
+	current.cardPlayPlans, current.cardPlaySubmissions = make(map[int]cardPlaySubmission), make(map[int]cardPlaySubmission)
+	connections := append([]*clientConn(nil), roomConnections(current)...)
+	payload := strconv.FormatInt(time.Now().Unix(), 10) + "," + result
+	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiGameStart", payload})
+	hub.mu.Unlock()
+	broadcastRoomFrames(s, roomID, deliveries)
+	s.logger.Info("local multiplayer next wave started", "room_id", roomID, "battle_index", index, "enemy_party_id", wave.EnemyPartyID)
+	return nil
+}

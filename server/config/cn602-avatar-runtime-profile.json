@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "client_profile": "cn602-bootstrap",
+  "local_account_config_version": 1,
+  "shop_policy": {
+    "pay_type": 1,
+    "pay_typeid": 0,
+    "price": 1000,
+    "appear_end": 0,
+    "new_appear_end": 0,
+    "evidence": "PLACEHOLDER_LOCAL_GOLD_PRICE"
+  }
+}

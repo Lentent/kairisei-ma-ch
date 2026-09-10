@@ -1,0 +1,175 @@
+package cnbootstrap
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"kairisei.local/server/internal/release"
+)
+
+func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		payload, err := readCNSessionPayload(request, "TeamBattleSoloShow")
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		if err := requireCNExactFields(payload, "TeamBattleSoloShow", "0"); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var wire map[string]int8
+		if err := json.Unmarshal(payload, &wire); err != nil {
+			http.Error(writer, "invalid CN TeamBattleSoloShow payload", http.StatusBadRequest)
+			return
+		}
+		activeArthurType := wire["0"]
+		if activeArthurType < 1 || activeArthurType > 4 {
+			http.Error(writer, "invalid CN TeamBattleSoloShow Arthur type", http.StatusBadRequest)
+			return
+		}
+		adaptedPayload, err := json.Marshal(map[string]int8{"active_arthur_type": activeArthurType})
+		if err != nil {
+			http.Error(writer, "encode TeamBattleSoloShow adapter", http.StatusInternalServerError)
+			return
+		}
+		allowed, err := operations.teamBattleGroupAllowlist()
+		if err != nil {
+			http.Error(writer, "read local team battle publication", http.StatusInternalServerError)
+			return
+		}
+		forwardCNBusiness(
+			writer,
+			adaptCNBusinessRequest(request, http.MethodPost, "/TeamBattleSoloShow", adaptedPayload),
+			businessHandler,
+			func(content []byte) ([]byte, error) {
+				return adaptCNTeamBattleSoloShowPublicationResponse(content, allowed)
+			},
+		)
+	}
+}
+
+func cnBootstrapTeamBattleResult(businessHandler http.Handler) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		payload, err := readCNSessionPayload(request, "TeamBattleResult")
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		if err := requireCNExactFields(payload, "TeamBattleResult", "roomid"); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		forwardCNBusiness(
+			writer,
+			adaptCNBusinessRequest(request, http.MethodPost, "/TeamBattleResult", payload),
+			businessHandler,
+			adaptCNTeamBattleResultResponse,
+		)
+	}
+}
+
+func cnBootstrapTeamBattleSoloEnd(businessHandler http.Handler) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		payload, err := readCNSessionPayload(request, "TeamBattleSoloEnd")
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		if err := requireCNExactFields(
+			payload,
+			"TeamBattleSoloEnd",
+			"progress",
+			"is_clear",
+			"input_cmd",
+			"enemy_dead_bit",
+			"bossid",
+		); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		forwardCNBusiness(
+			writer,
+			adaptCNBusinessRequest(request, http.MethodPost, "/TeamBattleSoloEnd", payload),
+			businessHandler,
+			adaptCNTeamBattleResultResponse,
+		)
+	}
+}
+
+func adaptCNTeamBattleResultResponse(content []byte) ([]byte, error) {
+	return adaptCNProtocolMethod(content, func(method map[string]json.RawMessage) (any, error) {
+		if err := remapCNNamedRewardArrays(method); err != nil {
+			return nil, err
+		}
+		return method, nil
+	})
+}
+
+func adaptCNTeamBattleSoloShowResponse(content []byte) ([]byte, error) {
+	return adaptCNTeamBattleSoloShowPublicationResponse(content, nil)
+}
+
+func adaptCNTeamBattleSoloShowPublicationResponse(content []byte, allowed map[int]struct{}) ([]byte, error) {
+	return adaptCNProtocolMethod(content, func(method map[string]json.RawMessage) (any, error) {
+		normalRaw, normalExists := method["9"]
+		if !normalExists || len(normalRaw) == 0 || bytes.Equal(normalRaw, []byte("null")) {
+			return nil, errors.New("CN TeamBattleSoloShow response has no local training group")
+		}
+
+		// The domain projection keeps normal, 3D activity, key and 2D activity
+		// lists distinct. Do not duplicate the normal list into empty categories:
+		// the original client treats each array as a separate tab and duplicated
+		// data destroys both tab identity and account-scoped normal progression.
+		for _, field := range []string{"10", "11", "12"} {
+			var groups []json.RawMessage
+			groupsRaw, exists := method[field]
+			if !exists {
+				return nil, errors.New("CN TeamBattleSoloShow response has no boss category " + field)
+			}
+			if err := json.Unmarshal(groupsRaw, &groups); err != nil {
+				return nil, err
+			}
+		}
+		if allowed != nil {
+			// Field 9 is normal quest progression, not the operations BOSS
+			// catalog. Limiting activities must not hide the player's next area.
+			for _, field := range []string{"10", "11", "12"} {
+				filtered, err := filterCNTeamBattleGroups(method[field], allowed)
+				if err != nil {
+					return nil, err
+				}
+				method[field], err = json.Marshal(filtered)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		return method, nil
+	})
+}
+
+func filterCNTeamBattleGroups(content json.RawMessage, allowed map[int]struct{}) ([]json.RawMessage, error) {
+	var groups []json.RawMessage
+	if len(content) == 0 || bytes.Equal(content, []byte("null")) {
+		return []json.RawMessage{}, nil
+	}
+	if err := json.Unmarshal(content, &groups); err != nil {
+		return nil, err
+	}
+	filtered := make([]json.RawMessage, 0, len(groups))
+	for _, group := range groups {
+		var identity struct {
+			GroupID int `json:"0"`
+		}
+		if err := json.Unmarshal(group, &identity); err != nil {
+			return nil, err
+		}
+		if _, exists := allowed[identity.GroupID]; exists || release.IsBurstQuestGroup(identity.GroupID) {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered, nil
+}

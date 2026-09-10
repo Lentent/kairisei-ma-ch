@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "client_profile": "cn602-bootstrap",
+  "config_version": 1,
+  "state": "PASS",
+  "source_state": "INFERRED",
+  "historical_source": {
+    "title": "乖离性百万亚瑟王-关卡经验表",
+    "url": "https://www.duote.com/tech/glxbwysw/97635.html",
+    "published_date": "2016-02-01",
+    "scope": "same-title historical CN guide; not a captured CN 6.0.2 service response"
+  },
+  "areas": [
+    {
+      "area_id": 1,
+      "area_name": "大地起源",
+      "ap_cost": 7,
+      "quests": [
+        { "quest_number": 1, "quest_name": "最初一步", "player_exp": 40 },
+        { "quest_number": 2, "quest_name": "实践的一步", "player_exp": 43 },
+        { "quest_number": 3, "quest_name": "新王出征", "player_exp": 50 }
+      ]
+    },
+    {
+      "area_id": 2,
+      "area_name": "梦之海岸",
+      "ap_cost": 8,
+      "quests": [
+        { "quest_number": 1, "quest_name": "不存在的港口", "player_exp": 51 },
+        { "quest_number": 2, "quest_name": "水波间的欢迎", "player_exp": 55 },
+        { "quest_number": 3, "quest_name": "漂泊的幽灵船", "player_exp": 64 }
+      ]
+    },
+    {
+      "area_id": 3,
+      "area_name": "越山试炼",
+      "ap_cost": 8,
+      "quests": [
+        { "quest_number": 1, "quest_name": "沉稳的三回合", "player_exp": 74 },
+        { "quest_number": 2, "quest_name": "荣光的五回合", "player_exp": 88 },
+        { "quest_number": 3, "quest_name": "山顶的决斗", "player_exp": 93 }
+      ]
+    },
+    {
+      "area_id": 4,
+      "area_name": "不幸沙漠",
+      "ap_cost": 9,
+      "quests": [
+        { "quest_number": 1, "quest_name": "泪涸的沙漠", "player_exp": 80 },
+        { "quest_number": 2, "quest_name": "翻山越岭", "player_exp": 86 },
+        { "quest_number": 3, "quest_name": "无悔的旅程", "player_exp": 92 }
+      ]
+    },
+    {
+      "area_id": 5,
+      "area_name": "虚伪石窟",
+      "ap_cost": 9,
+      "quests": [
+        { "quest_number": 1, "quest_name": "一时的山岚", "player_exp": 108 },
+        { "quest_number": 2, "quest_name": "二枚舌的妖精", "player_exp": 116 },
+        { "quest_number": 3, "quest_name": "三日月的幻影", "player_exp": 125 }
+      ]
+    },
+    {
+      "area_id": 6,
+      "area_name": "食人森林",
+      "ap_cost": 9,
+      "quests": [
+        { "quest_number": 1, "quest_name": "风熏的小路", "player_exp": 143 },
+        { "quest_number": 2, "quest_name": "风妖的恶戏", "player_exp": 151 },
+        { "quest_number": 3, "quest_name": "囚禁的灵魂", "player_exp": 160 }
+      ]
+    },
+    {
+      "area_id": 7,
+      "area_name": "邪教神殿",
+      "ap_cost": 9,
+      "quests": [
+        { "quest_number": 1, "quest_name": "咒术师的狂宴", "player_exp": 178 },
+        { "quest_number": 2, "quest_name": "禁咒的书库", "player_exp": 187 },
+        { "quest_number": 3, "quest_name": "活人的祭坛", "player_exp": 198 }
+      ]
+    },
+    {
+      "area_id": 8,
+      "area_name": "断绝遗迹",
+      "ap_cost": 10,
+      "quests": [
+        { "quest_number": 1, "quest_name": "听从召唤之人", "player_exp": 221 },
+        { "quest_number": 2, "quest_name": "星眼的白蛇", "player_exp": 229 },
+        { "quest_number": 3, "quest_name": "辉石之核", "player_exp": 242 }
+      ]
+    },
+    {
+      "area_id": 9,
+      "area_name": "螺旋冥宫",
+      "ap_cost": 10,
+      "quests": [
+        { "quest_number": 1, "quest_name": "深奥的守护者", "player_exp": 215 }
+      ]
+    },
+    {
+      "area_id": 10,
+      "area_name": "太古战场",
+      "ap_cost": 11,
+      "quests": [
+        { "quest_number": 1, "quest_name": "大地伤痕", "player_exp": 302 },
+        { "quest_number": 2, "quest_name": "古龙大牙", "player_exp": 320 },
+        { "quest_number": 3, "quest_name": "巨人遗骸", "player_exp": 365 }
+      ]
+    },
+    {
+      "area_id": 11,
+      "area_name": "斩波彼岸",
+      "ap_cost": 11,
+      "quests": [
+        { "quest_number": 1, "quest_name": "冻海", "player_exp": 417 },
+        { "quest_number": 2, "quest_name": "外海来访者", "player_exp": 438 },
+        { "quest_number": 3, "quest_name": "水底招手", "player_exp": 484 }
+      ]
+    },
+    {
+      "area_id": 12,
+      "area_name": "未踏灵峰",
+      "ap_cost": 12,
+      "quests": [
+        { "quest_number": 1, "quest_name": "试炼参道", "player_exp": 473 },
+        { "quest_number": 2, "quest_name": "地平线", "player_exp": 502 },
+        { "quest_number": 3, "quest_name": "尊者领域", "player_exp": 543 }
+      ]
+    },
+    {
+      "area_id": 13,
+      "area_name": "空想神殿",
+      "ap_cost": 13,
+      "quests": [
+        { "quest_number": 1, "quest_name": "泡沫之梦", "player_exp": 647 },
+        { "quest_number": 2, "quest_name": "飘渺之音", "player_exp": 683 },
+        { "quest_number": 3, "quest_name": "一握之星", "player_exp": 756 }
+      ]
+    },
+    {
+      "area_id": 14,
+      "area_name": "白亚遗迹",
+      "ap_cost": 14,
+      "quests": [
+        { "quest_number": 1, "quest_name": "光之间", "player_exp": 759 },
+        { "quest_number": 2, "quest_name": "命之间", "player_exp": 787 },
+        { "quest_number": 3, "quest_name": "真实之间", "player_exp": 873 }
+      ]
+    },
+    {
+      "area_id": 15,
+      "area_name": "幻影沙狱",
+      "ap_cost": 15,
+      "quests": [
+        { "quest_number": 1, "quest_name": "灼热大地", "player_exp": 851 },
+        { "quest_number": 2, "quest_name": "火蜥蜴巢穴", "player_exp": 884 },
+        { "quest_number": 3, "quest_name": "沙上牢笼", "player_exp": 981 }
+      ]
+    },
+    {
+      "area_id": 16,
+      "area_name": "回不去的宗祠",
+      "ap_cost": 16,
+      "quests": [
+        { "quest_number": 1, "quest_name": "风前的灯火", "player_exp": 1025 },
+        { "quest_number": 2, "quest_name": "罪人们的隐居地", "player_exp": 1063 },
+        { "quest_number": 3, "quest_name": "回不去的灵魂", "player_exp": 1103 }
+      ]
+    },
+    {
+      "area_id": 17,
+      "area_name": "神明居住之森",
+      "ap_cost": 17,
+      "quests": [
+        { "quest_number": 1, "quest_name": "诱惑战场", "player_exp": 1187 },
+        { "quest_number": 2, "quest_name": "赎罪崖谷", "player_exp": 1231 },
+        { "quest_number": 3, "quest_name": "无声咆哮", "player_exp": 1365 }
+      ]
+    },
+    {
+      "area_id": 18,
+      "area_name": "黄昏迷宫",
+      "ap_cost": 18,
+      "quests": [
+        { "quest_number": 1, "quest_name": "幻影曲道", "player_exp": 1020 }
+      ]
+    }
+  ],
+  "evidence": {
+    "scope": "INFERRED: the table predates the retained CN 6.0.2 client and is retained only as a candidate for retired service-owned labels/AP/EXP",
+    "publication_gate": "Do not publish these values until the official 18-area/50-entry IDs and the client DTO are joined and validated; segment selection remains independently unresolved"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "evidence": "INFERRED",
+  "consumer": "CONFIRMED: TeamSlSt reads group pictid then selected boss pictid; TeamSlStEnImage loads chr60, falling back to chr10",
+  "entries": [
+    {
+      "boss_ids": [30070102, 30070103, 30070104],
+      "name": "幽蓝切尔莉吞噬者",
+      "original_pictid": 60000033,
+      "pictid": 60000332,
+      "reason": "Official emt_00321 body texture is blue; old portrait is the green variant. Reuse the existing blue enemy portrait."
+    },
+    {
+      "boss_ids": [30950106, 30950107],
+      "name": "大纳言艾尔",
+      "original_pictid": 60201614,
+      "pictid": 60301001,
+      "reason": "Official emt_01001 identity and existing chr60_60301001 depict the same boss; old portrait depicts Constantine."
+    },
+    {
+      "boss_ids": [30990102, 30990103, 30990105, 30990106],
+      "name": "雷姆",
+      "original_pictid": 60998001,
+      "pictid": 10147046,
+      "reason": "Official Rem card PictID and chr60 portrait; old portrait depicts awakened ice dragon."
+    },
+    {
+      "boss_ids": [39040102, 39040103, 39040105, 39040106],
+      "name": "艾菲",
+      "original_pictid": 10125058,
+      "pictid": 60200903,
+      "reason": "Official ems_00909 retains Effie's ems_00903 hair/face identity; use her existing boss portrait, not Pharsalia. Exact alternate costume art remains unconfirmed."
+    }
+  ]
+}

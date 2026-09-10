@@ -1,0 +1,7 @@
+{
+  "endpoint_url": "https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com",
+  "bucket": "kairisei",
+  "access_key_id": "YOUR_ACCESS_KEY_ID",
+  "secret_access_key": "YOUR_SECRET_ACCESS_KEY",
+  "public_url": "https://pub-YOUR_PUBLIC_ID.r2.dev"
+}

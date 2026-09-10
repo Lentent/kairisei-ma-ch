@@ -1,0 +1,162 @@
+{
+  "schema_version": 7,
+  "config_version": 7,
+  "client_profile": "cn602-bootstrap",
+  "tier_source": "boss_id_modulo_100_clamped_1_to_tier_cap",
+  "tier_cap": 8,
+  "tiers": [
+    {"tier": 1, "bp_use": 7, "bp_use_half": 4, "player_experience": 30, "gold": 100, "stack_card_id": 20000001, "stack_card_count": 1},
+    {"tier": 2, "bp_use": 8, "bp_use_half": 4, "player_experience": 40, "gold": 150, "stack_card_id": 20000001, "stack_card_count": 1},
+    {"tier": 3, "bp_use": 9, "bp_use_half": 5, "player_experience": 50, "gold": 250, "stack_card_id": 20000002, "stack_card_count": 1},
+    {"tier": 4, "bp_use": 10, "bp_use_half": 5, "player_experience": 65, "gold": 400, "stack_card_id": 20000002, "stack_card_count": 1},
+    {"tier": 5, "bp_use": 11, "bp_use_half": 6, "player_experience": 80, "gold": 600, "stack_card_id": 20000003, "stack_card_count": 1},
+    {"tier": 6, "bp_use": 12, "bp_use_half": 6, "player_experience": 100, "gold": 900, "stack_card_id": 20000003, "stack_card_count": 1},
+    {"tier": 7, "bp_use": 14, "bp_use_half": 7, "player_experience": 125, "gold": 1300, "stack_card_id": 20000004, "stack_card_count": 1},
+    {"tier": 8, "bp_use": 16, "bp_use_half": 8, "player_experience": 150, "gold": 2000, "stack_card_id": 20000004, "stack_card_count": 1}
+  ],
+  "difficulty_overrides": {
+    "config_version": 2,
+    "match_source": "official_enemy_target_comment_or_versioned_family_sequence",
+    "render_mode": "3d",
+    "entries": [
+      {"difficulty_key": "MIDDLE", "display_name": "中级", "bp_use": 15, "bp_use_half": 8, "player_experience": 150},
+      {"difficulty_key": "UPPER", "display_name": "上级", "bp_use": 25, "bp_use_half": 13, "player_experience": 300},
+      {"difficulty_key": "SUPER", "display_name": "超级", "bp_use": 35, "bp_use_half": 18, "player_experience": 600},
+      {"difficulty_key": "SUPER_BOW", "display_name": "超弩级", "bp_use": 45, "bp_use_half": 23, "player_experience": 900}
+    ],
+    "historical_references": [
+      "https://million-arthurs.gamerch.com/%E7%B5%8C%E9%A8%93%E5%80%A4%E5%8A%B9%E7%8E%87%E4%B8%80%E8%A6%A7",
+      "https://www.962.net/wz/148889.html"
+    ],
+    "source_state": {
+      "difficulty_identity": "CONFIRMED: CN official enemy_target comments are joined through exact enemy_party enemy IDs and take priority over every inferred presentation rule",
+      "render_scope": "INFERRED: unannotated early 3D families through 301101 use the observed legacy 02/03/04/05 sequence, later families use canonical slots, and the historical same-title table identifies 15/25/35/45 as the 3D middle/upper/super/super-bow economy",
+      "battle_point_use": "INFERRED: archived same-title difficulty tables publish 15/25/35/45 quest-point costs, and an archived CN super-bow article independently corroborates 45",
+      "player_experience": "INFERRED: the archived same-title 3D Boss table publishes 150/300/600/900 player EXP for the same four labels"
+    },
+    "official_service_values_claimed": false
+  },
+  "fame_bonus": {
+    "config_version": 1,
+    "chance_maximum": 100,
+    "full_fame_threshold": 100,
+    "full_fame_reward_count": 2,
+    "bonus_fame_add": 0,
+    "reward_source": "first_inventory_result_reward",
+    "eligible_reward_types": [6, 8, 13, 15, 19],
+    "solo_member_policy": "owner_only",
+    "multiplayer_member_policy": "eligible_online_members",
+    "roll_policy": "sha256_seed_modulo_chance_maximum_plus_one",
+    "source_state": {
+      "dto_and_result_ui": "CONFIRMED: CN managed TeamBattleSoloEndReceiveData/TeamBattleResultReceiveData and ResultMgr.TeamBattleResultData consume fame_rewards, bonus_fame_add, Arthur type, reward kind, member fame, and online/NPC flags",
+      "chance_from_leader_fame": "INFERRED: archived original-game CN guidance states one leader fame equals one percent bonus-box chance and the client publishes leader_card_fame",
+      "full_fame_second_reward": "INFERRED: archived original-game guidance states fame 100 guarantees the normal bonus and adds one further guaranteed reward",
+      "solo_member_policy": "INFERRED: archived original-game guidance limits solo fame rewards to the local player's leader",
+      "multiplayer_member_policy": "INFERRED: archived original-game guidance shares eligible party-member fame bonuses; local AI projections are excluded because the client marks them as NPC/offline",
+      "reward_source": "PLACEHOLDER: the retired per-quest fame-drop table is absent, so the first inventory-bearing result reward is reused until direct CN evidence replaces it",
+      "bonus_fame_add": "PLACEHOLDER: no active campaign bonus is published by the local profile",
+      "roll_policy": "LOCAL_POLICY: a stable SHA-256 roll binds the result to the accepted battle report or multiplayer room and claimant"
+    },
+    "official_service_values_claimed": false
+  },
+  "host_bonus": {
+    "config_version": 1,
+    "reward_count": 1,
+    "reward_kind": 5,
+    "reward_source": "first_inventory_result_reward",
+    "eligible_reward_types": [6, 8, 13, 15, 19],
+    "recipient_policy": "multiplayer_room_owner_only",
+    "battle_point_payer_policy": "multiplayer_room_owner_only",
+    "source_state": {
+      "dto_and_result_ui": "CONFIRMED: CN managed TeamBattleResultReceiveData.host_rewards is passed to ResultMgr.TeamBattleResultData.setExBonus and drives a dedicated multiplayer result step",
+      "single_reward_slot": "CONFIRMED: CN managed ExBonusResultSet.open renders host_rewards[0], so the active local policy publishes exactly one host reward",
+      "recipient_policy": "INFERRED: the original DTO enum names reward kind 5 HOST_BONUS and the completed room retains an explicit owner member",
+      "battle_point_payer_policy": "INFERRED: archived original-game guidance states the multiplayer host bears the quest-point cost while guests join without paying it",
+      "reward_source": "PLACEHOLDER: the retired per-quest host-bonus pool is absent, so the first inventory-bearing result reward is reused until direct CN evidence replaces it"
+    },
+    "official_service_values_claimed": false
+  },
+  "drop_catalog": {
+    "config_version": 5,
+    "card_acquisition_text": "活动副本",
+    "exact_match_policy": "historical_boss_family_override_then_official_primary_enemy_name_normalized_name_or_image_to_official_card_identity",
+    "fallback_selection": "sha256_utf8_primary_name_nul_pict_id_modulo_sorted_same_element_official_activity_dungeon_card_ids",
+    "display_policy": "one_base_card_in_reward_cardids_per_published_boss",
+    "settlement_policy": "guaranteed_one_level1_fame1_card_and_large_medal_item_per_clear",
+    "boss_coin_item_id": 4000,
+    "boss_coin_num_per_reward_tier": 100,
+    "battle_drop_reward_types": [4, 6, 8, 10, 12, 13, 15, 19],
+    "historical_references": [
+      "https://million-arthurs.gamerch.com/1%E7%AD%89%E7%B4%9A%E3%83%89%E3%83%A9%E3%82%B4%E3%83%B3%E8%A5%B2%E6%9D%A5%EF%BC%81",
+      "https://million-arthurs.gamerch.com/%E3%83%95%E3%82%A1%E3%82%A4%E3%82%A2%E3%82%AD%E3%83%A1%E3%83%A9%E5%86%8D%E5%87%BA%E7%8F%BE",
+      "https://gnn.gamer.com.tw/detail.php?sn=118643",
+      "https://gnn.gamer.com.tw/detail.php?sn=120008",
+      "https://gnn.gamer.com.tw/detail.php?sn=121588",
+      "https://gnn.gamer.com.tw/detail.php?sn=122588",
+      "https://gnn.gamer.com.tw/detail.php?sn=126488",
+      "https://gnn.gamer.com.tw/detail.php?sn=127226",
+      "https://gnn.gamer.com.tw/detail.php?sn=128007",
+      "https://gnn.gamer.com.tw/detail.php?sn=128360",
+      "https://gnn.gamer.com.tw/detail.php?sn=129565",
+      "https://gnn.gamer.com.tw/detail.php?sn=130783",
+      "https://gnn.gamer.com.tw/detail.php?sn=131437",
+      "https://gnn.gamer.com.tw/detail.php?sn=133267",
+      "https://gnn.gamer.com.tw/detail.php?sn=134010",
+      "https://gnn.gamer.com.tw/detail.php?sn=142106",
+      "https://gnn.gamer.com.tw/detail.php?sn=144142"
+    ],
+    "historical_drop_overrides": [
+      {"boss_id_family": 300101, "primary_name": "冰龙", "card_id": 10001031, "card_name": "特异型希格露恩", "reference": "https://million-arthurs.gamerch.com/1%E7%AD%89%E7%B4%9A%E3%83%89%E3%83%A9%E3%82%B4%E3%83%B3%E8%A5%B2%E6%9D%A5%EF%BC%81", "evidence_scope": "INFERRED_ARCHIVED_ORIGINAL_GAME_EVENT_TABLE"},
+      {"boss_id_family": 300201, "primary_name": "火焰奇美拉", "card_id": 10002029, "card_name": "蹴球型加荷里斯", "reference": "https://gnn.gamer.com.tw/detail.php?sn=118643", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 300301, "primary_name": "黑暗切尔莉吞噬者", "card_id": 10107022, "card_name": "蹴球型伯纳德", "reference": "https://gnn.gamer.com.tw/detail.php?sn=120008", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 300401, "primary_name": "风龙", "card_id": 10108029, "card_name": "华恋型贝莉珊", "reference": "https://gnn.gamer.com.tw/detail.php?sn=122588", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301101, "primary_name": "光龙", "card_id": 10114047, "card_name": "蹴球型格妮妲", "reference": "https://gnn.gamer.com.tw/detail.php?sn=121588", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301401, "primary_name": "武者库丘林", "card_id": 10110023, "card_name": "支援型莉奥妮丝", "reference": "https://gnn.gamer.com.tw/detail.php?sn=126488", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301501, "primary_name": "黑色切尔莉吞噬者", "card_id": 10107022, "card_name": "蹴球型伯纳德", "reference": "https://gnn.gamer.com.tw/detail.php?sn=126488", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301601, "primary_name": "火龙", "card_id": 10110023, "card_name": "支援型莉奥妮丝", "reference": "https://gnn.gamer.com.tw/detail.php?sn=127226", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301701, "primary_name": "神圣奇美拉", "card_id": 10107022, "card_name": "蹴球型伯纳德", "reference": "https://gnn.gamer.com.tw/detail.php?sn=127226", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301801, "primary_name": "青蛙丁", "card_id": 10108029, "card_name": "华恋型贝莉珊", "reference": "https://gnn.gamer.com.tw/detail.php?sn=128007", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 301901, "primary_name": "蓝色切尔莉吞噬者", "card_id": 10105025, "card_name": "新春型卡多", "reference": "https://gnn.gamer.com.tw/detail.php?sn=128007", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 302001, "primary_name": "黑暗奇美拉", "card_id": 10110023, "card_name": "支援型莉奥妮丝", "reference": "https://gnn.gamer.com.tw/detail.php?sn=128360", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 302601, "primary_name": "黄金切尔莉吞噬者", "card_id": 10110023, "card_name": "支援型莉奥妮丝", "reference": "https://gnn.gamer.com.tw/detail.php?sn=129565", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 302701, "primary_name": "火龙", "card_id": 10107022, "card_name": "蹴球型伯纳德", "reference": "https://gnn.gamer.com.tw/detail.php?sn=129565", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 302801, "primary_name": "绒球奇美拉", "card_id": 10123056, "card_name": "支援型三色堇", "reference": "https://gnn.gamer.com.tw/detail.php?sn=130783", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 302901, "primary_name": "幽蓝切尔莉吞噬者", "card_id": 10113051, "card_name": "支援型芙瓦妮塔", "reference": "https://gnn.gamer.com.tw/detail.php?sn=130783", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 303001, "primary_name": "暗龙", "card_id": 10124027, "card_name": "异界型初音未来 -妮妙ver(版本)-", "reference": "https://gnn.gamer.com.tw/detail.php?sn=131437", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 303101, "primary_name": "神圣奇美拉", "card_id": 10124029, "card_name": "异界型 巡音流歌", "reference": "https://gnn.gamer.com.tw/detail.php?sn=131437", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 303801, "primary_name": "1等级冰龙[翼种]", "card_id": 10110023, "card_name": "支援型莉奥妮丝", "reference": "https://gnn.gamer.com.tw/detail.php?sn=133267", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 303901, "primary_name": "喀迈拉", "card_id": 10125030, "card_name": "第二型伊格赖因", "reference": "https://gnn.gamer.com.tw/detail.php?sn=133267", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 304001, "primary_name": "冒失鬼提督", "card_id": 10129031, "card_name": "奏乐型布兰克韦恩", "reference": "https://gnn.gamer.com.tw/detail.php?sn=134010", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 304101, "primary_name": "黑暗切尔莉吞噬者", "card_id": 10108029, "card_name": "华恋型贝莉珊", "reference": "https://gnn.gamer.com.tw/detail.php?sn=134010", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 304301, "primary_name": "火焰奇美拉", "card_id": 10105025, "card_name": "新春型卡多", "reference": "https://million-arthurs.gamerch.com/%E3%83%95%E3%82%A1%E3%82%A4%E3%82%A2%E3%82%AD%E3%83%A1%E3%83%A9%E5%86%8D%E5%87%BA%E7%8F%BE", "evidence_scope": "INFERRED_ARCHIVED_ORIGINAL_GAME_EVENT_TABLE"},
+      {"boss_id_family": 306301, "primary_name": "武者龙", "card_id": 10140031, "card_name": "特异型威廉", "reference": "https://gnn.gamer.com.tw/detail.php?sn=142106", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"},
+      {"boss_id_family": 308001, "primary_name": "妮妙", "card_id": 10148021, "card_name": "花统型鲁冰花", "reference": "https://gnn.gamer.com.tw/detail.php?sn=144142", "evidence_scope": "INFERRED_ARCHIVED_CN_OPERATOR_TEXT"}
+    ],
+    "source_state": {
+      "boss_reward_dto": "CONFIRMED: CN managed TeamBattleBossInfo consumes reward_cardids and reward_sphrids as the visible possible-drop catalog",
+      "battle_drop_transport": "CONFIRMED: CN managed battle.MemberData.Enemy.addDropData accepts positive RewardInfo rows including CARD, ITEM, CARD_STACK and SPHR; ResultCmd 83/84/108 carries reward type, count and object ID",
+      "historical_drop_identity": "INFERRED: archived same-game operator announcements or original-game event tables bind an exact Boss-ID family to a card identity that is independently present in the CN official card master",
+      "exact_card_identity": "INFERRED: after historical family overrides, exact or normalized official card names take priority regardless of optional acquisition annotation; an exact official primary image ID is next, followed by guarded fuzzy names",
+      "fallback_card_identity": "LOCAL_POLICY: unmatched published Bosses select deterministically from official 活动副本 cards with the same official skill element so the reachable drop UI and settlement remain coherent and non-empty",
+      "drop_probability": "LOCAL_POLICY: one configured card is guaranteed per successful clear until stronger retired CN probability evidence replaces this editable default",
+      "boss_coin_identity": "INFERRED: the official CN item 4000 description names 大硬币 as an exchange currency, while archived original-game CN guidance states Boss and super-fairy clears can drop 大硬币",
+      "boss_coin_quantity": "PLACEHOLDER: the retired per-Boss amount table is absent, so the local profile grants 100 times the deterministic reward tier"
+    },
+    "official_service_values_claimed": false
+  },
+  "source_state": {
+    "tier_selection": "PLACEHOLDER: deterministic local difficulty tier derived from the existing CN boss-ID suffix and clamped to a finite profile",
+    "difficulty_override_selection": "INFERRED: exact CN official enemy_target comments take priority; unannotated rows use the versioned legacy/canonical family sequence to restore client-facing difficulty names and select the same historical 3D economy",
+    "battle_point_use": "PLACEHOLDER: monotonic local entry costs aligned with the same repeatable difficulty tiers because retired CN per-Boss costs are absent",
+    "battle_point_half_use": "PLACEHOLDER: local half-cost projection uses ceil(bp_use/2); publication of a historical half-cost campaign is not claimed",
+    "player_experience": "PLACEHOLDER: monotonic local repeatable-economy values because the retired CN service reward table is absent",
+    "gold": "PLACEHOLDER: monotonic local repeatable-economy values because the retired CN service reward table is absent",
+    "stack_card_identity": "CONFIRMED: reward IDs are official CN material_type=1 stack-card rows retained by the CN runtime card master",
+    "stack_card_transport": "CONFIRMED: CN reward type 13 is the stack-card reward consumed and persisted by the local protocol adapter",
+    "boss_drop_card_identity": "INFERRED: official Boss/card identity uses exact name, normalized name, exact primary image ID and guarded fuzzy-name joins before any fallback; acquisition text does not override an identity match",
+    "boss_drop_fallback": "LOCAL_POLICY: unmatched Bosses use a deterministic same-element official activity-dungeon card rather than an unrelated rotation or empty reachable catalog",
+    "boss_coin_identity": "INFERRED: official CN item identity and archived CN event guidance close 大硬币 as a Boss-earned exchange currency",
+    "boss_coin_quantity": "PLACEHOLDER: local monotonic amount until a retired CN per-Boss reward table is recovered"
+  },
+  "official_service_reward_values_claimed": false
+}

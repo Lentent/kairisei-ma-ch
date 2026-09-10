@@ -1,0 +1,275 @@
+package cnbootstrap
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+type cnAssetMapManifest struct {
+	SchemaVersion int    `json:"schema_version"`
+	ClientProfile string `json:"client_profile"`
+	Source        struct {
+		CatalogVersion                  int    `json:"catalog_version"`
+		VersionDATSHA256                string `json:"version_dat_sha256"`
+		ParsedUnityBundleCount          int    `json:"parsed_unity_bundle_count"`
+		NonUnityBundleCount             int    `json:"non_unity_bundle_count"`
+		BundleDependencyEdgeCount       int    `json:"bundle_dependency_edge_count"`
+		UnresolvedBundleDependencyCount int    `json:"unresolved_bundle_dependency_count"`
+		ScrambledBundleCount            int    `json:"scrambled_bundle_count"`
+		PlainBundleCount                int    `json:"plain_bundle_count"`
+		SurvivingOfficialCatalogOverlay struct {
+			Path                            string   `json:"path"`
+			Bytes                           int64    `json:"bytes"`
+			SHA256                          string   `json:"sha256"`
+			CatalogVersion                  int      `json:"catalog_version"`
+			Scope                           []string `json:"scope"`
+			CandidateRowsInAvailableBundles int      `json:"candidate_rows_in_available_bundles"`
+			PhysicallyVerifiedRows          int      `json:"physically_verified_rows"`
+			PhysicallyAbsentRows            int      `json:"physically_absent_rows"`
+			AddedRows                       int      `json:"added_rows"`
+			Verification                    string   `json:"verification"`
+		} `json:"surviving_official_catalog_overlay"`
+	} `json:"source"`
+	Bundles       []cnAssetMapBundle `json:"bundles"`
+	CatalogAssets []cnAssetMapEntry  `json:"catalog_assets"`
+}
+
+const (
+	cn602SurvivingCatalogVersion     = 791
+	cn602SurvivingCatalogBytes       = 2930614
+	cn602SurvivingCatalogLogicalRows = 970
+	cn602SurvivingCatalogSHA256      = "e32e75083a5f0cbca558fc8d18c2e0bd76d5bdf394bdf482d0ba4abb8ffead11"
+)
+
+type cnAssetMapBundle struct {
+	Bundle        string   `json:"bundle"`
+	CABName       string   `json:"cab_name"`
+	Scrambled     *bool    `json:"scrambled"`
+	DeliveryCRC32 string   `json:"delivery_crc32"`
+	Dependencies  []string `json:"dependencies"`
+}
+
+type cnAssetMapEntry struct {
+	Directory string `json:"directory"`
+	Name      string `json:"name"`
+	BaseDir   string `json:"base_dir"`
+	Extension string `json:"extension"`
+	Bundle    string `json:"bundle"`
+}
+
+type cnCatalogBundleMetadata struct {
+	scrambled     bool
+	deliveryCRC32 string
+	dependencies  []string
+}
+
+func loadCNAssetMap(
+	assetMapPath string,
+	versionDATSHA256 string,
+	availableBundles map[string]struct{},
+) ([]cnCatalogBundleAsset, map[string]cnCatalogBundleMetadata, error) {
+	if assetMapPath == "" {
+		return nil, nil, errors.New("official CN asset map path is required")
+	}
+	absolute, err := filepath.Abs(assetMapPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stat official CN asset map: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 {
+		return nil, nil, errors.New("official CN asset map is not a non-empty file")
+	}
+	contents, err := os.ReadFile(absolute)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read official CN asset map: %w", err)
+	}
+	var manifest cnAssetMapManifest
+	if err := json.Unmarshal(contents, &manifest); err != nil {
+		return nil, nil, fmt.Errorf("parse official CN asset map: %w", err)
+	}
+	if manifest.SchemaVersion != 2 {
+		return nil, nil, fmt.Errorf("official CN asset map has unsupported schema version %d", manifest.SchemaVersion)
+	}
+	if manifest.ClientProfile != "cn602-bootstrap" {
+		return nil, nil, fmt.Errorf("official CN asset map has unexpected client profile %q", manifest.ClientProfile)
+	}
+	if manifest.Source.CatalogVersion != cn602CatalogVersion {
+		return nil, nil, fmt.Errorf("official CN asset map has unexpected catalog version %d", manifest.Source.CatalogVersion)
+	}
+	overlay := manifest.Source.SurvivingOfficialCatalogOverlay
+	if overlay.Bytes != cn602SurvivingCatalogBytes ||
+		!strings.EqualFold(overlay.SHA256, cn602SurvivingCatalogSHA256) ||
+		overlay.CatalogVersion != cn602SurvivingCatalogVersion ||
+		len(overlay.Scope) != 1 || !strings.EqualFold(overlay.Scope[0], "eelbinary") ||
+		overlay.CandidateRowsInAvailableBundles != cn602SurvivingCatalogLogicalRows ||
+		overlay.PhysicallyVerifiedRows != cn602SurvivingCatalogLogicalRows ||
+		overlay.PhysicallyAbsentRows != 0 ||
+		overlay.AddedRows != cn602SurvivingCatalogLogicalRows ||
+		overlay.Verification != "same logical row, bundle owner and physical container path" {
+		return nil, nil, errors.New("official CN asset map is missing the verified surviving catalog logical overlay")
+	}
+	if !strings.EqualFold(manifest.Source.VersionDATSHA256, versionDATSHA256) {
+		return nil, nil, errors.New("official CN asset map was generated from a different version.dat")
+	}
+	if manifest.Source.ParsedUnityBundleCount != len(availableBundles) ||
+		manifest.Source.NonUnityBundleCount != 0 ||
+		manifest.Source.UnresolvedBundleDependencyCount != 0 {
+		return nil, nil, errors.New("official CN asset map does not close all available Unity bundle metadata")
+	}
+	if len(manifest.Bundles) != len(availableBundles) {
+		return nil, nil, errors.New("official CN asset map bundle metadata count differs from available bundles")
+	}
+	if len(manifest.CatalogAssets) == 0 {
+		return nil, nil, errors.New("official CN asset map contains no catalog assets")
+	}
+
+	bundleMetadata := make(map[string]cnCatalogBundleMetadata, len(manifest.Bundles))
+	dependencyEdges := 0
+	scrambledBundles := 0
+	plainBundles := 0
+	for index, bundle := range manifest.Bundles {
+		if bundle.Bundle == "" || strings.ContainsAny(bundle.Bundle+bundle.CABName, ",\r\n") ||
+			!strings.HasPrefix(strings.ToLower(bundle.CABName), "cab-") || bundle.Scrambled == nil {
+			return nil, nil, fmt.Errorf("official CN asset map bundle entry %d is invalid", index)
+		}
+		if _, available := availableBundles[bundle.Bundle]; !available {
+			return nil, nil, fmt.Errorf("official CN asset map bundle %q is not available", bundle.Bundle)
+		}
+		if _, duplicate := bundleMetadata[bundle.Bundle]; duplicate {
+			return nil, nil, fmt.Errorf("official CN asset map repeats bundle metadata %q", bundle.Bundle)
+		}
+		deliveryCRC32 := strings.ToUpper(strings.TrimSpace(bundle.DeliveryCRC32))
+		if deliveryCRC32 != "" {
+			if len(deliveryCRC32) != 8 {
+				return nil, nil, fmt.Errorf("official CN asset map bundle %q has invalid delivery CRC %q", bundle.Bundle, bundle.DeliveryCRC32)
+			}
+			if _, parseErr := strconv.ParseUint(deliveryCRC32, 16, 32); parseErr != nil {
+				return nil, nil, fmt.Errorf("official CN asset map bundle %q has invalid delivery CRC %q", bundle.Bundle, bundle.DeliveryCRC32)
+			}
+		}
+		seenDependencies := make(map[string]struct{}, len(bundle.Dependencies))
+		for _, dependency := range bundle.Dependencies {
+			if dependency == bundle.Bundle || strings.ContainsAny(dependency, ",\r\n") {
+				return nil, nil, fmt.Errorf("official CN asset map bundle %q has invalid dependency %q", bundle.Bundle, dependency)
+			}
+			if _, available := availableBundles[dependency]; !available {
+				return nil, nil, fmt.Errorf("official CN asset map bundle %q depends on unavailable bundle %q", bundle.Bundle, dependency)
+			}
+			if _, duplicate := seenDependencies[dependency]; duplicate {
+				return nil, nil, fmt.Errorf("official CN asset map bundle %q repeats dependency %q", bundle.Bundle, dependency)
+			}
+			seenDependencies[dependency] = struct{}{}
+		}
+		bundleMetadata[bundle.Bundle] = cnCatalogBundleMetadata{
+			scrambled:     *bundle.Scrambled,
+			deliveryCRC32: deliveryCRC32,
+			dependencies:  append([]string(nil), bundle.Dependencies...),
+		}
+		if *bundle.Scrambled {
+			scrambledBundles++
+		} else {
+			plainBundles++
+		}
+		dependencyEdges += len(bundle.Dependencies)
+	}
+	if dependencyEdges != manifest.Source.BundleDependencyEdgeCount {
+		return nil, nil, errors.New("official CN asset map bundle dependency edge count changed")
+	}
+	if scrambledBundles != manifest.Source.ScrambledBundleCount ||
+		plainBundles != manifest.Source.PlainBundleCount ||
+		scrambledBundles+plainBundles != len(availableBundles) {
+		return nil, nil, errors.New("official CN asset map bundle storage representation count changed")
+	}
+
+	assets := make([]cnCatalogBundleAsset, 0, len(manifest.CatalogAssets))
+	written := make(map[string]string, len(manifest.CatalogAssets))
+	for index, entry := range manifest.CatalogAssets {
+		if err := validateCNAssetMapEntry(entry, availableBundles); err != nil {
+			return nil, nil, fmt.Errorf("official CN asset map entry %d: %w", index, err)
+		}
+		logicalName := entry.Name
+		if entry.Directory != "" {
+			logicalName = entry.Directory + "/" + entry.Name
+		}
+		key := strings.ToLower(logicalName)
+		if previous, exists := written[key]; exists {
+			return nil, nil, fmt.Errorf("official CN asset map repeats logical asset %q (previous spelling %q)", logicalName, previous)
+		}
+		written[key] = logicalName
+		assets = append(assets, cnCatalogBundleAsset{
+			directory: entry.Directory,
+			name:      entry.Name,
+			baseDir:   entry.BaseDir,
+			extension: entry.Extension,
+			bundle:    entry.Bundle,
+		})
+	}
+	return assets, bundleMetadata, nil
+}
+
+func loadCNAssetMapBundleSet(assetMapPath string) (map[string]struct{}, error) {
+	contents, err := os.ReadFile(assetMapPath)
+	if err != nil {
+		return nil, fmt.Errorf("read CN asset map bundle set: %w", err)
+	}
+	var manifest struct {
+		Bundles []struct {
+			Bundle string `json:"bundle"`
+		} `json:"bundles"`
+	}
+	if err := json.Unmarshal(contents, &manifest); err != nil {
+		return nil, fmt.Errorf("parse CN asset map bundle set: %w", err)
+	}
+	if len(manifest.Bundles) == 0 {
+		return nil, errors.New("CN asset map bundle set is empty")
+	}
+	result := make(map[string]struct{}, len(manifest.Bundles))
+	for index, bundle := range manifest.Bundles {
+		if bundle.Bundle == "" {
+			return nil, fmt.Errorf("CN asset map bundle set entry %d is empty", index)
+		}
+		if _, duplicate := result[bundle.Bundle]; duplicate {
+			return nil, fmt.Errorf("CN asset map bundle set repeats %q", bundle.Bundle)
+		}
+		result[bundle.Bundle] = struct{}{}
+	}
+	return result, nil
+}
+
+func validateCNAssetMapEntry(entry cnAssetMapEntry, availableBundles map[string]struct{}) error {
+	if entry.Directory != "" {
+		if path.Clean(entry.Directory) != entry.Directory || path.IsAbs(entry.Directory) || strings.HasPrefix(entry.Directory, "../") {
+			return fmt.Errorf("unsafe directory %q", entry.Directory)
+		}
+	}
+	if entry.Name == "" || strings.Contains(entry.Name, "/") {
+		return fmt.Errorf("unsafe asset name %q", entry.Name)
+	}
+	if entry.BaseDir != "" {
+		trimmed := strings.TrimSuffix(entry.BaseDir, "/")
+		if !strings.HasSuffix(entry.BaseDir, "/") || path.Clean(trimmed) != trimmed ||
+			path.IsAbs(trimmed) || strings.HasPrefix(trimmed, "../") ||
+			!strings.HasPrefix(strings.ToLower(trimmed), "assets/") {
+			return fmt.Errorf("unsafe asset base directory %q", entry.BaseDir)
+		}
+	}
+	if !strings.HasPrefix(entry.Extension, ".") || len(entry.Extension) < 2 || strings.Contains(entry.Extension, "/") {
+		return fmt.Errorf("unsafe extension %q", entry.Extension)
+	}
+	if strings.ContainsAny(entry.Directory+entry.Name+entry.BaseDir+entry.Extension, ",\r\n") {
+		return errors.New("asset path contains catalog delimiters")
+	}
+	if _, available := availableBundles[entry.Bundle]; !available {
+		return fmt.Errorf("bundle %q is not available in official patch roots", entry.Bundle)
+	}
+	return nil
+}

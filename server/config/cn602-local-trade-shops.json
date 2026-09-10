@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "source_state": "PLACEHOLDER",
+  "policy": "本地常驻活动目录；商品身份来自国服 master，价格和每账号库存为本地配置，不声称复原官方服务端活动。",
+  "references": [
+    {"url": "https://www.cr173.com/gonglue/86189_1.html", "note": "2016 年国服活动资料：四种叶月型琪妮安各需 150 骑士币。"},
+    {"url": "https://www.9game.cn/news/1682951.html", "note": "旧外敌币可换兑换硬币，再换大硬币；下列兑换比例为本地设定。"}
+  ],
+  "shops": [
+    {
+      "id": 60291001, "name": "育成材料交换所", "currency": 4000,
+      "text": "使用战斗获得的大硬币兑换育成材料。常驻开放，库存按账号累计。",
+      "offers": [
+        {"id": 60291101, "type": 13, "reward": 20000003, "name": "究极切尔莉", "amount": 1, "price": 20, "stock": 999},
+        {"id": 60291102, "type": 13, "reward": 20000004, "name": "百万切尔莉", "amount": 1, "price": 100, "stock": 999},
+        {"id": 60291103, "type": 13, "reward": 20000020, "name": "炽焰琪拉莉", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291104, "type": 13, "reward": 20000021, "name": "极寒琪拉莉", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291105, "type": 13, "reward": 20000022, "name": "暴风琪拉莉", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291106, "type": 13, "reward": 20000023, "name": "极光琪拉莉", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291107, "type": 13, "reward": 20000024, "name": "极黑琪拉莉", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291108, "type": 13, "reward": 20000025, "name": "传说琪拉莉", "amount": 1, "price": 300, "stock": 99}
+      ]
+    },
+    {
+      "id": 60291002, "name": "活动补给交换所", "currency": 4000,
+      "text": "使用大硬币兑换恢复药和骑士币。常驻开放，库存按账号累计。",
+      "offers": [
+        {"id": 60291201, "type": 8, "reward": 1000, "name": "体力恢复药", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291202, "type": 8, "reward": 1200, "name": "精力恢复药", "amount": 1, "price": 100, "stock": 99},
+        {"id": 60291203, "type": 8, "reward": 4001, "name": "骑士币", "amount": 1, "price": 100, "stock": 9999}
+      ]
+    },
+    {
+      "id": 60291003, "name": "骑士币精选交换所", "currency": 4001,
+      "text": "每张需要 150 骑士币，四种职业各限兑换一次。骑士币也可在活动补给中兑换。",
+      "offers": [
+        {"id": 60291301, "type": 6, "reward": 99990001, "name": "叶月型琪妮安", "label": "叶月型琪妮安（佣兵）", "amount": 1, "price": 150, "stock": 1},
+        {"id": 60291302, "type": 6, "reward": 99990003, "name": "叶月型琪妮安", "label": "叶月型琪妮安（富豪）", "amount": 1, "price": 150, "stock": 1},
+        {"id": 60291303, "type": 6, "reward": 99990005, "name": "叶月型琪妮安", "label": "叶月型琪妮安（盗贼）", "amount": 1, "price": 150, "stock": 1},
+        {"id": 60291304, "type": 6, "reward": 99990007, "name": "叶月型琪妮安", "label": "叶月型琪妮安（歌姬）", "amount": 1, "price": 150, "stock": 1}
+      ]
+    },
+    {
+      "id": 60291004, "name": "旧币兑换所", "currency": 6100,
+      "text": "将仓库兑换所得的兑换硬币换成大硬币，本地比例为 1 比 1。",
+      "offers": [
+        {"id": 60291401, "type": 8, "reward": 4000, "name": "大硬币", "amount": 1, "price": 1, "stock": 999999}
+      ]
+    }
+  ]
+}

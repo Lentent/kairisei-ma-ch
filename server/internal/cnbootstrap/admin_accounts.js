@@ -1,0 +1,98 @@
+'use strict';
+
+const accountPage={page:0,total:0,request:0};
+const selectedPlayers=new Map();
+const auditPage={page:0,total:0,request:0,rows:[]};
+const formatTime=value=>value?new Date(value).toLocaleString('zh-CN'):'—';
+const playerLabel=a=>`${a.name||a.username||'未命名玩家'} · #${a.user_id}`;
+function downloadJSON(name,value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+
+async function loadAccountsPage(){
+  const serial=++accountPage.request;
+  const query=new URLSearchParams({q:$('#account-search').value.trim(),include_system:$('#account-system').checked?'1':'0',limit:50,offset:accountPage.page*50});
+  const data=await api('/api/accounts?'+query);
+  if(serial!==accountPage.request)return;
+  accountPage.total=data.total;state.accounts=data.accounts;
+  if(accountPage.page>0&&accountPage.page*50>=data.total){accountPage.page=Math.max(0,Math.ceil(data.total/50)-1);return loadAccountsPage()}
+  renderAccounts();
+}
+function renderAccounts(){
+  $('#account-count').textContent=`${num(accountPage.total)} 个匹配账号`;
+  $('#account-rows').innerHTML=state.accounts.map(a=>`<tr><td>${a.user_id<1900000000?`<input class="check player-check" type="checkbox" aria-label="选择${esc(playerLabel(a))}" data-id="${a.user_id}" ${selectedPlayers.has(a.user_id)?'checked':''}>`:''}</td><td><b>${esc(a.name||'未命名')}</b><span class="sub">#${a.user_id} · 存档 r${a.revision}</span></td><td>${esc(a.username||(a.user_id>=1900000000?'系统伙伴':'游客 · 未绑定'))}<details><summary class="sub">安装标识</summary><code>${esc(a.login_uuid)}</code></details></td><td>${esc(formatTime(a.last_login_utc))}</td><td><button class="secondary account-detail" data-user="${a.user_id}">详情</button> ${a.user_id<1900000000?`<button class="secondary mail-shortcut" data-user="${a.user_id}">寄礼物</button> <button class="secondary grant" data-user="${a.user_id}">加资源</button> <button class="secondary credentials" data-user="${a.user_id}">${a.username?'管理绑定':'绑定账号'}</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">没有匹配账号</td></tr>';
+  let anchor=null;
+  $$('.player-check').forEach((box,index)=>box.onclick=e=>{
+    const boxes=$$('.player-check'),indices=e.shiftKey&&anchor!==null?[Math.min(anchor,index),Math.max(anchor,index)]:[index,index];
+    for(let i=indices[0];i<=indices[1];i++){const a=state.accounts.find(a=>a.user_id===Number(boxes[i].dataset.id));if(box.checked){if(selectedPlayers.size>=500&&!selectedPlayers.has(a.user_id)){toast('每批最多500名玩家，请缩小范围',true);break}selectedPlayers.set(a.user_id,a)}else selectedPlayers.delete(a.user_id);boxes[i].checked=selectedPlayers.has(a.user_id)}
+    anchor=index;updatePlayerSelection();
+  });
+  $$('.account-detail').forEach(b=>b.onclick=()=>openAccountDetail(Number(b.dataset.user)));
+  $$('.credentials').forEach(b=>b.onclick=()=>openCredentials(Number(b.dataset.user)));
+  $$('.grant').forEach(b=>b.onclick=()=>openGrant(Number(b.dataset.user)));
+  $$('.mail-shortcut').forEach(b=>b.onclick=()=>{const a=state.accounts.find(a=>a.user_id===Number(b.dataset.user));selectedPlayers.clear();selectedPlayers.set(a.user_id,a);updatePlayerSelection();switchView('mail')});
+  renderPager('accounts',accountPage.page,accountPage.total,50,page=>{accountPage.page=page;loadAccountsPage().catch(e=>toast(e.message,true))});updatePlayerSelection();
+}
+function updatePlayerSelection(){
+  $('#accounts-selection').textContent=`已选 ${selectedPlayers.size} 名玩家（跨页保留）`;
+  $('#accounts-mail').disabled=!selectedPlayers.size;
+  $('#mail-recipients').textContent=`收件人：${selectedPlayers.size} 名玩家`;
+  $('#mail-recipient-preview').textContent=[...selectedPlayers.values()].slice(0,10).map(playerLabel).join('、')+(selectedPlayers.size>10?` 等${selectedPlayers.size}人`:'');
+  if(typeof updateMailControls==='function')updateMailControls();
+}
+async function selectFilteredPlayers(){
+  const q=$('#account-search').value.trim();const selected=[];
+  for(let offset=0;;){const data=await api('/api/accounts?'+new URLSearchParams({q,limit:200,offset}));if(data.total>500)throw new Error('筛选结果超过500名玩家，请缩小搜索范围');selected.push(...data.accounts);offset+=data.accounts.length;if(offset>=data.total)break;if(!data.accounts.length)throw new Error('账号列表变化，请重试')}
+  if(new Set([...selectedPlayers.keys(),...selected.map(a=>a.user_id)]).size>500)throw new Error('与原选择合计超过500人，请先清空选择');
+  selected.forEach(a=>selectedPlayers.set(a.user_id,a));renderAccounts();
+}
+$('#accounts-select-page').onclick=()=>{const rows=state.accounts.filter(a=>a.user_id<1900000000);if(new Set([...selectedPlayers.keys(),...rows.map(a=>a.user_id)]).size>500)return toast('每批最多500人',true);rows.forEach(a=>selectedPlayers.set(a.user_id,a));renderAccounts()};
+$('#accounts-select-filter').onclick=async()=>{const b=$('#accounts-select-filter');b.disabled=true;try{await selectFilteredPlayers()}catch(e){toast(e.message,true)}finally{b.disabled=false}};
+$('#accounts-clear').onclick=()=>{selectedPlayers.clear();renderAccounts()};
+$('#accounts-mail').onclick=()=>switchView('mail');
+$('#mail-select-players').onclick=()=>switchView('accounts');
+$('#account-search').oninput=()=>{accountPage.page=0;accountPage.request++;clearTimeout(loadAccountsPage.timer);loadAccountsPage.timer=setTimeout(()=>loadAccountsPage().catch(e=>toast(e.message,true)),200)};
+$('#account-system').onchange=()=>{accountPage.page=0;loadAccountsPage().catch(e=>toast(e.message,true))};
+
+async function loadAuditPage(){
+  const serial=++auditPage.request;
+  const data=await api('/api/audit?'+new URLSearchParams({q:$('#audit-search').value.trim(),operation:$('#audit-operation').value,limit:50,offset:auditPage.page*50}));
+  if(serial!==auditPage.request)return;
+  auditPage.rows=data.records;auditPage.total=data.total;
+  $('#audit-rows').innerHTML=data.records.map(r=>`<tr><td>#${r.audit_id}<span class="sub">${esc(formatTime(r.created_utc))}</span></td><td>${esc(r.operation)}</td><td>${esc(r.target)}</td><td><details><summary>查看内容</summary><pre class="audit-details">${esc(JSON.stringify(r.payload,null,2))}</pre></details></td></tr>`).join('')||'<tr><td colspan="4" class="empty">暂无匹配操作</td></tr>';
+  renderPager('audit',auditPage.page,data.total,50,page=>{auditPage.page=page;loadAuditPage().catch(e=>toast(e.message,true))});
+}
+$('#audit-search').oninput=()=>{auditPage.page=0;auditPage.request++;clearTimeout(loadAuditPage.timer);loadAuditPage.timer=setTimeout(()=>loadAuditPage().catch(e=>toast(e.message,true)),200)};
+$('#audit-operation').onchange=()=>{auditPage.page=0;loadAuditPage().catch(e=>toast(e.message,true))};
+$('#audit-export').onclick=()=>downloadJSON('操作记录.json',auditPage.rows);
+function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDirty();
+  if(typeof contentDirty==='function'&&contentDirty(name))return true;
+  if(name==='settings')return runtimeSettingsDirty();
+  const normalized=values=>JSON.stringify([...values].sort((a,b)=>a-b));
+  if(name==='bosses'&&state.policy)return state.mode!==state.policy.mode||normalized(state.selected)!==normalized(state.policy.group_ids||[])||unixInput('#boss-start')!==(state.policy.start_unix||0)||unixInput('#boss-end')!==(state.policy.end_unix||0);
+  if(name==='gachas'&&state.gachaPolicy)return normalized(state.gachaSelected)!==normalized(state.gachaPolicy.group_ids||[]);
+  return false;
+}
+
+async function openAccountDetail(id){$('#account-detail-title').textContent=`账号 #${id}`;$('#account-detail-lead').textContent='正在加载该账号存档…';$('#account-detail-body').innerHTML='';$('#account-modal').classList.add('open');try{const data=await api(`/api/accounts/${id}`),a=data.account;$('#account-detail-title').textContent=a.name?`${a.name} · #${a.user_id}`:`未命名账号 · #${a.user_id}`;$('#account-detail-lead').textContent=`${a.login_uuid} · 存档 r${a.revision}`;$('#account-detail-body').innerHTML=[['等级 / 职业',`Lv.${a.level} / ${a.active_arthur_type}`],['金币',num(a.gold)],['友情点',num(a.friend_point)],['水晶',`${num(a.free_crystal+a.paid_crystal)}（免费 ${num(a.free_crystal)}）`],['AP',`${a.ap}/${a.ap_max}`],['BP',`${a.bp}/${a.bp_max}`],['卡牌',`${num(a.card_count)} / ${num(a.card_max)}`],['训练',`${a.training_step}/9`],['历史卡组评价',a.arthur_rank],['已解锁功能位',(a.unlocked_features||[]).join('、')],['素材种类',num(a.stack_card_kinds)],['PVP 点',num(a.pvp_point)],['最近登录',a.last_login_utc]].map(([k,v])=>`<div class="fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}catch(e){$('#account-detail-lead').textContent='详情加载失败';toast(e.message,true)}}
+function openCredentials(id){const a=state.accounts.find(x=>x.user_id===id);if(!a||id>=1900000000)return;state.credentialUser=id;$('#credentials-title').textContent=`${a.username?'管理账号绑定':'绑定账号'} · #${id}`;$('#credentials-name').value=a.username||'';$('#credentials-name').disabled=!!a.username;$('#credentials-unbind').hidden=!a.username;$('#credentials-password').value='';$('#credentials-modal').classList.add('open')}
+$('#credentials-cancel').onclick=()=>{$('#credentials-password').value='';$('#credentials-modal').classList.remove('open')};
+function credentialsBusy(busy){['apply','unbind','cancel'].forEach(action=>$(`#credentials-${action}`).disabled=busy)}
+async function refreshCredentials(){
+  $('#credentials-password').value='';
+  $('#credentials-modal').classList.remove('open');
+  state.loaded.delete('audit');
+  await loadView('accounts',true);
+}
+$('#credentials-apply').onclick=async()=>{const body={username:$('#credentials-name').value,password:$('#credentials-password').value};if(!/^[a-zA-Z0-9_]{3,32}$/.test(body.username.trim())||body.password.length<8){toast('请填写有效账号及至少 8 位密码',true);return}credentialsBusy(true);try{await api(`/api/accounts/${state.credentialUser}/credentials`,{method:'POST',body:JSON.stringify(body)});await refreshCredentials();toast('账号凭据已保存，角色进度保持不变')}catch(e){toast(e.message,true)}finally{credentialsBusy(false)}};
+$('#credentials-unbind').onclick=async()=>{
+  const id=state.credentialUser,username=$('#credentials-name').value;
+  if(!confirm(`解除账号“${username}”与角色 #${id} 的绑定？\n原账号密码将失效，角色存档保留，已登录设备不会退出。解除后可重新绑定。`))return;
+  credentialsBusy(true);
+  try{
+    await api(`/api/accounts/${id}/credentials`,{method:'DELETE',body:JSON.stringify({username})});
+    await refreshCredentials();
+    toast('已解除绑定，可点击“绑定账号”重新绑定；角色存档已保留');
+  }catch(e){toast(e.message,true)}finally{credentialsBusy(false)}
+};
+function openGrant(id){const a=state.accounts.find(x=>x.user_id===id);if(!a)return;state.grantUser=id;state.grantRequest=null;$('#grant-level').max=state.status?.max_player_level||999;$('#grant-account').textContent=`User #${a.user_id}`;['gold','fp','free','paid','level','rank'].forEach(x=>$(`#grant-${x}`).value=0);$('#grant-ap').checked=false;$('#grant-bp').checked=false;$('#grant-modal').classList.add('open')}
+$('#grant-cancel').onclick=()=>$('#grant-modal').classList.remove('open');$('#grant-modal').onclick=e=>{if(e.target.id==='grant-modal')$('#grant-modal').classList.remove('open')};$('#grant-apply').onclick=async()=>{const body={target_level:Number($('#grant-level').value||0),target_arthur_rank:Number($('#grant-rank').value||0),gold:Number($('#grant-gold').value||0),friend_point:Number($('#grant-fp').value||0),free_crystal:Number($('#grant-free').value||0),paid_crystal:Number($('#grant-paid').value||0),fill_ap:$('#grant-ap').checked,fill_bp:$('#grant-bp').checked};const signature=JSON.stringify(body);if(state.grantRequest&&state.grantRequest.signature!==signature)return toast('上次请求尚未确认，先用原内容重试或关闭后核对账号',true);if(!confirm(`确认向账号 ${state.grantUser} 发放所填资源？`))return;if(!state.grantRequest)state.grantRequest={signature,key:crypto.randomUUID()};body.idempotency_key=state.grantRequest.key;$('#grant-apply').disabled=true;try{await api(`/api/accounts/${state.grantUser}/grant`,{method:'POST',body:JSON.stringify(body)});$('#grant-modal').classList.remove('open');state.loaded.delete('dashboard');state.loaded.delete('accounts');state.loaded.delete('audit');await loadView('accounts',true);toast('资源已写入账号存档')}catch(e){toast(e.message,true)}finally{$('#grant-apply').disabled=false}};
+$('#account-detail-close').onclick=()=>$('#account-modal').classList.remove('open');$('#account-modal').onclick=e=>{if(e.target.id==='account-modal')$('#account-modal').classList.remove('open')};
