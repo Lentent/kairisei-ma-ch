@@ -8,6 +8,28 @@ import (
 	"testing"
 )
 
+func TestSoloAwakeCostPreservesOtherFlags(t *testing.T) {
+	for _, key := range []string{"10", "13"} {
+		raw := json.RawMessage(`{"` + key + `":[{"0":7,"18":{"0":0,"1":0,"2":1,"3":1,"4":0,"5":1}},{"0":8,"18":{"1":0}}]}`)
+		before := string(raw)
+		out, err := projectCNSoloAwakeCost([]json.RawMessage{raw}, key, map[int]bool{7: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var group map[string][]map[string]json.RawMessage
+		if err = json.Unmarshal(out[0], &group); err != nil {
+			t.Fatal(err)
+		}
+		var flags map[string]int
+		if err = json.Unmarshal(group[key][0]["18"], &flags); err != nil {
+			t.Fatal(err)
+		}
+		if flags["1"] != 1 || flags["0"] != 0 || flags["2"] != 1 || flags["3"] != 1 || flags["4"] != 0 || flags["5"] != 1 || string(group[key][1]["18"]) != `{"1":0}` || string(raw) != before {
+			t.Fatal("unexpected configuration mutation")
+		}
+	}
+}
+
 func TestNamelessPublishedSequences(t *testing.T) {
 	root := os.Getenv("CN602_RUNTIME_SET")
 	if root == "" {
@@ -87,6 +109,52 @@ func TestNamelessPublishedSequences(t *testing.T) {
 	}
 	if found != 13 {
 		t.Fatalf("expected Nameless and Constantine normal/own-deck phases, got %d", found)
+	}
+	awakeIDs := make(map[int]bool)
+	for _, replay := range view.Replays {
+		if len(replay.Battles) > 1 {
+			for _, wave := range replay.Battles[1:] {
+				if wave.EnemyType == 4 {
+					awakeIDs[replay.BossID] = true
+				}
+			}
+		}
+	}
+	for _, listing := range []struct {
+		groups []json.RawMessage
+		key    string
+	}{{view.Groups, "10"}, {view.PastBossGroups, "13"}} {
+		checked := 0
+		for _, raw := range listing.groups {
+			var group map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &group); err != nil {
+				t.Fatal(err)
+			}
+			var bosses []map[string]json.RawMessage
+			if err := json.Unmarshal(group[listing.key], &bosses); err != nil {
+				t.Fatal(err)
+			}
+			for _, boss := range bosses {
+				var id int
+				if err := json.Unmarshal(boss["0"], &id); err != nil {
+					t.Fatal(err)
+				}
+				if !awakeIDs[id] {
+					continue
+				}
+				var awake map[string]int
+				if err := json.Unmarshal(boss["18"], &awake); err != nil {
+					t.Fatal(err)
+				}
+				if awake["1"] != 1 {
+					t.Fatalf("listing %s boss %d lacks native solo cost inheritance", listing.key, id)
+				}
+				checked++
+			}
+		}
+		if checked == 0 && listing.key == "10" {
+			t.Fatalf("listing %s has no tested awakening bosses", listing.key)
+		}
 	}
 	for _, replay := range master.Replays {
 		if replay.BossID >= 30920102 && replay.BossID <= 30920108 && len(replay.Battles) != 1 {
