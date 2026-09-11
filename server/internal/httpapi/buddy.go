@@ -86,32 +86,20 @@ func (s *store) clearBuddyIDsFromDecksLocked(remove map[int64]struct{}) {
 		return
 	}
 	for deckIndex := range s.decks {
-		for slot, uniqueID := range s.decks[deckIndex].BuddyUniqueIDs {
+		ids := s.decks[deckIndex].BuddyUniqueIDs
+		if len(ids) > 0 && ids[0] != 0 {
+			if _, removingLeader := remove[ids[0]]; removingLeader {
+				// Removing the leader unequips its entire formation, not its inventory.
+				clear(ids)
+				continue
+			}
+		}
+		for slot, uniqueID := range ids {
 			if _, exists := remove[uniqueID]; exists {
 				s.decks[deckIndex].BuddyUniqueIDs[slot] = 0
 			}
 		}
 	}
-	s.repairLeaderlessBuddyDecks()
-}
-
-// A missing leader makes the whole buddy formation unusable. Unequip only;
-// never consume inventory or silently choose a different leader.
-func (s *store) repairLeaderlessBuddyDecks() bool {
-	repaired := false
-	for i := range s.decks {
-		ids := s.decks[i].BuddyUniqueIDs
-		if len(ids) == 0 || ids[0] != 0 {
-			continue
-		}
-		for slot, id := range ids {
-			if id != 0 {
-				ids[slot] = 0
-				repaired = true
-			}
-		}
-	}
-	return repaired
 }
 
 func (s *store) normalizeBuddyLocked(buddy release.Buddy, definition release.BuddyDefinition) (release.Buddy, error) {

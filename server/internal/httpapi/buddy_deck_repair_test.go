@@ -7,7 +7,7 @@ import (
 	"kairisei.local/server/internal/release"
 )
 
-func TestBuddyRemovalRepairsLeaderlessFormation(t *testing.T) {
+func TestBuddyRemovalPreservesValidFormation(t *testing.T) {
 	for _, removed := range []int64{1, 2} {
 		s := &store{
 			buddies: []release.Buddy{{UniqueID: 1}, {UniqueID: 2}},
@@ -21,9 +21,6 @@ func TestBuddyRemovalRepairsLeaderlessFormation(t *testing.T) {
 		}
 		if !reflect.DeepEqual(s.decks[0].BuddyUniqueIDs, want) || !reflect.DeepEqual(s.buddies, before) {
 			t.Fatalf("removing %d: decks=%v inventory=%v", removed, s.decks, s.buddies)
-		}
-		if s.repairLeaderlessBuddyDecks() {
-			t.Fatal("repair must be idempotent")
 		}
 	}
 }
