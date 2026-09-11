@@ -560,8 +560,8 @@ func validateCNSave(save cnSaveState) error {
 			save.PVP.DefenseDecks == nil, save.PVP.History == nil,
 		)
 	}
-	if save.SphereConfigVersion < 0 || (save.SphereConfigVersion > 0 && save.Spheres == nil) ||
-		len(save.Spheres) > save.User.SphereMax {
+	// Existing over-capacity inventory must remain loadable so players can sell it.
+	if save.SphereConfigVersion < 0 || (save.SphereConfigVersion > 0 && save.Spheres == nil) {
 		return errors.New("CN save sphere inventory is invalid")
 	}
 	sphereUniqueIDs := make(map[int64]struct{}, len(save.Spheres))

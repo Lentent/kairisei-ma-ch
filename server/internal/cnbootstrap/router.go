@@ -319,6 +319,10 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 			prepareRuntimeState, pvpConfig, accountStore, accountStore, battleSV, multiplayerHub, logger,
 		)
 	}
+	cacheLimit, err := configuredAccountCacheLimit()
+	if err != nil {
+		return nil, err
+	}
 	primaryBusinessHandler, err := buildBusinessHandler(cnPrimaryUserID, primaryState)
 	if err != nil {
 		return nil, err
@@ -339,6 +343,7 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 			return handler, nil
 		},
 	)
+	businessHandler.idleLimit = cacheLimit
 	businessHandler.prepare = operationStore.prepareBusiness
 	if err := multiplayerHub.AttachStartAuthorizer(businessHandler.chargeMultiplayerStart); err != nil {
 		return nil, err

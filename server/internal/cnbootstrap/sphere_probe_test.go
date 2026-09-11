@@ -39,7 +39,7 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	}
 	state.Onboarding.Step = cnOnboardingStepCount
 	state.User.Gold = 1000000
-	state.Items = append(state.Items, release.Item{ItemID: 7025, Num: 50})
+	state.Items = append(state.Items, release.Item{ItemID: 7025, Num: 550})
 	for _, stack := range cards.StackCardTemplates {
 		if stack.CardID == 20006001 {
 			stack.Num = 1
@@ -154,6 +154,65 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	state = load()
 	if len(state.Spheres) != 0 || state.Decks[0].SphereUniqueIDs[0] != 0 {
 		t.Fatal("sold sphere left stale ownership or deck reference")
+	}
+	call("/ItemExchange", map[string]int{"itemid": 7025, "change_sets": 50}, 0)
+	state = load()
+	ids := make([]int64, 0, len(state.Spheres))
+	for _, sphere := range state.Spheres {
+		ids = append(ids, sphere.UniqueID)
+	}
+	if len(ids) != 50 {
+		t.Fatalf("sphere refill: %d", len(ids))
+	}
+	call("/SphrSell", map[string]any{"uniqids": ids[:1]}, 0)
+	call("/SphrSell", map[string]any{"uniqids": ids[1:]}, 0)
+	if len(load().Spheres) != 0 {
+		t.Fatal("bulk sphere sale did not persist")
+	}
+	call("/ItemExchange", map[string]int{"itemid": 7025, "change_sets": 50}, 0)
+	ids = ids[:0]
+	for _, sphere := range load().Spheres {
+		ids = append(ids, sphere.UniqueID)
+	}
+	if len(ids) != 50 {
+		t.Fatalf("second refill: %d", len(ids))
+	}
+	call("/SphrSell", map[string]any{"uniqids": ids}, 0)
+	if len(load().Spheres) != 0 {
+		t.Fatal("50 sphere sale did not persist")
+	}
+	// A second account starts over capacity before its handler is loaded.
+	identity, err = accounts.resolveLogin("00000000-0000-4000-8485-000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state = load()
+	if _, err = applyCNCardRuntimeMaster(&state, cards); err != nil {
+		t.Fatal(err)
+	}
+	state.Onboarding.Step = cnOnboardingStepCount
+	state.Spheres = nil
+	for i := 1; i <= 52; i++ {
+		sphere := base
+		sphere.UniqueID = int64(i)
+		sphere.IsLock = 0
+		state.Spheres = append(state.Spheres, sphere)
+	}
+	if err = accounts.persistState(identity.UserID, state); err != nil {
+		t.Fatal(err)
+	}
+	call("/SphrShow", nil, 0)
+	call("/SphrSell", map[string]any{"uniqids": []int64{1}}, 0)
+	if len(load().Spheres) != 51 {
+		t.Fatal("sale while still over capacity did not persist")
+	}
+	ids = nil
+	for i := 2; i <= 51; i++ {
+		ids = append(ids, int64(i))
+	}
+	call("/SphrSell", map[string]any{"uniqids": ids}, 0)
+	if len(load().Spheres) != 1 {
+		t.Fatal("over-capacity bulk sale failed")
 	}
 	t.Log(fmt.Sprintf("native Sphere: 5 fragments per Punishment, equip, locked rejection, 9 MR materials, evolution with last relic, SQLite reload and sale cleanup passed (%d definitions)", len(cards.SphereDefinitions)))
 }

@@ -941,7 +941,8 @@ func newStore(state release.State) (*store, error) {
 		}
 		result.sphereDefinitions[definition.SphereID] = definition
 	}
-	if result.sphereMax <= 0 || len(result.spheres) > result.sphereMax ||
+	// Capacity limits new grants, not loading or reducing existing inventory.
+	if result.sphereMax <= 0 ||
 		result.sphereProgression.ConfigVersion <= 0 ||
 		result.sphereProgression.MaterialLevelBonusPermillePerLevel <= 0 ||
 		len(result.sphereDefinitions) == 0 || len(result.sphereExperience) == 0 || len(result.sphereEvoPrices) == 0 {

@@ -273,3 +273,24 @@ func TestDefaultNativeTerminalRetainsBurstListsAndCleansKO(t *testing.T) {
 		t.Fatal("burst passive projected as a normal buff")
 	}
 }
+
+func TestAwakeningCarriesNextTurnCost(t *testing.T) {
+	for _, turn := range []int{1, 4, 7, 12} {
+		engine, _ := nextBattleFixture(t)
+		engine.phase, engine.endType, engine.turn = battlePhaseEnded, 4, turn
+		next, err := engine.NextBattle(1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = next.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = next.TurnPhase(); err != nil {
+			t.Fatal(err)
+		}
+		want := minInt(10, 3+turn)
+		if next.turnCost() != want || next.players[0].Cost != want {
+			t.Fatalf("turn %d: cost %d, want %d", turn, next.players[0].Cost, want)
+		}
+	}
+}

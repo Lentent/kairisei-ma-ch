@@ -246,7 +246,7 @@ func (engine *BattleEngine) TurnPhase() ([]BattleResult, error) {
 // COST_BLOCK afterwards. FUN_000a6078 sends the base, not the remainder:
 // managed HandsData.COST.getEnableCost subtracts block_cost itself.
 func (engine *BattleEngine) turnCost() int {
-	return maxInt(0, minInt(10, engine.costInitial+maxInt(0, engine.turn-1)))
+	return maxInt(0, minInt(10, engine.costInitial+engine.costTurnOffset+maxInt(0, engine.turn-1)))
 }
 
 func (engine *BattleEngine) UserPhase() ([]BattleResult, error) {

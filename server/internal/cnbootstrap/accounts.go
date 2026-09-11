@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -784,7 +785,21 @@ func (accounts *cnAccountStore) resolveSession(sessionKey string) (int, error) {
 	return userID, nil
 }
 
-const cnIdleAccountCacheLimit = 8
+const cnIdleAccountCacheLimit = 32
+
+// Read once at startup; inherited by both desktop and headless launchers.
+func configuredAccountCacheLimit() (int, error) {
+	value := strings.TrimSpace(os.Getenv("KAIRI_ACCOUNT_CACHE_LIMIT"))
+	if value == "" {
+		return cnIdleAccountCacheLimit, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 0 || limit > 4096 {
+		return 0, fmt.Errorf("KAIRI_ACCOUNT_CACHE_LIMIT must be an integer between 0 and 4096")
+	}
+	return limit, nil
+}
+
 const cnIdleAccountCacheTTL = 5 * time.Minute
 
 type cnAccountHandlerEntry struct {
@@ -796,9 +811,10 @@ type cnAccountHandlerEntry struct {
 }
 
 type cnAccountBusinessRouter struct {
-	mu       sync.Mutex
-	handlers map[int]*cnAccountHandlerEntry
-	sequence uint64
+	mu        sync.Mutex
+	handlers  map[int]*cnAccountHandlerEntry
+	sequence  uint64
+	idleLimit int
 	// Stable bounded locks also serialize Admin and BattleSv against HTTP.
 	locks   [256]sync.Mutex
 	build   func(int) (http.Handler, error)
@@ -806,7 +822,7 @@ type cnAccountBusinessRouter struct {
 }
 
 func newCNAccountBusinessRouter(primary http.Handler, build func(int) (http.Handler, error)) *cnAccountBusinessRouter {
-	router := &cnAccountBusinessRouter{handlers: make(map[int]*cnAccountHandlerEntry), build: build}
+	router := &cnAccountBusinessRouter{handlers: make(map[int]*cnAccountHandlerEntry), build: build, idleLimit: cnIdleAccountCacheLimit}
 	if primary != nil {
 		entry := &cnAccountHandlerEntry{handler: primary, active: true}
 		router.handlers[cnPrimaryUserID] = entry
@@ -889,7 +905,7 @@ func (router *cnAccountBusinessRouter) releaseHandler(userID int, entry *cnAccou
 				oldest, oldestID = candidate.lastOrder, id
 			}
 		}
-		if idle <= cnIdleAccountCacheLimit {
+		if idle <= router.idleLimit {
 			break
 		}
 		router.removeHandlerLocked(oldestID)

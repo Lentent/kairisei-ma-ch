@@ -13,6 +13,7 @@ type BattleEngine struct {
 	turn             int
 	elapsedWaveTurns int // 5d08e's total turn survives Start; 5d077's wave turn does not.
 	costInitial      int
+	costTurnOffset   int
 	holdMax          int
 	players          [4]battlePlayer
 	enemies          [4]battleEnemy

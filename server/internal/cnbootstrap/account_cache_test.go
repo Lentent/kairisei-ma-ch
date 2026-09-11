@@ -73,7 +73,7 @@ func TestAccountCacheEvictionPreservesActiveRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i <= 20; i++ {
+	for i := 1; i <= cnIdleAccountCacheLimit+12; i++ {
 		id := firstID + i
 		entry, err := router.acquireHandler(id)
 		if err != nil {
@@ -107,5 +107,19 @@ func TestAccountCacheEvictionPreservesActiveRequests(t *testing.T) {
 	router.expireHandler(firstID, active)
 	if router.handlers[firstID] != replacement || router.accountLock(firstID) != lock {
 		t.Fatal("old timer or eviction changed replacement identity/transaction lock")
+	}
+}
+
+func TestConfiguredAccountCacheLimit(t *testing.T) {
+	for _, value := range []string{"", "0", "2", "32", "128", "-1", "bad", "4097"} {
+		t.Setenv("KAIRI_ACCOUNT_CACHE_LIMIT", value)
+		limit, err := configuredAccountCacheLimit()
+		invalid := value == "-1" || value == "bad" || value == "4097"
+		if (err != nil) != invalid {
+			t.Fatalf("%q: %v", value, err)
+		}
+		if value == "" && limit != 32 {
+			t.Fatalf("default %d", limit)
+		}
 	}
 }

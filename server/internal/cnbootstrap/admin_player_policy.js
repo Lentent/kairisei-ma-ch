@@ -42,3 +42,11 @@ $('#player-policy-save').onclick=()=>contentAction('player-policy',async()=>{
   const config=playerPolicyDraft(),mail=config.tutorial_completion_mail;if(mail.enabled&&(!mail.title||!mail.message||!mail.rewards.length)){toast('请填写邮件标题、正文并选择奖励',true);return}if(!confirm(`保存公告、签到、新手毕业邮件、剧情奖励和看板购买配置？\n毕业邮件${mail.enabled?'开启':'关闭'}，共${mail.rewards.length}种奖励，仅在整个新手训练完成时发放。\n已有领取记录和看板所有权保留。`))return;
   const data=await api('/api/player-policy',{method:'PUT',body:JSON.stringify({expected_revision:playerPolicy.revision,config})});playerPolicy.saved=data.config;playerPolicy.revision=data.revision;rememberPlayerMailEntries(data.mail_reward_entries);renderPlayerPolicy(data.config);state.loaded.delete('audit');toast('公告与奖励配置已保存');
 });
+
+function maximizePlayerMail(field,catalogField){
+ const rewards=playerMailDraft();
+ for(const r of rewards){if(r.type!==6)continue;const e=playerPolicy.mailEntries.get(contentKey(r));if(!e||!Number.isInteger(e[catalogField])||e[catalogField]<1){toast('卡牌上限数据缺失，请重新加载配置',true);return}r[field]=e[catalogField]}
+ playerPolicy.mailRewards=rewards;renderPlayerMail();playerPolicyChanged();
+}
+$('#player-mail-max-level').onclick=()=>maximizePlayerMail('card_lv','level_max');
+$('#player-mail-max-fame').onclick=()=>maximizePlayerMail('card_fame','fame_max');

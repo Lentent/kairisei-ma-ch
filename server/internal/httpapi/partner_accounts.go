@@ -18,6 +18,7 @@ type friendPointPartnerView struct {
 	PVPPoint        int
 	ArthurType      int8
 	Cards           map[int64]cardInfo
+	CardAttributes  map[int]uint8
 	Decks           []deckInfo
 	Avatar          release.Avatar
 	Spheres         map[int64]release.Sphere
@@ -56,6 +57,10 @@ func friendPointPartnerViewFromState(state release.State) (friendPointPartnerVie
 		len(state.Avatars) != 4 || len(state.SupportDeck.UnlockSlotNums) != 4 {
 		return friendPointPartnerView{}, false
 	}
+	attributes := make(map[int]uint8, len(state.Cards))
+	for _, card := range state.Cards {
+		attributes[card.CardID] = card.FusionAttributes
+	}
 	cards := cardInfosFromRelease(state.Cards, 0)
 	cardByUniqueID := make(map[int64]cardInfo, len(cards))
 	for _, card := range cards {
@@ -86,6 +91,7 @@ func friendPointPartnerViewFromState(state release.State) (friendPointPartnerVie
 		PVPPoint:        state.User.PVPPoint,
 		ArthurType:      arthurType,
 		Cards:           cardByUniqueID,
+		CardAttributes:  attributes,
 		Decks:           decks,
 		Avatar:          state.Avatars[int(arthurType)-1],
 		Spheres:         spheres,
@@ -138,7 +144,7 @@ func (view friendPointPartnerView) listWire(friendPoint int, friendState int8) (
 		"deck_name":     deck.Name,
 		"rental_idx":    deck.Index,
 		"play_log_turn": 0,
-		"attr_nums":     []int{0, 0, 0, 0, 0, 0},
+		"attr_nums":     view.deckAttributeCounts(deck),
 		"kind_nums":     []int{},
 		"deck_honorids": append([]int(nil), view.HonorIDs...),
 	}, nil
@@ -201,6 +207,15 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 	views := make([]friendPointPartnerView, 0, len(relations))
 	for _, relation := range relations {
 		if view, ok := friendPointPartnerViewFromState(relation.State); ok {
+			// Public account projections omit master fields; resolve attributes from
+			// the shared catalog rather than enlarging persisted account summaries.
+			a.store.mu.RLock()
+			for _, card := range view.Cards {
+				if definition, ok := a.store.cardDefinitions[card.CardID]; ok {
+					view.CardAttributes[card.CardID] = definition.FusionAttributes
+				}
+			}
+			a.store.mu.RUnlock()
 			view.FriendState = relation.FriendState
 			view.System = relation.System
 			views = append(views, view)
@@ -275,4 +290,31 @@ func findFriendPointPartnerView(views []friendPointPartnerView, userID int) (fri
 		}
 	}
 	return friendPointPartnerView{}, false
+}
+
+// Native ATTR indexes: NULL=0, FIRE=1, ICE=2, WIND=3, LIGHT=4, DARK=5.
+// Multi-attribute cards count once in each of their attributes; support cards
+// and the leader's duplicate display are not additional main-deck slots.
+func (view friendPointPartnerView) deckAttributeCounts(deck deckInfo) []int {
+	counts := make([]int, 6)
+	for _, id := range deck.CardUniqueIDs {
+		card, ok := view.Cards[id]
+		if !ok {
+			continue
+		}
+		mask, known := view.CardAttributes[card.CardID]
+		if !known {
+			continue
+		}
+		if mask == 0 {
+			counts[0]++
+			continue
+		}
+		for bit := 0; bit < 5; bit++ {
+			if mask&(1<<bit) != 0 {
+				counts[bit+1]++
+			}
+		}
+	}
+	return counts
 }

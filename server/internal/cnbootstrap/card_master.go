@@ -672,9 +672,6 @@ func applyCNCardRuntimeMaster(state *release.State, master cnCardRuntimeMaster) 
 		state.SphereConfigVersion = master.SphereConfigVersion
 		changed = true
 	}
-	if len(state.Spheres) > state.User.SphereMax {
-		return false, fmt.Errorf("CN save owns %d spheres but capacity is %d", len(state.Spheres), state.User.SphereMax)
-	}
 	definitions := make(map[int]release.SphereDefinition, len(master.SphereDefinitions))
 	for _, definition := range master.SphereDefinitions {
 		definitions[definition.SphereID] = definition

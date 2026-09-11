@@ -7,7 +7,8 @@ import (
 
 // NextBattle implements the CN TEAMBATTLE (mode 1) default handover. Managed
 // AwakeTakeOverSet only supplies configurable flags in EXPLORE (mode 0).
-// Native 62af0 resets turn/cost/sphere use; 5d160/49830 recycles the trash
+// Ordinary waves reset turn/cost/sphere use; awakening carries the cost curve
+// into the next turn (user-confirmed gameplay). 5d160/49830 recycles the trash
 // without taking held cards away. a50c4 restores KO users to ONE HP only
 // while they have not been formally retired by battle5_api_gameover.
 // UserSet and RNG initialization are not repeated at this boundary.
@@ -23,6 +24,10 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 	next := *engine
 	if err := next.loadEnemyParty(party, drops); err != nil {
 		return nil, err
+	}
+	next.costTurnOffset = 0
+	if engine.endType == 4 {
+		next.costTurnOffset = engine.costTurnOffset + engine.turn
 	}
 	next.elapsedWaveTurns += next.turn
 	next.turn, next.endType = 0, 0
@@ -47,7 +52,7 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 			next.waveRecovery = append(next.waveRecovery, BattleResult{Command: resultHP,
 				Args: []int64{int64(player.MemberType), int64(player.MaxHP), 1, 0}})
 		}
-		player.Cost = next.costInitial
+		player.Cost = next.turnCost()
 		player.DamageTaken, player.TurnDamage = 0, 0
 		player.ExecutedBuffKinds = [69]uint32{}
 		player.BlessHolds, player.ReservedChalice = nil, 0
