@@ -42,11 +42,8 @@ func (s *store) completeTrainingBurstLocked() error {
 			return err
 		}
 	}
-	if err := s.validateRewardBatchCapacityLocked(rewards); err != nil {
-		return err
-	}
 	for _, reward := range rewards {
-		if err := s.applyRewardLocked(reward, &presentReceiveResult{}); err != nil {
+		if err := s.applyRewardOrPresentLocked(reward, &presentReceiveResult{}, "圣剑解放奖励"); err != nil {
 			return err
 		}
 	}

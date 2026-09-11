@@ -752,9 +752,6 @@ func applyCNCardRuntimeMaster(state *release.State, master cnCardRuntimeMaster) 
 	if len(state.Buddies) == 0 && state.Onboarding.ConfigVersion == 0 {
 		return false, errors.New("CN QA save owns no buddies")
 	}
-	if len(state.Buddies) > state.User.BuddyMax {
-		return false, fmt.Errorf("CN save owns %d buddies but capacity is %d", len(state.Buddies), state.User.BuddyMax)
-	}
 	buddyDefinitions := make(map[int]release.BuddyDefinition, len(master.BuddyDefinitions))
 	for _, definition := range master.BuddyDefinitions {
 		buddyDefinitions[definition.BuddyID] = definition

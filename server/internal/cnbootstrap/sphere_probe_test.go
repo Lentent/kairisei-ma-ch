@@ -67,7 +67,7 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 			Delete int `json:"res_is_del_savedata"`
 		}
 		var result map[string]json.RawMessage
-		if w.Code != 200 || len(lines) != 3 || json.Unmarshal([]byte(lines[0]), &common) != nil || common.Code != want || json.Unmarshal([]byte(lines[1]), &result) != nil || (want != 0 && (common.Action != 2 || common.Delete != 0)) {
+		if w.Code != 200 || (len(lines) != 3 && !(route == "/Connect" && len(lines) == 2)) || json.Unmarshal([]byte(lines[0]), &common) != nil || common.Code != want || json.Unmarshal([]byte(lines[1]), &result) != nil || (want != 0 && (common.Action != 2 || common.Delete != 0)) {
 			t.Fatalf("%s: expected %d, got HTTP %d %s", route, want, w.Code, w.Body.String())
 		}
 		return result
@@ -191,6 +191,17 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		t.Fatal(err)
 	}
 	state.Onboarding.Step = cnOnboardingStepCount
+	state.User.Name = "InventoryTest"
+	state.Buddies = nil
+	if len(cards.BuddySeedTemplates) == 0 {
+		t.Fatal("missing buddy template")
+	}
+	for i := 1; i <= 52; i++ {
+		buddy := cards.BuddySeedTemplates[0]
+		buddy.UniqueID = int64(i)
+		buddy.IsLock = 0
+		state.Buddies = append(state.Buddies, buddy)
+	}
 	state.Spheres = nil
 	for i := 1; i <= 52; i++ {
 		sphere := base
@@ -200,6 +211,27 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	}
 	if err = accounts.persistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
+	}
+	connected := call("/Connect", map[string]any{}, 0)
+	if string(connected["is_user"]) != "1" {
+		t.Fatal("over-capacity account not logged in")
+	}
+	call("/BuddyShow", nil, 0)
+	mailCount := len(load().Engagement.Presents)
+	if mailCount == 0 {
+		t.Fatal("full buddy inventory lost initial sword rewards")
+	}
+	call("/Connect", map[string]any{}, 0)
+	if len(load().Engagement.Presents) != mailCount {
+		t.Fatal("login duplicated initial sword mail")
+	}
+
+	if len(load().Buddies) != 52 {
+		t.Fatal("same-ID buddy copies lost on load")
+	}
+	call("/BuddySell", map[string]any{"uniqids": []int64{1}}, 0)
+	if len(load().Buddies) != 51 {
+		t.Fatal("over-capacity buddy sale failed")
 	}
 	call("/SphrShow", nil, 0)
 	call("/SphrSell", map[string]any{"uniqids": []int64{1}}, 0)

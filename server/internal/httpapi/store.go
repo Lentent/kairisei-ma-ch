@@ -512,8 +512,7 @@ func newStore(state release.State) (*store, error) {
 	if len(cards) == 0 || len(decks) == 0 {
 		return nil, errors.New("card store requires cards and decks")
 	}
-	if state.User.CardMax <= 0 || state.User.CardContainerMax <= 0 ||
-		len(cards) > state.User.CardMax || len(containerCards) > state.User.CardContainerMax {
+	if state.User.CardMax <= 0 || state.User.CardContainerMax <= 0 {
 		return nil, errors.New("card store inventory capacity is invalid")
 	}
 	cardUniqueIDs := make(map[int64]struct{}, len(cards)+len(containerCards))
@@ -971,7 +970,7 @@ func newStore(state release.State) (*store, error) {
 	}
 	if len(result.buddyDefinitions) == 0 || len(result.buddyExperience) == 0 || len(result.buddyEvoPrices) == 0 ||
 		result.buddyProgression.ConfigVersion <= 0 || result.buddyProgression.MaximumMaterialCount <= 0 ||
-		result.buddyMax <= 0 || len(result.buddies) > result.buddyMax {
+		result.buddyMax <= 0 {
 		// An initialized but empty Buddy inventory is valid for a clean account.
 		// Master data and capacity are still mandatory, and every non-empty entry
 		// is validated below.

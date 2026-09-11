@@ -461,9 +461,6 @@ func validateCNSave(save cnSaveState) error {
 	if len(save.Cards) == 0 || len(save.Decks) == 0 {
 		return errors.New("CN save requires at least one card and deck")
 	}
-	if len(save.Cards) > save.User.CardMax || len(save.ContainerCards) > save.User.CardContainerMax {
-		return errors.New("CN save card inventory exceeds its capacity")
-	}
 	if save.CardDevelopment.Stive < 0 {
 		return errors.New("CN save card development stive is invalid")
 	}
@@ -577,7 +574,7 @@ func validateCNSave(save cnSaveState) error {
 		sphereUniqueIDs[sphere.UniqueID] = struct{}{}
 	}
 	if save.BuddyConfigVersion < 0 ||
-		(save.BuddyConfigVersion > 0 && (save.Buddies == nil || len(save.Buddies) > save.User.BuddyMax)) {
+		(save.BuddyConfigVersion > 0 && save.Buddies == nil) {
 		return fmt.Errorf(
 			"CN save buddy inventory is invalid (version=%d nil=%t count=%d max=%d onboarding=%d)",
 			save.BuddyConfigVersion, save.Buddies == nil, len(save.Buddies),
