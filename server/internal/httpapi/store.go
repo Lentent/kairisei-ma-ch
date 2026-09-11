@@ -1347,11 +1347,12 @@ func newStore(state release.State) (*store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("repair persisted main deck: %w", err)
 	}
+	repairedBuddies := result.repairLeaderlessBuddyDecks()
 	featureCount := len(result.unlockedFeatureIDs)
 	if err := result.completeTrainingBurstLocked(); err != nil {
 		return nil, fmt.Errorf("complete training sword unlocks: %w", err)
 	}
-	result.initialStateRepair = repairedDecks || len(result.unlockedFeatureIDs) != featureCount
+	result.initialStateRepair = repairedDecks || repairedBuddies || len(result.unlockedFeatureIDs) != featureCount
 	for _, deck := range result.decks {
 		if err := result.validateDeck(deck); err != nil {
 			return nil, fmt.Errorf("validate initial deck: %w", err)

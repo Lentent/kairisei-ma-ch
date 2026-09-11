@@ -192,6 +192,8 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	}
 	state.Onboarding.Step = cnOnboardingStepCount
 	state.User.Name = "InventoryTest"
+	state.Decks[0].BuddyUniqueIDs[0] = 0
+	state.Decks[0].BuddyUniqueIDs[1] = 2
 	state.Buddies = nil
 	if len(cards.BuddySeedTemplates) == 0 {
 		t.Fatal("missing buddy template")
@@ -217,6 +219,11 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		t.Fatal("over-capacity account not logged in")
 	}
 	call("/BuddyShow", nil, 0)
+	for _, id := range load().Decks[0].BuddyUniqueIDs[1:] {
+		if id != 0 {
+			t.Fatal("leaderless buddy formation not repaired and persisted")
+		}
+	}
 	mailCount := len(load().Engagement.Presents)
 	if mailCount == 0 {
 		t.Fatal("full buddy inventory lost initial sword rewards")

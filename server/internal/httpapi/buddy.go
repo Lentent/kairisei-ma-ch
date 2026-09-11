@@ -92,6 +92,26 @@ func (s *store) clearBuddyIDsFromDecksLocked(remove map[int64]struct{}) {
 			}
 		}
 	}
+	s.repairLeaderlessBuddyDecks()
+}
+
+// A missing leader makes the whole buddy formation unusable. Unequip only;
+// never consume inventory or silently choose a different leader.
+func (s *store) repairLeaderlessBuddyDecks() bool {
+	repaired := false
+	for i := range s.decks {
+		ids := s.decks[i].BuddyUniqueIDs
+		if len(ids) == 0 || ids[0] != 0 {
+			continue
+		}
+		for slot, id := range ids {
+			if id != 0 {
+				ids[slot] = 0
+				repaired = true
+			}
+		}
+	}
+	return repaired
 }
 
 func (s *store) normalizeBuddyLocked(buddy release.Buddy, definition release.BuddyDefinition) (release.Buddy, error) {
