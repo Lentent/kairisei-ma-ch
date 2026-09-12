@@ -190,6 +190,10 @@ type Routes struct {
 // CardCapacityLimit is the local policy shared by new accounts and expansion.
 const CardCapacityLimit = 6000
 
+// LOCAL_POLICY: inventory capacity advertised to the original client.
+const SphereCapacityDefault = 500
+const BuddyCapacityDefault = 500
+
 type User struct {
 	UserID              int            `json:"user_id"`
 	InviteID            string         `json:"invite_id"`
@@ -1270,6 +1274,8 @@ type TeamBattleRecommendation struct {
 // training entry and identify the route when the same official boss replay is
 // entered through StageQuest.
 type TeamBattleRewardProfile struct {
+	// nil uses the existing drop-derived default; [] disables fame boxes.
+	FameRewards []Reward               `json:"fame_rewards"`
 	ScorePolicy *TeamBattleScorePolicy `json:"score_policy,omitempty"`
 	// nil retains the aggregate legacy policy; an explicit empty table means
 	// no tangible drops. Preserve this distinction on JSON round trips.
@@ -1487,6 +1493,8 @@ type TeamBattleActiveState struct {
 	ConsumesBattlePoints      bool                           `json:"consumes_battle_points"`
 	PrepaidRoomID             int64                          `json:"prepaid_room_id,omitempty"`
 	FameSeed                  string                         `json:"fame_seed"`
+	FameRewardsSet            bool                           `json:"fame_rewards_set,omitempty"`
+	FameRewards               []Reward                       `json:"fame_rewards,omitempty"`
 	FameSources               []TeamBattleFameSourceState    `json:"fame_sources"`
 	HostBonusArthurType       int                            `json:"host_bonus_arthur_type,omitempty"`
 	FriendPointPartners       int                            `json:"friend_point_partners"`
@@ -1678,6 +1686,8 @@ type State struct {
 	PVPResultReceipts              []PVPResultReceipt              `json:"pvp_result_receipts,omitempty"`
 	ActiveTeamBattle               *TeamBattleActiveState          `json:"active_team_battle,omitempty"`
 	Costume                        json.RawMessage                 `json:"costume"`
+	CollectionRewards              []CollectionRewardDefinition    `json:"-"`
+	InventorySequence              InventorySequenceState          `json:"inventory_sequence,omitempty"`
 	State                          string                          `json:"state"`
 }
 
@@ -1942,7 +1952,7 @@ func Load(root string) (*Release, error) {
 		CostumeIDs []int `json:"costumeids"`
 	}
 	if err := json.Unmarshal(state.Costume, &costume); err != nil ||
-		len(costume.CostumeIDs) == 0 {
+		costume.CostumeIDs == nil {
 		return nil, errors.New("server CostumeShow state is incomplete")
 	}
 	knownCostumeIDs := make(map[int]struct{}, len(costume.CostumeIDs))

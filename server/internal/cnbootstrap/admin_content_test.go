@@ -46,6 +46,7 @@ func TestAdminContentAtomicConfigAndRestart(t *testing.T) {
 	router.Put("/drops", admin.saveDropEditor)
 	router.Put("/shops/{shopID}", admin.saveExchangeEditor)
 	config := cnBossDrops{BossID: 11, Drops: []release.TeamBattleEnemyDrop{{Reward: release.Reward{Type: 8, RewardTypeID: 1000, Num: 3, CardSkillLevels: []int16{}}}}}
+	config.FameRewards = []release.Reward{{Type: 8, RewardTypeID: 4000, Num: 600, CardSkillLevels: []int16{}}}
 	callContentAdmin(t, router, "PUT", "/drops", map[string]any{"expected_revision": 0, "configs": []cnBossDrops{config}}, 200)
 	p := ops.content.configuration.State.TeamBattleRewards[0]
 	if len(p.EnemyDrops) != 2 || p.EnemyDrops[0].Reward.Type != 4 || p.EnemyDrops[0].Reward.Num != 50 || p.ResultRewards[0].Type != 0 {
@@ -73,6 +74,9 @@ func TestAdminContentAtomicConfigAndRestart(t *testing.T) {
 	if restarted.content.dropRevision != 1 || restarted.content.shopRevision != 1 || !restarted.content.configuration.State.TradeShopProfiles[0].Disabled {
 		t.Fatal("public config lost on restart")
 	}
+	if rewards := restarted.content.configuration.State.TeamBattleRewards[0].FameRewards; len(rewards) != 1 || rewards[0].Num != 600 {
+		t.Fatal("fame pool lost on restart")
+	}
 	if base.TradeShopProfiles[0].Disabled || len(base.TeamBattleRewards[0].EnemyDrops) != 1 {
 		t.Fatal("overrides mutated base")
 	}
@@ -83,6 +87,26 @@ func TestAdminContentAtomicConfigAndRestart(t *testing.T) {
 func auditCompleteAdminContent(t *testing.T, h http.Handler) {
 	t.Helper()
 	admin := h.(interface{ AdminHandler() http.Handler }).AdminHandler()
+	for _, kind := range []string{"costume", "stamp", "honor"} {
+		var catalog struct {
+			Total   int                   `json:"total"`
+			Entries []cnAdminCatalogEntry `json:"entries"`
+		}
+		if err := json.Unmarshal(callContentAdmin(t, admin, "GET", "/api/catalog?kind="+kind+"&limit=200", nil, 200), &catalog); err != nil {
+			t.Fatal(err)
+		}
+		if catalog.Total == 0 {
+			t.Fatalf("missing %s catalog", kind)
+		}
+		requests := make([]cnAdminMailRequest, len(catalog.Entries))
+		for i, entry := range catalog.Entries {
+			requests[i] = cnAdminMailRequest{RewardType: entry.RewardType, RewardTypeID: entry.RewardTypeID, Quantity: 1}
+		}
+		for i := 0; i < len(requests); i += 100 {
+			callContentAdmin(t, admin, "POST", "/api/catalog/resolve", map[string]any{"rewards": requests[i:min(i+100, len(requests))]}, 200)
+		}
+		t.Logf("%s catalog: %d entries", kind, catalog.Total)
+	}
 	var list struct {
 		Bosses []cnDropBoss `json:"bosses"`
 	}

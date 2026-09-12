@@ -96,6 +96,11 @@ func validateCNHonorRuntimeMaster(master cnHonorRuntimeMaster) error {
 }
 
 func applyCNHonorRuntimeMaster(state *release.State, master cnHonorRuntimeMaster) (bool, error) {
+	definitions := make([]release.CollectionRewardDefinition, 0, len(master.Honors))
+	for _, honor := range master.Honors {
+		definitions = append(definitions, release.CollectionRewardDefinition{Type: 18, ID: honor.HonorID, Name: honor.Name, Detail: "称号 · 领取后在称号设置中使用"})
+	}
+	state.SetCollectionRewardDefinitions(18, definitions)
 	available := make(map[int]struct{}, len(master.Honors))
 	defaults := make([]int, 0)
 	for _, honor := range master.Honors {

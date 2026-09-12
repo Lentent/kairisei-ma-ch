@@ -1066,7 +1066,7 @@ func (a *API) deckLimitShow(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *API) costumeShow(writer http.ResponseWriter, _ *http.Request) {
-	a.writeProtocol(writer, a.release.State.Costume)
+	a.writeProtocol(writer, a.store.costumeState())
 }
 
 func (a *API) costumeSet(writer http.ResponseWriter, request *http.Request) {
@@ -2295,7 +2295,7 @@ func (a *API) presentReceivePayload(
 		"new_items":          a.itemInfosWire(result.Items),
 		"new_sphrs":          toWireSpheres(result.Spheres),
 		"new_buddys":         toWireBuddies(result.Buddies),
-		"new_stampids":       []int{},
+		"new_stampids":       append([]int{}, result.StampIDs...),
 		"presentid":          presentIDs,
 		"failed_presentid":   failedIDs,
 		"auto_fusion_result": []any{},

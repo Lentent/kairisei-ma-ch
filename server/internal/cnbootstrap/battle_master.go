@@ -1140,8 +1140,21 @@ func applyCNBattleRuntimeMaster(state *release.State, master cnBattleRuntimeMast
 		return errors.New("decode persisted CN TeamBattle groups")
 	}
 	canonicalByDuplicate := cnBattleCanonicalBossAliases(master.DeduplicatedFamilies)
+	// Account handlers categorize activity/key/2D groups before saving. A
+	// master refresh must collect their progress before replacing definitions.
+	allPersistedGroups := append([]json.RawMessage(nil), persistedGroups...)
+	for _, category := range cnBattleProgressCategories[1:] {
+		if len(solo[category]) == 0 {
+			continue
+		}
+		var groups []json.RawMessage
+		if err := json.Unmarshal(solo[category], &groups); err != nil {
+			return fmt.Errorf("decode persisted CN TeamBattle category %s: %w", category, err)
+		}
+		allPersistedGroups = append(allPersistedGroups, groups...)
+	}
 	persistedStates, err := collectCNBattlePersistedStates(
-		persistedGroups, canonicalByDuplicate,
+		allPersistedGroups, canonicalByDuplicate,
 	)
 	if err != nil {
 		return err

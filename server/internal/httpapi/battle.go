@@ -64,9 +64,10 @@ func (a *API) teamBattlePastBossShow(writer http.ResponseWriter, _ *http.Request
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	groups := make([]json.RawMessage, len(a.release.State.TeamBattlePastBossGroups))
-	for index, group := range a.release.State.TeamBattlePastBossGroups {
-		groups[index] = append(json.RawMessage(nil), group...)
+	groups, err := pastBossProgress(a.release.State.TeamBattlePastBossGroups, a.store.teamBattleSoloState())
+	if err != nil {
+		a.writeStoreError(writer, err)
+		return
 	}
 	a.writeProtocol(writer, map[string]any{
 		"0": groups,
@@ -74,6 +75,57 @@ func (a *API) teamBattlePastBossShow(writer http.ResponseWriter, _ *http.Request
 		"2": 0,
 		"3": 0,
 	})
+}
+
+// Archive metadata is shared; clear state belongs to the requesting account.
+func pastBossProgress(source []json.RawMessage, progress json.RawMessage) ([]json.RawMessage, error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(progress, &top); err != nil {
+		return nil, err
+	}
+	states := map[int]int{}
+	for _, key := range []string{"10", "11", "12"} {
+		if len(top[key]) == 0 {
+			continue
+		}
+		var groups []struct {
+			Bosses []struct {
+				ID    int `json:"0"`
+				State int `json:"10"`
+			} `json:"10"`
+		}
+		if err := json.Unmarshal(top[key], &groups); err != nil {
+			return nil, err
+		}
+		for _, group := range groups {
+			for _, boss := range group.Bosses {
+				if boss.State > states[boss.ID] {
+					states[boss.ID] = boss.State
+				}
+			}
+		}
+	}
+	result := make([]json.RawMessage, len(source))
+	for i, raw := range source {
+		var group map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &group); err != nil {
+			return nil, err
+		}
+		var bosses []map[string]json.RawMessage
+		if err := json.Unmarshal(group["13"], &bosses); err != nil {
+			return nil, err
+		}
+		for _, boss := range bosses {
+			var id int
+			if err := json.Unmarshal(boss["0"], &id); err != nil {
+				return nil, err
+			}
+			boss["10"], _ = json.Marshal(states[id])
+		}
+		group["13"], _ = json.Marshal(bosses)
+		result[i], _ = json.Marshal(group)
+	}
+	return result, nil
 }
 
 // teamBattleClearDeckShow projects the single local account population into
@@ -573,7 +625,7 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 	}
 	battlesWire := make([]any, len(battleSegments))
 	for index, segment := range battleSegments {
-		drop := teamBattleDropPlanWire(context.DropPlan, index)
+		drop := teamBattleDropPlanWire(context.DropPlan, context.BattleEnemyTypes, index)
 		battlesWire[index] = map[string]any{
 			"enemy_partyid":        segment.EnemyPartyID,
 			"enemy_type":           segment.EnemyType,

@@ -20,6 +20,8 @@ type cnCatalogProgress struct {
 	EventStory    map[int]int             `json:"event_story,omitempty"`
 }
 
+var cnBattleProgressCategories = [...]string{"9", "10", "11", "12"}
+
 func collectCNCatalogProgress(state release.State) (cnCatalogProgress, error) {
 	p := cnCatalogProgress{
 		GachaPlays: map[int]int{}, ShopPurchases: map[int]int{}, BossStates: map[int]int{},
@@ -37,18 +39,25 @@ func collectCNCatalogProgress(state release.State) (cnCatalogProgress, error) {
 			}
 		}
 	}
-	var solo struct {
-		Groups []cnBattleGroupIdentity `json:"9"`
-	}
+	var solo map[string]json.RawMessage
 	if len(state.TeamBattleSolo) > 0 {
 		if err := json.Unmarshal(state.TeamBattleSolo, &solo); err != nil {
 			return p, err
 		}
 	}
-	for _, group := range solo.Groups {
-		for _, boss := range group.Bosses {
-			if boss.State != 0 {
-				p.BossStates[boss.BossID] = boss.State
+	for _, category := range cnBattleProgressCategories {
+		if len(solo[category]) == 0 {
+			continue
+		}
+		var groups []cnBattleGroupIdentity
+		if err := json.Unmarshal(solo[category], &groups); err != nil {
+			return p, fmt.Errorf("decode battle progress category %s: %w", category, err)
+		}
+		for _, group := range groups {
+			for _, boss := range group.Bosses {
+				if boss.State > p.BossStates[boss.BossID] {
+					p.BossStates[boss.BossID] = boss.State
+				}
 			}
 		}
 	}
@@ -112,37 +121,43 @@ func (p cnCatalogProgress) apply(state *release.State) error {
 		if err := json.Unmarshal(state.TeamBattleSolo, &solo); err != nil {
 			return err
 		}
-		var groups []map[string]json.RawMessage
-		if err := json.Unmarshal(solo["9"], &groups); err != nil {
-			return err
-		}
-		for _, group := range groups {
-			var bosses []map[string]json.RawMessage
-			if err := json.Unmarshal(group["10"], &bosses); err != nil {
+		for _, category := range cnBattleProgressCategories {
+			if len(solo[category]) == 0 {
+				continue
+			}
+			var groups []map[string]json.RawMessage
+			if err := json.Unmarshal(solo[category], &groups); err != nil {
 				return err
 			}
-			for _, boss := range bosses {
-				var id int
-				if err := json.Unmarshal(boss["0"], &id); err != nil {
+			for _, group := range groups {
+				var bosses []map[string]json.RawMessage
+				if err := json.Unmarshal(group["10"], &bosses); err != nil {
 					return err
 				}
-				boss["10"] = json.RawMessage(fmt.Sprint(p.BossStates[id]))
+				for _, boss := range bosses {
+					var id int
+					if err := json.Unmarshal(boss["0"], &id); err != nil {
+						return err
+					}
+					boss["10"] = json.RawMessage(fmt.Sprint(p.BossStates[id]))
+				}
+				encoded, err := json.Marshal(bosses)
+				if err != nil {
+					return err
+				}
+				group["10"] = encoded
 			}
-			encoded, err := json.Marshal(bosses)
+			encoded, err := json.Marshal(groups)
 			if err != nil {
 				return err
 			}
-			group["10"] = encoded
+			solo[category] = encoded
 		}
-		encoded, err := json.Marshal(groups)
+		encodedSolo, err := json.Marshal(solo)
 		if err != nil {
 			return err
 		}
-		solo["9"] = encoded
-		state.TeamBattleSolo, err = json.Marshal(solo)
-		if err != nil {
-			return err
-		}
+		state.TeamBattleSolo = encodedSolo
 	}
 	byArea := make(map[int]json.RawMessage, len(p.Areas))
 	for _, area := range p.Areas {

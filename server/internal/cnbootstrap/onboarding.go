@@ -133,6 +133,8 @@ func initializeCNOnboardingSnapshot(state *release.State, userID int) error {
 	state.User.ArthurRank = 0
 	state.User.LastHomeDeckRank = 0
 	state.User.CardMax = release.CardCapacityLimit
+	state.User.SphereMax = release.SphereCapacityDefault
+	state.User.BuddyMax = release.BuddyCapacityDefault
 	state.Buddy = release.Buddy{}
 	state.Buddies = []release.Buddy{}
 	// The profession bit is finalized by UserCreate after the player chooses one

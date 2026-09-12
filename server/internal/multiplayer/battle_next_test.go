@@ -38,6 +38,40 @@ func nextBattleFixture(t *testing.T) (*BattleEngine, []Member) {
 	return engine, members
 }
 
+func TestAwakeInheritsUnreleasedBodyDrops(t *testing.T) {
+	engine, _ := nextBattleFixture(t)
+	waves := []release.TeamBattleReplayBattle{{EnemyPartyID: 1, EnemyType: 1}, {EnemyPartyID: 1, EnemyType: 4}, {EnemyPartyID: 1, EnemyType: 4}}
+	plan := []release.TeamBattleEnemyDrop{
+		{Reward: release.Reward{Type: 4, Num: 900}},
+		{Reward: release.Reward{Type: 8, RewardTypeID: 4000, Num: 600}},
+		{EnemyIndex: 1, Reward: release.Reward{Type: 13, RewardTypeID: 20000003, Num: 1}},
+	}
+	current := &room{engine: engine, battles: waves, dropPlan: plan}
+	engine.phase, engine.endType = battlePhaseEnded, 4
+	recordRoomWaveDrops(current) // Living first-phase body did not release anything.
+	drops := roomSpecWaveDrops(RoomSpec{DropLedgerVersion: 1, DropPlan: plan, Battles: waves}, 1)
+	if len(drops) != 2 {
+		t.Fatalf("awake drops: %+v", drops)
+	}
+	next, err := engine.NextBattle(1, drops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.enemies[0].HP = 0
+	if rows := enemyBreakDropResults(&next.enemies[0]); len(rows) == 0 {
+		t.Fatal("missing body drop presentation")
+	}
+	current.engine, current.battleIndex = next, 1
+	recordRoomWaveDrops(current)
+	recordRoomWaveDrops(current)
+	if len(current.releasedDrops) != 2 || current.releasedDrops[0].BattleIndex != 1 || !roomBodyRewardAlreadyReleased(current, 2) {
+		t.Fatalf("bad awake settlement ledger: %+v", current.releasedDrops)
+	}
+	if len(priorWaveResumeDrops(current.releasedDrops, 1)) != 0 || len(priorWaveResumeDrops(current.releasedDrops, 2)) != 2 {
+		t.Fatal("resume duplicated or lost current-wave body drops")
+	}
+}
+
 func TestNextBattleNativeStateAndRotation(t *testing.T) {
 	engine, _ := nextBattleFixture(t)
 	engine.phase, engine.endType, engine.turn = battlePhaseEnded, 1, 7

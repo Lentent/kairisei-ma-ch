@@ -19,6 +19,7 @@ const maxCNAccountSnapshotBytes = 16 * 1024 * 1024
 // loaded from the versioned seed/runtime catalog, never copied into these rows.
 // Global operator changes remain in cn_global_operation.
 type cnAccountSnapshot struct {
+	InventorySequence              release.InventorySequenceState          `json:"inventory_sequence,omitempty"`
 	BurstProgress                  [4]uint8                                `json:"burst_progress"`
 	Navigation                     release.NavigationState                 `json:"navigation,omitempty"`
 	SchemaVersion                  int                                     `json:"schema_version"`
@@ -43,6 +44,7 @@ type cnAccountSnapshot struct {
 	Avatars                        []release.Avatar                        `json:"avatars"`
 	AvatarConfigVersion            int                                     `json:"avatar_config_version,omitempty"`
 	AvatarParts                    []int                                   `json:"avatar_parts,omitempty"`
+	Costume                        json.RawMessage                         `json:"costume,omitempty"`
 	Buddy                          release.Buddy                           `json:"buddy"`
 	BuddyConfigVersion             int                                     `json:"buddy_config_version,omitempty"`
 	Buddies                        []release.Buddy                         `json:"buddies,omitempty"`
@@ -90,6 +92,7 @@ func accountSnapshotFromState(state release.State) (cnAccountSnapshot, error) {
 		return cnAccountSnapshot{}, err
 	}
 	return cnAccountSnapshot{
+		InventorySequence:              state.InventorySequence,
 		Navigation:                     state.Navigation,
 		BurstProgress:                  state.BurstProgress,
 		SchemaVersion:                  cnSaveSnapshotSchemaVersion,
@@ -114,6 +117,7 @@ func accountSnapshotFromState(state release.State) (cnAccountSnapshot, error) {
 		Avatars:                        state.Avatars,
 		AvatarConfigVersion:            state.AvatarConfigVersion,
 		AvatarParts:                    state.AvatarParts,
+		Costume:                        state.Costume,
 		Buddy:                          state.Buddy,
 		BuddyConfigVersion:             state.BuddyConfigVersion,
 		Buddies:                        state.Buddies,
@@ -153,6 +157,7 @@ func accountSnapshotFromState(state release.State) (cnAccountSnapshot, error) {
 // applyAccountData replaces only account-owned fields. Catalog maps/slices
 // may be shared with other accounts and must not be mutated here.
 func (snapshot cnAccountSnapshot) applyAccountData(state *release.State) {
+	state.InventorySequence = snapshot.InventorySequence
 	state.TeamBattleScores = snapshot.TeamBattleScores
 	state.LocalShop = snapshot.LocalShop
 	state.User = snapshot.User
@@ -174,6 +179,9 @@ func (snapshot cnAccountSnapshot) applyAccountData(state *release.State) {
 	state.Avatars = snapshot.Avatars
 	state.AvatarConfigVersion = snapshot.AvatarConfigVersion
 	state.AvatarParts = snapshot.AvatarParts
+	if len(snapshot.Costume) > 0 {
+		state.Costume = snapshot.Costume
+	}
 	state.Buddy = snapshot.Buddy
 	state.BuddyConfigVersion = snapshot.BuddyConfigVersion
 	state.Buddies = snapshot.Buddies

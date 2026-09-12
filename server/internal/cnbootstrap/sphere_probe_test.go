@@ -196,14 +196,14 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	if len(cards.BuddySeedTemplates) == 0 {
 		t.Fatal("missing buddy template")
 	}
-	for i := 1; i <= 52; i++ {
+	for i := 1; i <= release.BuddyCapacityDefault+2; i++ {
 		buddy := cards.BuddySeedTemplates[0]
 		buddy.UniqueID = int64(i)
 		buddy.IsLock = 0
 		state.Buddies = append(state.Buddies, buddy)
 	}
 	state.Spheres = nil
-	for i := 1; i <= 52; i++ {
+	for i := 1; i <= release.SphereCapacityDefault+2; i++ {
 		sphere := base
 		sphere.UniqueID = int64(i)
 		sphere.IsLock = 0
@@ -226,16 +226,16 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		t.Fatal("login duplicated initial sword mail")
 	}
 
-	if len(load().Buddies) != 52 {
+	if len(load().Buddies) != release.BuddyCapacityDefault+2 {
 		t.Fatal("same-ID buddy copies lost on load")
 	}
 	call("/BuddySell", map[string]any{"uniqids": []int64{1}}, 0)
-	if len(load().Buddies) != 51 {
+	if len(load().Buddies) != release.BuddyCapacityDefault+1 {
 		t.Fatal("over-capacity buddy sale failed")
 	}
 	call("/SphrShow", nil, 0)
 	call("/SphrSell", map[string]any{"uniqids": []int64{1}}, 0)
-	if len(load().Spheres) != 51 {
+	if len(load().Spheres) != release.SphereCapacityDefault+1 {
 		t.Fatal("sale while still over capacity did not persist")
 	}
 	ids = nil
@@ -243,7 +243,7 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		ids = append(ids, int64(i))
 	}
 	call("/SphrSell", map[string]any{"uniqids": ids}, 0)
-	if len(load().Spheres) != 1 {
+	if len(load().Spheres) != release.SphereCapacityDefault-49 {
 		t.Fatal("over-capacity bulk sale failed")
 	}
 	t.Log(fmt.Sprintf("native Sphere: 5 fragments per Punishment, equip, locked rejection, 9 MR materials, evolution with last relic, SQLite reload and sale cleanup passed (%d definitions)", len(cards.SphereDefinitions)))

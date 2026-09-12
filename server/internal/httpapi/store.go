@@ -114,6 +114,7 @@ type store struct {
 	stampIDs                    map[int]struct{}
 	stampDeck                   []int
 	costumeIDs                  map[int]struct{}
+	collectionRewardIDs         map[[2]int]struct{}
 	currentActiveArthur         int8
 	currentLevel                int
 	currentExperience           int
@@ -221,6 +222,8 @@ type teamBattleContext struct {
 	ConsumesBattlePoints      bool
 	PrepaidRoomID             int64
 	FameSeed                  string
+	FameRewardsSet            bool
+	FameRewards               []release.Reward
 	FameSources               []teamBattleFameSource
 	HostBonusArthurType       int
 	FriendPointPartners       int
@@ -269,6 +272,8 @@ func teamBattleContextFromRelease(source *release.TeamBattleActiveState) *teamBa
 		ConsumesBattlePoints:      source.ConsumesBattlePoints,
 		PrepaidRoomID:             source.PrepaidRoomID,
 		FameSeed:                  source.FameSeed,
+		FameRewardsSet:            source.FameRewardsSet,
+		FameRewards:               cloneRewards(source.FameRewards),
 		HostBonusArthurType:       source.HostBonusArthurType,
 		FriendPointPartners:       source.FriendPointPartners,
 		FriendPointReward:         source.FriendPointReward,
@@ -323,6 +328,8 @@ func releaseTeamBattleContext(source *teamBattleContext) *release.TeamBattleActi
 		ConsumesBattlePoints:      source.ConsumesBattlePoints,
 		PrepaidRoomID:             source.PrepaidRoomID,
 		FameSeed:                  source.FameSeed,
+		FameRewardsSet:            source.FameRewardsSet,
+		FameRewards:               cloneRewards(source.FameRewards),
 		HostBonusArthurType:       source.HostBonusArthurType,
 		FriendPointPartners:       source.FriendPointPartners,
 		FriendPointReward:         source.FriendPointReward,
@@ -561,7 +568,7 @@ func newStore(state release.State) (*store, error) {
 		CostumeIDs []int `json:"costumeids"`
 	}
 	if err := json.Unmarshal(state.Costume, &costume); err != nil ||
-		len(costume.CostumeIDs) == 0 {
+		costume.CostumeIDs == nil {
 		return nil, errors.New("card store requires costume IDs")
 	}
 	exploreStages := state.Explore.Stages
@@ -716,6 +723,13 @@ func newStore(state release.State) (*store, error) {
 		pvpResultReceipts:           make(map[int]release.PVPResultReceipt, len(state.PVPResultReceipts)),
 		towerQuestProfiles:          make(map[int]release.TowerQuestProfile, len(state.TowerQuestProfiles)),
 		towerQuestProgress:          make(map[int]release.TowerQuestProgress, len(state.TowerQuestProgress)),
+	}
+	result.collectionRewardIDs = make(map[[2]int]struct{}, len(state.CollectionRewards))
+	result.nextUniqueID = max(1, state.InventorySequence.Card)
+	result.nextSphereUniqueID = max(1, state.InventorySequence.Sphere)
+	result.nextBuddyUniqueID = max(1, state.InventorySequence.Buddy)
+	for _, definition := range state.CollectionRewards {
+		result.collectionRewardIDs[[2]int{definition.Type, definition.ID}] = struct{}{}
 	}
 	for _, featureID := range state.User.UnlockedFeatureIDs {
 		result.unlockedFeatureIDs[featureID] = struct{}{}
@@ -2243,6 +2257,7 @@ type receivedReward struct {
 }
 
 type presentReceiveResult struct {
+	StampIDs     []int
 	InPresentBox bool
 	Rewards      []receivedReward
 	Cards        []cardInfo
@@ -2741,6 +2756,11 @@ func (s *store) validateRewardLocked(reward release.Reward) error {
 			return errors.New("reward references an unknown buddy")
 		}
 		return nil
+	case 14, 16, 18:
+		if _, exists := s.collectionRewardIDs[[2]int{reward.Type, reward.RewardTypeID}]; !exists || reward.Num != 1 {
+			return errors.New("collection reward must be one known skin, stamp or honor")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported local reward type %d", reward.Type)
 	}
@@ -2861,6 +2881,19 @@ func (s *store) validateEngagementLocked() error {
 func (s *store) applyRewardLocked(reward release.Reward, result *presentReceiveResult) error {
 	received := receivedReward{Reward: cloneReward(reward), UniqueID: []int64{}}
 	switch reward.Type {
+	case 14, 16, 18:
+		owned := s.ownsCollectionRewardLocked(reward)
+		switch reward.Type {
+		case 14:
+			s.costumeIDs[reward.RewardTypeID] = struct{}{}
+		case 16:
+			s.stampIDs[reward.RewardTypeID] = struct{}{}
+			if !owned {
+				result.StampIDs = append(result.StampIDs, reward.RewardTypeID)
+			}
+		case 18:
+			s.honorIDs[reward.RewardTypeID] = struct{}{}
+		}
 	case 0:
 		s.applyPlayerExperienceLocked(reward.Num)
 	case 4:
@@ -2868,18 +2901,7 @@ func (s *store) applyRewardLocked(reward release.Reward, result *presentReceiveR
 	case 9:
 		s.friendPoint += reward.Num
 	case 6:
-		owned := false
-		for _, inventory := range [][]cardInfo{s.cards, s.containerCards} {
-			for _, current := range inventory {
-				if current.CardID == reward.RewardTypeID {
-					owned = true
-					break
-				}
-			}
-			if owned {
-				break
-			}
-		}
+		owned := s.hasCollectedCardLocked(reward.RewardTypeID)
 		if !owned {
 			received.IsNew = 1
 		}
@@ -3632,6 +3654,12 @@ func (s *store) beginTeamBattle(
 		return teamBattleContext{}, battlePointStatus{}, false, err
 	}
 	context.DropPlanSet, context.DropPlan = true, plan
+	context.FameRewardsSet, context.FameRewards = true, teamBattleFamePool(profile, s.teamBattleFameBonus)
+	for _, reward := range context.FameRewards {
+		if err := s.validateRewardLocked(reward); err != nil {
+			return teamBattleContext{}, battlePointStatus{}, false, err
+		}
+	}
 	for _, drop := range plan {
 		if err := s.validateRewardLocked(drop.Reward); err != nil {
 			return teamBattleContext{}, battlePointStatus{}, false, err
@@ -3779,23 +3807,11 @@ func (s *store) planTeamBattleFameAwardsLocked(
 		strings.TrimSpace(context.FameSeed) == "" || len(context.FameSources) == 0 {
 		return nil, errors.New("local team battle fame-bonus policy is invalid")
 	}
-	eligibleTypes := make(map[int]struct{}, len(policy.EligibleRewardTypes))
-	for _, rewardType := range policy.EligibleRewardTypes {
-		if rewardType <= 0 {
-			return nil, errors.New("local team battle fame-bonus reward type is invalid")
-		}
-		eligibleTypes[rewardType] = struct{}{}
+	pool := context.FameRewards
+	if !context.FameRewardsSet {
+		pool = teamBattleFamePool(profile, policy)
 	}
-	var bonusReward release.Reward
-	foundReward := false
-	for _, reward := range profile.ResultRewards {
-		if _, eligible := eligibleTypes[reward.Type]; eligible {
-			bonusReward = reward
-			foundReward = true
-			break
-		}
-	}
-	if !foundReward {
+	if len(pool) == 0 {
 		// The local onboarding/training profile has no inventory-bearing drop.
 		// Keeping that one route fame-empty is safer than inventing a second pool.
 		return nil, nil
@@ -3814,7 +3830,7 @@ func (s *store) planTeamBattleFameAwardsLocked(
 			plans = append(plans, teamBattleFameAwardPlan{
 				ArthurType: source.ArthurType,
 				RewardKind: 0,
-				Reward:     bonusReward,
+				Reward:     teamBattleFameReward(pool, context.FameSeed, source.ArthurType, 0),
 			})
 		}
 		if effectiveFame >= policy.FullFameThreshold {
@@ -3822,7 +3838,7 @@ func (s *store) planTeamBattleFameAwardsLocked(
 				plans = append(plans, teamBattleFameAwardPlan{
 					ArthurType: source.ArthurType,
 					RewardKind: 1,
-					Reward:     bonusReward,
+					Reward:     teamBattleFameReward(pool, context.FameSeed, source.ArthurType, rewardIndex),
 				})
 			}
 		}
@@ -3909,6 +3925,9 @@ func (s *store) completeTeamBattle(
 		return teamBattleSettlement{}, errors.New("team battle drop report does not match its started plan")
 	}
 	profile.ResultRewards = settledTeamBattleRewards(profile, context, report)
+	if report.FameRewardsSet {
+		context.FameRewardsSet, context.FameRewards = true, report.FameRewards
+	}
 	scoreProgress, scoreRewards, scoreInfo := planTeamBattleScore(profile.ScorePolicy, s.teamBattleScores[bossID], report.Turns)
 	settlement.ScoreInfo = scoreInfo
 
@@ -5639,7 +5658,7 @@ func (s *store) tradeShopStateLocked() []tradeShopState {
 		shopIDs = append(shopIDs, shopID)
 	}
 	sort.Ints(shopIDs)
-	ownedCards := s.ownedCardIDsLocked()
+	ownedCards := s.collectedCardIDsLocked()
 	result := make([]tradeShopState, 0, len(shopIDs))
 	ownedStacks := make(map[int]bool, len(s.stackCards))
 	for _, stack := range s.stackCards {
@@ -5669,6 +5688,9 @@ func (s *store) tradeShopStateLocked() []tradeShopState {
 		pointKeys := make(map[[2]int]struct{})
 		for index, lineup := range profile.Lineups {
 			remain := lineup.StockNum
+			if len(lineup.Rewards) == 1 && s.ownsCollectionRewardLocked(lineup.Rewards[0]) {
+				remain = 0
+			}
 			if remain > 0 {
 				remain -= s.tradeShopPurchases[lineup.LineupID]
 				if remain < 0 {
@@ -5744,13 +5766,7 @@ func (s *store) homeBannerGachaID(now time.Time) int {
 func (s *store) gachaStateWithOwnership() ([]release.GachaProfile, map[int]struct{}) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	ownedCardIDs := make(map[int]struct{}, len(s.cards)+len(s.containerCards))
-	for _, inventory := range [][]cardInfo{s.cards, s.containerCards} {
-		for _, card := range inventory {
-			ownedCardIDs[card.CardID] = struct{}{}
-		}
-	}
-	return s.visibleGachasLocked(), ownedCardIDs
+	return s.visibleGachasLocked(), s.collectedCardIDsLocked()
 }
 
 func (s *store) visibleGachasLocked() []release.GachaProfile {
@@ -5882,7 +5898,7 @@ func (s *store) gachaSelectLineup(gachaID int) ([]gachaLineupEntry, error) {
 	if profile.UserSelectMax <= 0 {
 		return nil, errors.New("gacha has no user-select lineup")
 	}
-	owned := s.ownedCardIDsLocked()
+	owned := s.collectedCardIDsLocked()
 	result := make([]gachaLineupEntry, len(profile.CardIDs))
 	for index, cardID := range profile.CardIDs {
 		result[index] = gachaLineupEntry{
@@ -5904,7 +5920,7 @@ func (s *store) gachaSelectedLineup(gachaID int) ([]gachaLineupEntry, error) {
 		return nil, errors.New("gacha has no user-select lineup")
 	}
 	selected := s.gachaSelections[gachaID]
-	owned := s.ownedCardIDsLocked()
+	owned := s.collectedCardIDsLocked()
 	result := make([]gachaLineupEntry, len(selected))
 	for index, reward := range selected {
 		result[index] = gachaLineupEntry{
@@ -5915,14 +5931,31 @@ func (s *store) gachaSelectedLineup(gachaID int) ([]gachaLineupEntry, error) {
 	return result, nil
 }
 
-func (s *store) ownedCardIDsLocked() map[int]struct{} {
-	owned := make(map[int]struct{}, len(s.cards)+len(s.containerCards))
+func (s *store) collectedCardIDsLocked() map[int]struct{} {
+	owned := make(map[int]struct{}, len(s.cardCollectionIDs)+len(s.cards)+len(s.containerCards))
+	for id := range s.cardCollectionIDs {
+		owned[id] = struct{}{}
+	}
 	for _, inventory := range [][]cardInfo{s.cards, s.containerCards} {
 		for _, card := range inventory {
 			owned[card.CardID] = struct{}{}
 		}
 	}
 	return owned
+}
+
+func (s *store) hasCollectedCardLocked(id int) bool {
+	if _, ok := s.cardCollectionIDs[id]; ok {
+		return true
+	}
+	for _, inventory := range [][]cardInfo{s.cards, s.containerCards} {
+		for _, card := range inventory {
+			if card.CardID == id {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func findGachaProfile(gachas []release.GachaProfile, gachaID int) *release.GachaProfile {
@@ -6126,6 +6159,9 @@ func (s *store) exchangeItem(itemID int, changeSets int) (itemExchangeResult, er
 }
 
 func (s *store) validateLocalTradeRewardLocked(reward release.Reward) error {
+	if release.IsCollectionReward(reward.Type) {
+		return s.validateRewardLocked(reward)
+	}
 	if reward.Num <= 0 || reward.CardSkillLevels == nil {
 		return errors.New("local trade reward is incomplete")
 	}
@@ -6488,12 +6524,33 @@ func (s *store) useItem(itemID int) (itemUseResult, error) {
 	s.refreshAPLocked(now)
 	s.refreshBattlePointsLocked(now)
 	switch definition.Function {
-	case "BP_HEAL_FULL":
-		s.bp = s.bpMax
-		s.bpNextRecovery = time.Time{}
-	case "AP_HEAL_FULL":
-		s.ap = s.apMax
-		s.apNextRecovery = time.Time{}
+	case "BP_HEAL_FULL", "BP_HEAL_HALF", "BP_HEAL_30":
+		if s.bp >= s.bpMax {
+			return itemUseResult{}, &businessError{-1, "体力已满，无需使用恢复药。"}
+		}
+		heal := s.bpMax
+		if definition.Function == "BP_HEAL_HALF" {
+			heal = (s.bpMax + 1) / 2
+		}
+		if definition.Function == "BP_HEAL_30" {
+			heal = 30
+		}
+		s.bp = min(s.bpMax, s.bp+heal)
+		if s.bp == s.bpMax {
+			s.bpNextRecovery = time.Time{}
+		}
+	case "AP_HEAL_FULL", "AP_HEAL_1":
+		if s.ap >= s.apMax {
+			return itemUseResult{}, &businessError{-1, "精力已满，无需使用恢复药。"}
+		}
+		heal := s.apMax
+		if definition.Function == "AP_HEAL_1" {
+			heal = 1
+		}
+		s.ap = min(s.apMax, s.ap+heal)
+		if s.ap == s.apMax {
+			s.apNextRecovery = time.Time{}
+		}
 	default:
 		return itemUseResult{}, errors.New("item cannot be used directly")
 	}
@@ -6688,6 +6745,11 @@ func (s *store) buyTradeShop(lineupID int, num int, uniqueIDs []int64) (tradeSho
 	}
 	if selected == nil || len(selected.Prices) != 1 || len(selected.Rewards) == 0 {
 		return tradeShopBuyResult{}, &businessError{-6301, "该兑换商品已下架，请重新打开兑换所。"}
+	}
+	for _, reward := range selected.Rewards {
+		if release.IsCollectionReward(reward.Type) && (num != 1 || s.ownsCollectionRewardLocked(reward)) {
+			return tradeShopBuyResult{}, &businessError{-6301, "该皮肤、对话、表情或称号已经拥有，或本次兑换数量不是1。"}
+		}
 	}
 	if selected.StockNum > 0 && s.tradeShopPurchases[lineupID]+num > selected.StockNum {
 		return tradeShopBuyResult{}, &businessError{-6301, "该商品兑换次数已用完。"}

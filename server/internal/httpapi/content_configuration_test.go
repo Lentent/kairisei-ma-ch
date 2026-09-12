@@ -1,9 +1,29 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"kairisei.local/server/internal/release"
 	"testing"
 )
+
+func TestContentCatalogKeepsProgressWhenMovingGroups(t *testing.T) {
+	account := json.RawMessage(`{"9":[],"10":[{"10":[{"0":7,"10":2,"12":[]}]}],"11":[],"12":[]}`)
+	catalog := json.RawMessage(`{"9":[{"10":[{"0":7,"10":0,"12":[{"0":99}]}]}],"10":[],"11":[],"12":[]}`)
+	state := ApplyContentState(release.State{TeamBattleSolo: account}, ContentConfiguration{Revision: 1, State: release.State{TeamBattleSolo: catalog}})
+	var top map[string][]struct {
+		Bosses []struct {
+			ID    int              `json:"0"`
+			State int              `json:"10"`
+			Cards []map[string]int `json:"12"`
+		} `json:"10"`
+	}
+	if err := json.Unmarshal(state.TeamBattleSolo, &top); err != nil {
+		t.Fatal(err)
+	}
+	if top["9"][0].Bosses[0].State != 2 || top["9"][0].Bosses[0].Cards[0]["0"] != 99 {
+		t.Fatal("catalog update did not preserve progress and replace definitions")
+	}
+}
 
 func TestExchangeConfigurationPreservesCountsAndChargesDisplayedPrice(t *testing.T) {
 	s := &store{items: map[int]release.Item{4000: {ItemID: 4000, Num: 1000}}, itemDefinitions: map[int]release.ItemDefinition{4000: {ItemID: 4000, MaxOwned: 9999}, 1000: {ItemID: 1000, MaxOwned: 9999}}, tradeShopPurchases: map[int]int{2: 2}}

@@ -2,7 +2,7 @@
 
 const mailWorkspace={basket:new Map(),running:false,paused:false,busy:false,current:null,jobsPage:0,errors:[]};
 const rewardKey=e=>`${e.reward_type}:${e.reward_type_id}`;
-const rewardLimit=e=>[6,15,19].includes(e.reward_type)?100:10000000;
+const rewardLimit=e=>[14,16,18].includes(e.reward_type)?1:[6,15,19].includes(e.reward_type)?100:10000000;
 const pendingBatchKey='cn602-admin-pending-batch-v2';
 let pendingBatch=null;
 try{pendingBatch=JSON.parse(localStorage.getItem(pendingBatchKey)||'null')}catch{/* The server batch list remains authoritative. */}

@@ -385,6 +385,13 @@ func newCNAdminHandler(
 	if err != nil {
 		return nil, fmt.Errorf("validate CN admin catalog image coverage: %w", err)
 	}
+	if operations.content != nil {
+		for _, definition := range operations.content.base.CollectionRewards {
+			kind := map[int]string{14: "costume", 16: "stamp", 18: "honor"}[definition.Type]
+			catalog = append(catalog, cnAdminCatalogEntry{Kind: kind, RewardType: definition.Type, RewardTypeID: definition.ID,
+				Name: definition.Name, Detail: definition.Detail, PictID: definition.PictID})
+		}
+	}
 	catalogByKey := make(map[string]cnAdminCatalogEntry, len(catalog))
 	for _, entry := range catalog {
 		catalogByKey[cnAdminCatalogKey(entry.RewardType, entry.RewardTypeID)] = entry
@@ -991,7 +998,7 @@ func (admin *cnAdmin) catalogEntries(writer http.ResponseWriter, request *http.R
 		offset = parsed
 	}
 	if kind != "" {
-		valid := map[string]bool{"currency": true, "card": true, "item": true, "material": true, "sphere": true, "buddy": true}
+		valid := map[string]bool{"currency": true, "card": true, "item": true, "material": true, "sphere": true, "buddy": true, "costume": true, "stamp": true, "honor": true}
 		if !valid[kind] {
 			writeCNAdminError(writer, http.StatusBadRequest, "unknown catalog kind")
 			return
@@ -1093,6 +1100,9 @@ func (admin *cnAdmin) mailReward(request cnAdminMailRequest) (release.Reward, cn
 		return release.Reward{}, cnAdminCatalogEntry{}, errors.New("该卡牌尚未进入当前运行资源清单")
 	}
 	maximum := cnAdminMaximumStackedRewardQuantity
+	if release.IsCollectionReward(request.RewardType) {
+		maximum = 1
+	}
 	if request.RewardType == 6 || request.RewardType == 15 || request.RewardType == 19 {
 		maximum = cnAdminMaximumInstanceRewardQuantity
 	}

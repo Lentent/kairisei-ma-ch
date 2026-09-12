@@ -113,6 +113,8 @@ type BattleDrop struct {
 }
 
 type RoomSpec struct {
+	FameRewardsSet     bool
+	FameRewards        []release.Reward
 	Battles            []release.TeamBattleReplayBattle
 	DropLedgerVersion  int
 	DropPlan           []release.TeamBattleEnemyDrop
@@ -168,6 +170,8 @@ type RoomSnapshot struct {
 // their authenticated comeback window. Mutable account rewards remain in the
 // per-account SQLite store.
 type CompletedBattle struct {
+	FameRewardsSet     bool
+	FameRewards        []release.Reward
 	Turns              int
 	BattleIndex        int
 	Progress           int
@@ -243,6 +247,8 @@ type room struct {
 	destroyedEnemyBits     int
 	dropLedgerVersion      int
 	dropPlan               []release.TeamBattleEnemyDrop
+	fameRewardsSet         bool
+	fameRewards            []release.Reward
 	battlePointUse         int
 	continueAllowed        bool
 	continuation           *roomContinuation
@@ -1004,6 +1010,7 @@ func cloneMember(member Member) Member {
 }
 
 func cloneRoomSpec(spec RoomSpec) RoomSpec {
+	spec.FameRewards = cloneFameRewards(spec.FameRewards)
 	spec.Battles = append([]release.TeamBattleReplayBattle(nil), spec.Battles...)
 	spec.DropPlan = cloneDropPlan(spec.DropPlan)
 	spec.Owner = cloneMember(spec.Owner)
@@ -1027,6 +1034,7 @@ func cloneRoomSnapshot(snapshot RoomSnapshot) RoomSnapshot {
 }
 
 func cloneCompletedBattle(completed CompletedBattle) CompletedBattle {
+	completed.FameRewards = cloneFameRewards(completed.FameRewards)
 	completed.ReleasedDrops = cloneDropPlan(completed.ReleasedDrops)
 	completed.Members = append([]Member(nil), completed.Members...)
 	for index := range completed.Members {
@@ -1034,6 +1042,14 @@ func cloneCompletedBattle(completed CompletedBattle) CompletedBattle {
 	}
 	completed.OnlineUserIDs = append([]int(nil), completed.OnlineUserIDs...)
 	return completed
+}
+
+func cloneFameRewards(source []release.Reward) []release.Reward {
+	result := slices.Clone(source)
+	for i := range result {
+		result[i].CardSkillLevels = slices.Clone(result[i].CardSkillLevels)
+	}
+	return result
 }
 
 func cloneDropPlan(source []release.TeamBattleEnemyDrop) []release.TeamBattleEnemyDrop {

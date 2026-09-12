@@ -50,6 +50,9 @@ func TestQuestFirstClearCrystalsAreGrantedOncePerDifficulty(t *testing.T) {
 				if _, err := s.completeTeamBattle(step.boss, step.win, []release.TeamBattleRewardProfile{profile}); err == nil || s.coinFree != step.balance {
 					t.Fatal("duplicate settlement must not grant rewards again")
 				}
+				// Reconstruct the domain store from durable progress/coins. No
+				// active run or result receipt can suppress a new run's reward.
+				s = &store{coinFree: s.coinFree, teamBattleSolo: append(json.RawMessage(nil), s.teamBattleSolo...), stageQuests: s.stageQuests}
 			}
 		})
 	}

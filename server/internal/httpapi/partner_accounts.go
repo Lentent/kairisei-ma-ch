@@ -19,6 +19,7 @@ type friendPointPartnerView struct {
 	ArthurType      int8
 	Cards           map[int64]cardInfo
 	CardAttributes  map[int]uint8
+	CardKinds       map[int]int
 	Decks           []deckInfo
 	Avatar          release.Avatar
 	Spheres         map[int64]release.Sphere
@@ -67,9 +68,11 @@ func friendPointPartnerViewFromState(state release.State) (friendPointPartnerVie
 		cardByUniqueID[card.UniqueID] = card
 	}
 	decks := deckInfosFromRelease(state.Decks)
-	if _, found := selectCompletePartnerDeck(decks, arthurType, cardByUniqueID); !found {
+	rentalDeck, found := selectRentalPartnerDeck(decks, arthurType, cardByUniqueID)
+	if !found {
 		return friendPointPartnerView{}, false
 	}
+	arthurType = rentalDeck.ArthurType
 	buddies := make(map[int64]release.Buddy, len(state.Buddies))
 	for _, buddy := range state.Buddies {
 		buddies[buddy.UniqueID] = buddy
@@ -111,7 +114,27 @@ func (view friendPointPartnerView) job(jobType int8) release.JobParameter {
 }
 
 func (view friendPointPartnerView) activeDeck() (deckInfo, bool) {
-	return selectCompletePartnerDeck(view.Decks, view.ArthurType, view.Cards)
+	return selectRentalPartnerDeck(view.Decks, view.ArthurType, view.Cards)
+}
+
+// The native deck editor marks the public rental decks independently of the
+// Arthur currently used by the owner. Never substitute an active battle deck
+// when the owner has explicitly selected rental decks.
+func selectRentalPartnerDeck(decks []deckInfo, fallbackArthur int8, cards map[int64]cardInfo) (deckInfo, bool) {
+	hasRental := false
+	for _, deck := range decks {
+		if deck.IsRental == 0 {
+			continue
+		}
+		hasRental = true
+		if complete, ok := selectCompletePartnerDeck([]deckInfo{deck}, deck.ArthurType, cards); ok {
+			return complete, true
+		}
+	}
+	if hasRental {
+		return deckInfo{}, false
+	}
+	return selectCompletePartnerDeck(decks, fallbackArthur, cards)
 }
 
 func (view friendPointPartnerView) listWire(friendPoint int, friendState int8) (map[string]any, error) {
@@ -145,7 +168,7 @@ func (view friendPointPartnerView) listWire(friendPoint int, friendState int8) (
 		"rental_idx":    deck.Index,
 		"play_log_turn": 0,
 		"attr_nums":     view.deckAttributeCounts(deck),
-		"kind_nums":     []int{},
+		"kind_nums":     view.deckKindCounts(deck),
 		"deck_honorids": append([]int(nil), view.HonorIDs...),
 	}, nil
 }
@@ -171,8 +194,12 @@ func (view friendPointPartnerView) deckWire(deckIndex int8) (map[string]any, err
 
 func (view friendPointPartnerView) rentalDeckWires() ([]any, error) {
 	selected := make([]deckInfo, 0)
+	hasRental := false
 	for _, deck := range view.Decks {
-		if deck.ArthurType != view.ArthurType {
+		hasRental = hasRental || deck.IsRental != 0
+	}
+	for _, deck := range view.Decks {
+		if deck.ArthurType != view.ArthurType || (hasRental && deck.IsRental == 0) {
 			continue
 		}
 		if _, complete := selectCompletePartnerDeck([]deckInfo{deck}, view.ArthurType, view.Cards); complete {
@@ -216,6 +243,11 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 				}
 			}
 			a.store.mu.RUnlock()
+			cardIDs := make([]int, 0, len(view.Cards))
+			for _, card := range view.Cards {
+				cardIDs = append(cardIDs, card.CardID)
+			}
+			view.CardKinds = a.multiplayer.PartnerCardKinds(cardIDs)
 			view.FriendState = relation.FriendState
 			view.System = relation.System
 			views = append(views, view)
@@ -225,6 +257,20 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 		return views[left].UserID < views[right].UserID
 	})
 	return views, nil
+}
+
+func (view friendPointPartnerView) deckKindCounts(deck deckInfo) []int {
+	counts := make([]int, 8)
+	for _, id := range deck.CardUniqueIDs {
+		card, ok := view.Cards[id]
+		if !ok {
+			continue
+		}
+		if kind, known := view.CardKinds[card.CardID]; known && kind >= 0 && kind < len(counts) {
+			counts[kind]++
+		}
+	}
+	return counts
 }
 
 func friendPointAccountFriend(relation FriendPointAccountRelation) (release.Friend, bool) {

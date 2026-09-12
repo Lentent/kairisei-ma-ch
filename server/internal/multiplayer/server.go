@@ -411,6 +411,8 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		battles:              append([]release.TeamBattleReplayBattle(nil), roomSpecBattles(pending.Spec)...),
 		dropLedgerVersion:    pending.Spec.DropLedgerVersion,
 		dropPlan:             cloneDropPlan(pending.Spec.DropPlan),
+		fameRewardsSet:       pending.Spec.FameRewardsSet,
+		fameRewards:          cloneFameRewards(pending.Spec.FameRewards),
 		connections:          map[int]*clientConn{1: c},
 		reservations:         make(map[int]roomReservation),
 		comebackTokens:       map[int]string{1: comebackToken},
@@ -1199,6 +1201,8 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		return errors.New("completed battle has no connected account")
 	}
 	projection := CompletedBattle{
+		FameRewardsSet:  current.fameRewardsSet,
+		FameRewards:     current.fameRewards,
 		BattleIndex:     current.battleIndex,
 		Progress:        current.progress,
 		HostCostPaid:    current.hostCostPaid,

@@ -1107,6 +1107,8 @@ func validCNPersistedRewardShape(reward release.Reward) bool {
 		return reward.RewardTypeID > 0 && reward.CardLevel >= 0 && reward.CardFame >= 0 && reward.CardLove >= 0
 	case 8, 13, 15, 19:
 		return reward.RewardTypeID > 0
+	case 14, 16, 18:
+		return reward.RewardTypeID > 0 && reward.Num == 1
 	default:
 		return false
 	}

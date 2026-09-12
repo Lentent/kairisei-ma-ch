@@ -22,8 +22,9 @@ const cnBossDropsKey = "boss-drops"
 const cnExchangesKey = "exchange-shops"
 
 type cnBossDrops struct {
-	BossID int                           `json:"boss_id"`
-	Drops  []release.TeamBattleEnemyDrop `json:"enemy_drops"`
+	BossID      int                           `json:"boss_id"`
+	Drops       []release.TeamBattleEnemyDrop `json:"enemy_drops"`
+	FameRewards []release.Reward              `json:"fame_rewards"`
 }
 
 func editableCNDrops(drops []release.TeamBattleEnemyDrop) []release.TeamBattleEnemyDrop {
@@ -191,6 +192,7 @@ func (c *cnContentStore) project(drops map[int]cnBossDrops, shops map[int]releas
 			continue
 		}
 		// Gold and other pre-existing fixed rewards are not editable here.
+		p.FameRewards = slices.Clone(config.FameRewards)
 		p.EnemyDrops = make([]release.TeamBattleEnemyDrop, 0, len(config.Drops)+1)
 		for _, d := range state.TeamBattleRewards[i].EnemyDrops {
 			if !editableCNDroppedReward(d.Reward) {
@@ -290,8 +292,8 @@ func (o *cnOperationStore) contentConfiguration() httpapi.ContentConfiguration {
 }
 
 func (a *cnAdmin) validateContentReward(r release.Reward) error {
-	if r.Type != 6 && r.Type != 8 && r.Type != 13 {
-		return errors.New("请选择卡牌、素材卡或道具")
+	if r.Type != 6 && r.Type != 8 && r.Type != 13 && r.Type != 15 && r.Type != 19 && !release.IsCollectionReward(r.Type) {
+		return errors.New("请选择卡牌、素材、道具、召唤石、传承卡、皮肤、对话表情或称号")
 	}
 	canonical, _, err := a.mailReward(cnAdminMailRequest{RewardType: r.Type, RewardTypeID: r.RewardTypeID, Quantity: r.Num, CardLevel: int(r.CardLevel), CardFame: int(r.CardFame), CardLove: r.CardLove})
 	if err != nil {
@@ -311,7 +313,21 @@ func (a *cnAdmin) validateDropConfig(c cnBossDrops) error {
 	if c.Drops == nil || len(c.Drops) > 120 {
 		return errors.New("掉落表须为数组，每个难度最多120项")
 	}
+	if len(c.FameRewards) > 120 {
+		return errors.New("名声奖励候选最多120项")
+	}
+	for _, reward := range c.FameRewards {
+		if !editableCNDroppedReward(reward) {
+			return errors.New("名声奖励支持普通卡、素材卡和道具")
+		}
+		if err := a.validateContentReward(reward); err != nil {
+			return err
+		}
+	}
 	for _, d := range c.Drops {
+		if !editableCNDroppedReward(d.Reward) {
+			return errors.New("战斗掉落仅支持普通卡、素材卡和道具")
+		}
 		if !slices.ContainsFunc(row.Targets, func(t cnDropTarget) bool { return t.BattleIndex == d.BattleIndex && t.EnemyIndex == d.EnemyIndex }) {
 			return errors.New("掉落目标不是此难度的有效波次／怪物／部位")
 		}
@@ -353,6 +369,7 @@ func (a *cnAdmin) dropEditor(w http.ResponseWriter, r *http.Request) {
 	for _, p := range c.base.TeamBattleRewards {
 		if p.BossID == id && p.StageQuestAreaID == 0 && p.TowerID == 0 {
 			base.Drops = editableCNDrops(p.EnemyDrops)
+			base.FameRewards = slices.Clone(p.FameRewards)
 			break
 		}
 	}

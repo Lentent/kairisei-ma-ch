@@ -77,7 +77,7 @@ kairisei-ma-cn602-server/       ← 运行目录，也是 -PackageRoot 指向的
 
 新启动脚本不再要求 `deployment.json` 中的 `resource_set_sha256`；已有配置中的旧字段会被忽略。资源集自身的文件清单仍保留。
 
-Linux 同样替换自己系统对应的程序。替换后，运行 `sha256sum kairi-server-linux-arm64`（x64 则为 `kairi-server-linux-amd64`），将结果替换到运行目录 `linux-startup.sha256` 中该程序原来的那一行，其余行保留；再使用包内对应的 Linux 启动脚本。
+Linux 同样替换自己系统对应的程序，再使用包内对应的 Linux 启动脚本。启动不要求校验文件；保留配套的 `Start-Server-linux.sh` 与 `server-arguments.sh` 即可。
 
 ### 可选：从源码目录调用 Windows 启停脚本
 

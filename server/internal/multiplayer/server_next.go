@@ -21,12 +21,30 @@ func roomSpecWaveDrops(spec RoomSpec, index int) []BattleDrop {
 		return spec.Drops
 	}
 	var drops []BattleDrop
-	for _, drop := range spec.DropPlan {
+	for _, drop := range release.TeamBattleWaveDrops(spec.DropPlan, roomBattleEnemyTypes(spec.Battles), index) {
 		if drop.BattleIndex == index {
 			drops = append(drops, BattleDrop{EnemyIndex: drop.EnemyIndex, RewardType: drop.Reward.Type, RewardTypeID: drop.Reward.RewardTypeID, Num: drop.Reward.Num})
 		}
 	}
 	return drops
+}
+
+func roomBattleEnemyTypes(waves []release.TeamBattleReplayBattle) []int8 {
+	types := make([]int8, len(waves))
+	for i, wave := range waves {
+		types[i] = wave.EnemyType
+	}
+	return types
+}
+
+func roomBodyRewardAlreadyReleased(current *room, wave int) bool {
+	source := release.TeamBattleBodyRewardWave(roomBattleEnemyTypes(current.battles), wave)
+	for _, drop := range current.releasedDrops {
+		if drop.EnemyIndex == 0 && drop.BattleIndex >= source && drop.BattleIndex < wave {
+			return true
+		}
+	}
+	return false
 }
 
 func roomCountdownPayload(current *room) string {
@@ -77,7 +95,10 @@ func recordRoomWaveDrops(current *room) {
 			current.destroyedEnemyBits |= 1 << index
 		}
 		if enemy.DropReleased {
-			for _, drop := range current.dropPlan {
+			if index == 0 && roomBodyRewardAlreadyReleased(current, current.battleIndex) {
+				continue
+			}
+			for _, drop := range release.TeamBattleWaveDrops(current.dropPlan, roomBattleEnemyTypes(current.battles), current.battleIndex) {
 				if drop.BattleIndex == current.battleIndex && drop.EnemyIndex == index {
 					current.releasedDrops = append(current.releasedDrops, cloneDropPlan([]release.TeamBattleEnemyDrop{drop})[0])
 				}
@@ -132,7 +153,16 @@ func (s *Server) tryAdvanceNextBattle(roomID int64) error {
 	}
 	index := current.nextBattleIndex
 	wave := current.battles[index]
-	drops := roomSpecWaveDrops(RoomSpec{DropLedgerVersion: current.dropLedgerVersion, DropPlan: current.dropPlan}, index)
+	drops := roomSpecWaveDrops(RoomSpec{DropLedgerVersion: current.dropLedgerVersion, DropPlan: current.dropPlan, Battles: current.battles}, index)
+	if roomBodyRewardAlreadyReleased(current, index) {
+		kept := drops[:0]
+		for _, drop := range drops {
+			if drop.EnemyIndex != 0 {
+				kept = append(kept, drop)
+			}
+		}
+		drops = kept
+	}
 	engine, err := current.engine.NextBattle(wave.EnemyPartyID, drops)
 	if err != nil {
 		hub.mu.Unlock()

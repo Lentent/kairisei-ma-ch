@@ -50,14 +50,9 @@ case "$ARCH:$(uname -m)" in
     *) echo "Wrong architecture: requested $ARCH, detected $(uname -m)." >&2; exit 2 ;;
 esac
 SERVER="$ROOT/kairi-server-linux-$ARCH"
-if [ ! -f "$SERVER" ] || [ ! -f linux-startup.sha256 ] || [ ! -f server-arguments.sh ]; then
+if [ ! -f "$SERVER" ] || [ ! -f server-arguments.sh ]; then
     echo 'Incomplete package. Extract all release files first.' >&2; exit 1
 fi
-# Resource hashes come from the verified set. Startup checks its manifest,
-# argument bindings, executables and critical resource entry points only.
-sha256sum --check --strict --status linux-startup.sha256 || {
-    echo 'Package startup files do not match their checksums.' >&2; exit 1
-}
 . "$ROOT/server-arguments.sh"
 if [ "$DRY_RUN" = true ]; then
     echo 'Dry run: no server started and no account data written.'

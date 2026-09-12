@@ -209,6 +209,8 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		Battles:            battles,
 		DropLedgerVersion:  1,
 		DropPlan:           dropPlan,
+		FameRewardsSet:     true,
+		FameRewards:        teamBattleFamePool(rewardProfile, a.release.State.TeamBattleFameBonusPolicy),
 		BattlePointUse:     bpUse,
 		ContinueAllowed:    rules.Continue != 0,
 		BossID:             issue.BossID,

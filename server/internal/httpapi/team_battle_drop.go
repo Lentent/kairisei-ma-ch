@@ -84,7 +84,8 @@ func teamBattleDropPlanSpecs(plan []release.TeamBattleEnemyDrop, battleIndex int
 	return drops
 }
 
-func teamBattleDropPlanWire(plan []release.TeamBattleEnemyDrop, battleIndex int) []any {
+func teamBattleDropPlanWire(plan []release.TeamBattleEnemyDrop, enemyTypes []int8, battleIndex int) []any {
+	plan = release.TeamBattleWaveDrops(plan, enemyTypes, battleIndex)
 	rows := make([]any, 0, 4)
 	for enemy := 0; enemy < 4; enemy++ {
 		drops := make([]release.Reward, 0)
@@ -104,15 +105,18 @@ func teamBattleDropPlanWire(plan []release.TeamBattleEnemyDrop, battleIndex int)
 // room instead provides exactly the drops its engine released (DESTRUCT can
 // destroy an enemy without releasing a drop). Never re-roll either at result.
 type teamBattleDropReport struct {
-	Turns         int
-	EnemyDeadBits []int
-	Authoritative bool
-	ReleasedDrops []release.TeamBattleEnemyDrop
+	FameRewardsSet bool
+	FameRewards    []release.Reward
+	Turns          int
+	EnemyDeadBits  []int
+	Authoritative  bool
+	ReleasedDrops  []release.TeamBattleEnemyDrop
 }
 
 func multiplayerDropReport(completed multiplayer.CompletedBattle) teamBattleDropReport {
 	if completed.DropLedgerVersion == 1 {
-		return teamBattleDropReport{Turns: completed.Turns, Authoritative: true, ReleasedDrops: completed.ReleasedDrops}
+		return teamBattleDropReport{Turns: completed.Turns, Authoritative: true, ReleasedDrops: completed.ReleasedDrops,
+			FameRewardsSet: completed.FameRewardsSet, FameRewards: completed.FameRewards}
 	}
 	// Pre-upgrade completed records represent victories, with the historical
 	// aggregate body-only policy. They have no bit field; do not erase rewards.
@@ -135,7 +139,15 @@ func settledTeamBattleRewards(profile release.TeamBattleRewardProfile, context t
 		}
 	} else {
 		for _, entry := range context.DropPlan {
-			if entry.BattleIndex < len(report.EnemyDeadBits) && report.EnemyDeadBits[entry.BattleIndex]&(1<<entry.EnemyIndex) != 0 {
+			released := entry.BattleIndex < len(report.EnemyDeadBits) && report.EnemyDeadBits[entry.BattleIndex]&(1<<entry.EnemyIndex) != 0
+			if entry.EnemyIndex == 0 && !released {
+				for wave := entry.BattleIndex + 1; wave < len(context.BattleEnemyTypes) && context.BattleEnemyTypes[wave] == 4; wave++ {
+					if wave < len(report.EnemyDeadBits) && report.EnemyDeadBits[wave]&1 != 0 {
+						released = true
+					}
+				}
+			}
+			if released {
 				rewards = append(rewards, entry.Reward)
 			}
 		}

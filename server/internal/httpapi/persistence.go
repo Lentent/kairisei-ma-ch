@@ -43,6 +43,7 @@ func (s *store) snapshotLocked(base release.State) release.State {
 	s.refreshBattlePointsLocked(now)
 
 	state := base
+	state.InventorySequence = release.InventorySequenceState{Card: s.nextUniqueID, Sphere: s.nextSphereUniqueID, Buddy: s.nextBuddyUniqueID}
 	state.BurstProgress = s.burstProgress
 	state.StoryTeamBattleSession = s.storyTeamBattleSession
 	state.Navigation = release.NavigationState{
@@ -209,6 +210,7 @@ func (s *store) snapshotLocked(base release.State) release.State {
 		}
 	}
 	state.Avatars = cloneAvatars(s.avatars)
+	state.Costume = s.costumeStateLocked()
 	state.AvatarParts = make([]int, 0, len(s.avatarParts))
 	for partID := range s.avatarParts {
 		state.AvatarParts = append(state.AvatarParts, partID)

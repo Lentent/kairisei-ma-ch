@@ -106,6 +106,15 @@ func validateCNStampRuntimeMaster(master cnStampRuntimeMaster) error {
 }
 
 func applyCNStampRuntimeMaster(state *release.State, master cnStampRuntimeMaster) (bool, error) {
+	definitions := make([]release.CollectionRewardDefinition, 0, len(master.Stamps))
+	for _, stamp := range master.Stamps {
+		name := stamp.DisplayText
+		if name == "" {
+			name = stamp.Label
+		}
+		definitions = append(definitions, release.CollectionRewardDefinition{Type: 16, ID: stamp.StampID, Name: name, Detail: "战斗对话／表情 · 领取后在聊天编成中使用"})
+	}
+	state.SetCollectionRewardDefinitions(16, definitions)
 	available := make(map[int]struct{}, len(master.Stamps))
 	defaults := make([]int, 0)
 	for _, stamp := range master.Stamps {

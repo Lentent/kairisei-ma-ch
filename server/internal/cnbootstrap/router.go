@@ -764,6 +764,10 @@ func loadCNRuntimeStatePreparer(cardMasterPath, exploreMasterPath, storyMasterPa
 	if err != nil {
 		return nil, err
 	}
+	costumes, err := loadCNCostumeRewards()
+	if err != nil {
+		return nil, err
+	}
 	stampMaster, err := loadCNStampRuntimeMaster(stampMasterPath)
 	if err != nil {
 		return nil, err
@@ -790,10 +794,13 @@ func loadCNRuntimeStatePreparer(cardMasterPath, exploreMasterPath, storyMasterPa
 	}
 	return func(runtimeState release.State) (release.State, error) {
 		var err error
+		runtimeState.SetCollectionRewardDefinitions(14, costumes)
 		if runtimeState.User.Comment == "LOCAL OFFLINE PROFILE" {
 			runtimeState.User.Comment = "请多关照！"
 		}
 		runtimeState.User.InviteID = cnInviteID(runtimeState.User.UserID)
+		runtimeState.User.SphereMax = max(runtimeState.User.SphereMax, release.SphereCapacityDefault)
+		runtimeState.User.BuddyMax = max(runtimeState.User.BuddyMax, release.BuddyCapacityDefault)
 		normalizeCNLegacyStaticFriends(&runtimeState)
 		_, err = applyCNPlayerProgressionRuntimeMaster(&runtimeState, playerProgression)
 		if err != nil {
