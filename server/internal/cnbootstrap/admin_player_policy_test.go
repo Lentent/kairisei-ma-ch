@@ -106,6 +106,41 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 	if strings.Contains(w.Body.String(), "活动公告") || !strings.Contains(w.Body.String(), "暂无公告") {
 		t.Fatal("disabled notice remains visible")
 	}
+	// A resource upgrade expands the catalog without replacing the operator's
+	// database. The old policy stays authoritative for every existing ID.
+	config.Navigators[0].Enabled = false
+	callContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 2, "config": config}, 200)
+	before, err := o.readDocument(cnPlayerPolicyKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgradedDefaults := *o.playerDefaults
+	newNavigator := httpapi.NaviSetting{NaviID: 49, Enabled: true, Price: 500}
+	upgradedDefaults.Navigators = append(append([]httpapi.NaviSetting(nil), o.playerDefaults.Navigators...), newNavigator)
+	restarted.playerDefaults = &upgradedDefaults
+	restarted.playerNaviNames = map[int8]string{1: "妮妙", 49: "新看板"}
+	if err := restarted.loadPlayerPolicy(); err != nil {
+		t.Fatal("existing database blocked catalog expansion", err)
+	}
+	want := config
+	want.Navigators = append(append([]httpapi.NaviSetting(nil), config.Navigators...), newNavigator)
+	if got := restarted.playerPolicy.Load(); got.Revision != 3 || !reflect.DeepEqual(got.Value, want) || !reflect.DeepEqual(got.Runtime.Navigators, want.Navigators) {
+		t.Fatalf("catalog expansion reset saved settings or omitted new navigator: %+v", got)
+	}
+	after, err := o.readDocument(cnPlayerPolicyKey)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("loading catalog expansion rewrote the stored policy")
+	}
+	// Admin receives the complete current list and persists it through the
+	// ordinary revision-checked save, not a special database migration.
+	upgradedAdmin := &cnAdmin{operations: restarted, catalogByKey: a.catalogByKey}
+	upgradedRouter := chi.NewRouter()
+	upgradedRouter.Put("/policy", upgradedAdmin.savePlayerPolicy)
+	callContentAdmin(t, upgradedRouter, "PUT", "/policy", map[string]any{"expected_revision": 3, "config": config}, 400)
+	callContentAdmin(t, upgradedRouter, "PUT", "/policy", map[string]any{"expected_revision": 3, "config": want}, 200)
+	if err := restarted.loadPlayerPolicy(); err != nil || !reflect.DeepEqual(restarted.playerPolicy.Load().Value, want) || restarted.playerPolicy.Load().Revision != 4 {
+		t.Fatal("completed navigator policy failed to survive another load", err)
+	}
 }
 
 func auditCompletePlayerPolicy(t *testing.T, h http.Handler) {

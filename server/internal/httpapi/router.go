@@ -507,6 +507,7 @@ func (a *API) connect(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	gameOptionFlag, pushOptionFlag := a.store.optionState()
+	naviUnlockFlag, naviUnlockIDs := a.store.naviUnlockState()
 	isUser := 0
 	if a.store.userCreated() {
 		isUser = 1
@@ -516,7 +517,8 @@ func (a *API) connect(writer http.ResponseWriter, request *http.Request) {
 		"push_option":          map[string]int{"enable_flag": pushOptionFlag},
 		"game_option":          map[string]int{"enable_flag": gameOptionFlag},
 		"revision":             []any{},
-		"navi_unlock_flag":     a.store.naviUnlockState(),
+		"navi_unlock_flag":     naviUnlockFlag,
+		"navi_unlock_ids":      naviUnlockIDs,
 		"cl_behavior_flag":     0,
 		"tutorial_flag":        a.store.tutorialState(),
 		"is_multidevice_share": 0,
@@ -699,11 +701,11 @@ func (a *API) userPayload() map[string]any {
 		"ap":                           ap.Current,
 		"ap_max":                       ap.Max,
 		"ap_next_sec":                  ap.NextSeconds,
-		"ap_heal_sec":                  ap.HealSeconds,
+		"ap_heal_sec":                  ap.IntervalSeconds,
 		"bp":                           bp.Current,
 		"bp_max":                       bp.Max,
 		"bp_next_sec":                  bp.NextSeconds,
-		"bp_heal_sec":                  bp.HealSeconds,
+		"bp_heal_sec":                  bp.IntervalSeconds,
 		"card_max_extend":              max(0, cardCapacity-cardCapacityBase),
 		"card_num":                     a.store.cardCount(),
 		"card_max":                     cardCapacity,

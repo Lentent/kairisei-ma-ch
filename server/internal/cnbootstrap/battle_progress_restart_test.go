@@ -2,6 +2,7 @@ package cnbootstrap
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"kairisei.local/server/internal/httpapi"
@@ -87,6 +88,9 @@ func TestCollectionUnlocksSurviveAccountReload(t *testing.T) {
 	state.InventorySequence = release.InventorySequenceState{Card: 900001, Sphere: 900002, Buddy: 900003}
 	state.Stamps.StampIDs = append(state.Stamps.StampIDs, 900001)
 	state.Honors.HonorIDs = append(state.Honors.HonorIDs, 900002)
+	// Existing schema stores an ID list independently of the legacy 63-bit mask.
+	state.User.SelectableNaviIDs = append(state.User.SelectableNaviIDs, 63, 64, 70)
+	state.User.NaviID = 70
 	if err = accounts.persistState(cnPrimaryUserID, state); err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +104,9 @@ func TestCollectionUnlocksSurviveAccountReload(t *testing.T) {
 	}
 	if reloaded.InventorySequence != state.InventorySequence {
 		t.Fatal("instance sequence lost on reload")
+	}
+	if reloaded.User.NaviID != 70 || reloaded.User.NaviUnlockFlag != state.User.NaviUnlockFlag ||
+		!slices.Equal(reloaded.User.SelectableNaviIDs, state.User.SelectableNaviIDs) {
+		t.Fatal("expanded navigator ownership lost in existing SQLite format")
 	}
 }

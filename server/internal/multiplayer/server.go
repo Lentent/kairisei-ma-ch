@@ -235,14 +235,26 @@ func (c *clientConn) handleRoomMatchingConditionReset(payload string) error {
 		return errors.New("RoomMatchingConditionResetRequest payload is not empty")
 	}
 	hub := c.server.hub
-	hub.mu.RLock()
+	hub.mu.Lock()
 	current, exists := hub.rooms[c.roomID]
-	connected := exists && c.memberType >= 1 && current.connections[c.memberType] == c && current.State == RoomStateOpen
-	hub.mu.RUnlock()
+	connected := exists && c.memberType >= 1 && c.memberType == current.OwnerMemberType && current.connections[c.memberType] == c && current.State == RoomStateOpen
 	if !connected {
-		return errors.New("RoomMatchingConditionResetRequest has no open room member")
+		hub.mu.Unlock()
+		return errors.New("RoomMatchingConditionResetRequest has no open room owner")
 	}
-	return c.writeFrame("RoomMatchingConditionReset", "")
+	// TeamRoom exposes this for password/friend-only rooms. Its native empty
+	// notification closes each peer's password display; admission uses this same
+	// room state, so merely acknowledging the request leaves the room locked.
+	current.HasPassword = false
+	current.RoomType = 0
+	if private, ok := current.BossGroup.(roomPrivate); ok {
+		private.password = ""
+		current.BossGroup = private
+	}
+	deliveries := reserveRoomFramesLocked(roomConnections(current), battleFrame{"RoomMatchingConditionReset", ""})
+	hub.mu.Unlock()
+	broadcastRoomFrames(c.server, c.roomID, deliveries)
+	return nil
 }
 
 func (c *clientConn) handleChat(payload string, useNewFrame bool) error {
@@ -982,7 +994,16 @@ func (c *clientConn) handleChaliceSphrReserve(payload string) error {
 		hub.mu.Unlock()
 		return errors.New("ChaliceSphrReserve member is unavailable")
 	}
-	results, err := current.engine.ReserveChaliceSphere(c.memberType, slot)
+	var results []BattleResult
+	if current.engineBattleEnd != 0 && current.engine.phase == battlePhaseEnded && !current.nextBattlePending {
+		// The engine computes the full phase before clients animate it. A
+		// terminal result can therefore precede a legitimate on-screen click
+		// by seconds. Acknowledge an empty reservation during that barrier;
+		// never revive a finished engine or spend a sphere on a dead target.
+		results = []BattleResult{{Command: resultChaliceSphereReserve, Args: []int64{int64(c.memberType), 0}}}
+	} else {
+		results, err = current.engine.ReserveChaliceSphere(c.memberType, slot)
+	}
 	if err != nil {
 		hub.mu.Unlock()
 		return err

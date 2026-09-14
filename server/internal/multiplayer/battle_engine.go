@@ -414,8 +414,10 @@ func (engine *BattleEngine) Submit(memberType int, submission cardPlaySubmission
 		if !found {
 			return nil, fmt.Errorf("member %d card type %d is not in hand", memberType, cardType)
 		}
-		if _, sealed := playerCardSealEffect(player, cardType); sealed || engine.playerHasEffect(player, "STAN") {
-			return nil, fmt.Errorf("member %d cannot play cards while sealed or stunned", memberType)
+		// The original PvE UserCardPlay accepts ordinary cards on a player
+		// carrying STAN; enemy action interruption is a separate consumer.
+		if _, sealed := playerCardSealEffect(player, cardType); sealed {
+			return nil, fmt.Errorf("member %d cannot play sealed cards", memberType)
 		}
 		skill, _, err := engine.catalog.CardSkill(card.CardID, player.ArthurType)
 		if err != nil {

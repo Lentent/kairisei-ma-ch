@@ -8,18 +8,19 @@ import (
 func enemyCombatFunctionRegistered(function string) bool {
 	switch function {
 	case "ATK_BREAK_BY_NOW_TURN_DAMAGE", "ATK_BREAK_BY_SELF_PARAM", "ATK_BREAK_BY_TARGET_PARAM", "ATK_BREAK_FIXED",
-		"ATK_OP_DAMAGE_INCREASE", "ATK_OP_DRAIN", "ATK_OP_NOW_TURN_REVENGE", "ATK_OP_PIERCING", "ATK_OP_REVENGE",
+		"ATK_OP_DAMAGE_INCREASE", "ATK_OP_DRAIN", "ATK_OP_NOW_TURN_REVENGE", "ATK_OP_PIERCING", "ATK_OP_REVENGE", "ATK_OP_REFLECTION_INVALID",
 		"ATK_UP_BY_NOW_TURN_DAMAGE", "ATK_UP_BY_SELF_PARAM", "ATK_UP_BY_TARGET_PARAM", "ATK_UP_FIXED", "ATTACK_AA",
 		"ATTACK_BARRIER", "ATTACK_BARRIER_APPOINT_ATTR", "ATTR_DEF_DOWN", "ATTR_DEF_UP", "ATTR_HIDE", "BLEED", "BLESS",
 		"BLESS_TURN_DOWN", "BUFF_RELEASE", "BUFF_RELEASE_OLD", "BUFF_RELEASE_RANDOM", "BUFF_RELEASE_ONE", "BUFF_RELEASE_ONE_NUM", "BURN",
-		"BURST_GAUGE_QUICK_UP", "CARD_SEAL", "CARD_TRAP_DAMAGE", "COST_BLOCK", "CRITICAL_DOWN", "CRITICAL_UP",
+		"BURST_GAUGE_QUICK_UP", "BURST_GAUGE_QUICK_DOWN", "CARD_SEAL", "CARD_TRAP_DAMAGE", "COST_BLOCK", "CRITICAL_DOWN", "CRITICAL_UP", "CRITICAL_DAMAGE_BOOST", "STAN",
 		"DARKNESS_APPOINT", "DARKNESS_RANDOM", "DEAL_BONUS", "DEAL_PENALTY", "DEAL_PENALTY_TURN_APPOINT",
 		"DEBUFF_REGIST", "DEBUFF_RELEASE", "DEBUFF_RELEASE_OLD", "DEBUFF_RELEASE_RANDOM", "DEBUFF_RELEASE_ONE", "DEBUFF_RELEASE_ONE_NUM", "DEF_UP_BY_SELF_PARAM", "DEF_UP_FIXED", "DESTRUCT",
-		"DOT_VALUE_UP", "ELECTRIC", "ENCHANT", "ENDURE", "ENEMY_AI_TRIGGER_FLAG_SET", "ENEMY_AWAKE_FLAG_SET",
+		"DOT_VALUE_UP", "ELECTRIC", "ENCHANT", "ENDURE", "ENEMY_AI_TRIGGER_FLAG_SET", "ENEMY_AWAKE_FLAG_SET", "ENEMY_AI_VAR_ADD",
 		"ENEMY_CURSE", "FORCE_BATTLE_END", "FREEZE", "GUARD_BREAK_BY_NOW_TURN_DAMAGE", "GUARD_BREAK_BY_SELF_PARAM",
 		"GUARD_BREAK_BY_TARGET_PARAM", "GUARD_BREAK_FIXED", "GUTS", "HEAL_BY_SELF_PARAM", "HEAL_BY_TARGET_MAXHP",
 		"HEAL_FIXED", "HEAL_REVERSE", "HP_CUT", "NONE", "OUTPUT_TEXT", "PARAM_LIMIT_BREAK_FIXED", "POISON",
-		"REFLECTION", "REGENERATE_BY_SELF_PARAM", "REGENERATE_FIXED", "REVIVE", "REWRITE", "WEAKNESS":
+		"REFLECTION", "REGENERATE_BY_SELF_PARAM", "REGENERATE_FIXED", "REVIVE", "REWRITE", "WEAKNESS",
+		"TRANCE_GAUGE_STATE_CHANGE", "TRANCE_GAUGE_VALUE_UP", "TRANCE_GAUGE_VALUE_DOWN", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
 		return true
 	default:
 		return false
@@ -54,7 +55,7 @@ func (engine *BattleEngine) executeEnemyRole(actor *battleEnemy, selected int, r
 		return nil, nil
 	case "ATTACK_AA":
 		return engine.executeEnemyAttack(actor, selected, role, roles)
-	case "ATK_OP_DAMAGE_INCREASE", "ATK_OP_DRAIN", "ATK_OP_NOW_TURN_REVENGE", "ATK_OP_PIERCING", "ATK_OP_REVENGE":
+	case "ATK_OP_DAMAGE_INCREASE", "ATK_OP_DRAIN", "ATK_OP_NOW_TURN_REVENGE", "ATK_OP_PIERCING", "ATK_OP_REVENGE", "ATK_OP_REFLECTION_INVALID":
 		return nil, nil
 	case "PARAM_LIMIT_BREAK_FIXED":
 		return engine.executeEnemyParameterLimit(actor, selected, role)
@@ -74,11 +75,15 @@ func (engine *BattleEngine) executeEnemyRole(actor *battleEnemy, selected int, r
 		return engine.executeEnemyCurse(actor, selected, role)
 	case "BLESS_TURN_DOWN":
 		return engine.changeEnemyBlessTurns(actor, selected, role, -combatParameterInt(role.Parameters[0])), nil
-	case "BURST_GAUGE_QUICK_UP":
+	case "BURST_GAUGE_QUICK_UP", "BURST_GAUGE_QUICK_DOWN":
 		results := make([]BattleResult, 0, 8)
 		level := calibratedEnemySkillLevel(role.Function)
+		amount := burstGaugeQuickValue(role, level, 1)
+		if role.Function == "BURST_GAUGE_QUICK_DOWN" {
+			amount = -amount
+		}
 		for _, memberType := range engine.enemyRolePlayerTargets(actor, selected, role) {
-			results = append(results, engine.addPlayerBurstGauge(memberType, role.RoleIndex, burstGaugeQuickValue(role, level, 1))...)
+			results = append(results, engine.addPlayerBurstGauge(memberType, role.RoleIndex, amount)...)
 		}
 		return results, nil
 	case "DEAL_BONUS":
@@ -96,6 +101,10 @@ func (engine *BattleEngine) executeEnemyRole(actor *battleEnemy, selected int, r
 		// end-state evaluator instead of assigning DRAW or emitting a command.
 		engine.forceEndCheck = true
 		return nil, nil
+	case "ENEMY_AI_VAR_ADD":
+		return engine.executeEnemyAIVariable(actor, selected, role), nil
+	case "TRANCE_GAUGE_STATE_CHANGE", "TRANCE_GAUGE_VALUE_UP", "TRANCE_GAUGE_VALUE_DOWN", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
+		return engine.executeEnemyTranceRole(actor, selected, role), nil
 	case "ENEMY_AI_TRIGGER_FLAG_SET":
 		// Native action type 14/subtype 0 calls FUN_0005711b: p0 selects one
 		// of 32 trigger bits and any positive p1 sets it; zero clears it. It
@@ -313,7 +322,7 @@ func (engine *BattleEngine) executeEnemyAttack(actor *battleEnemy, selected int,
 				battleDamageResult(player.MemberType, role.RoleIndex, -damage, targetHP, attributeDifference, role.Parameters[7], rate, critical, 0, actor.MemberType),
 			)
 			results = append(results, damageEffectResults(player.MemberType, resolution)...)
-			if resolution.Reflected > 0 {
+			if resolution.Reflected > 0 && !attackIgnoresReflection(roles, role) {
 				results = append(results, engine.reflectedDamageResults(actor.MemberType, player.MemberType, resolution.Reflected)...)
 			}
 			// 838d0 commits drain after each normal hit, before enchant and
@@ -1229,6 +1238,8 @@ func (engine *BattleEngine) enemyBranchConditionSatisfied(actor *battleEnemy, se
 		first := combatParameterInt(parameter(0))
 		second := combatParameterInt(parameter(1))
 		return actor.hasAIFlag(first) && actor.hasAIFlag(second)
+	case "SELF_ENEMY_AI_VAR":
+		return enemyAIVariableInRange(actor, parameters[0], parameters[1], parameters[2], true)
 	case "FRIEND_PLAY_NUM":
 		count := 0
 		for _, played := range engine.turnStats.PlayedByUser {
@@ -1276,7 +1287,7 @@ func (engine *BattleEngine) enemyBranchConditionSatisfied(actor *battleEnemy, se
 func enemyBranchConditionSupported(condition string) bool {
 	switch strings.ToUpper(strings.TrimSpace(condition)) {
 	case "", "NONE", "RANDOM", "TURN", "SELF_HP_PER", "SELF_HP_FIXED", "TARGET_HP_PER", "TARGET_ATTR",
-		"SELF_ENEMY_AI_FLAG", "SELF_ENEMY_AI_FLAG_AND", "FRIEND_PLAY_NUM", "SELF_BUFF", "SELF_DEBUFF",
+		"SELF_ENEMY_AI_FLAG", "SELF_ENEMY_AI_FLAG_AND", "SELF_ENEMY_AI_VAR", "FRIEND_PLAY_NUM", "SELF_BUFF", "SELF_DEBUFF",
 		"TARGET_BUFF", "TARGET_DEBUFF", "USER_SIDE_BUFF", "USER_SIDE_DEBUFF", "ENEMY_SIDE_DEBUFF",
 		"TARGET_DEBUFF_KIND_NUM", "USER_SIDE_BLESS", "SELF_DAMAGE", "ENEMY_DEAD_NOW_TURN":
 		return true

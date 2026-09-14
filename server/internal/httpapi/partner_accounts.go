@@ -53,7 +53,16 @@ func deckInfosFromRelease(source []release.Deck) []deckInfo {
 }
 
 func friendPointPartnerViewFromState(state release.State) (friendPointPartnerView, bool) {
-	arthurType := int8(state.User.ActiveArthurType)
+	return partnerViewFromState(state, 0)
+}
+
+// An explicit profession is a player's own selected deck. Zero selects the
+// public rental profession, which may differ from the owner's active one.
+func partnerViewFromState(state release.State, arthurType int8) (friendPointPartnerView, bool) {
+	useRental := arthurType == 0
+	if useRental {
+		arthurType = int8(state.User.ActiveArthurType)
+	}
 	if state.User.UserID <= 0 || state.User.Name == "" || arthurType < 1 || arthurType > 4 ||
 		len(state.Avatars) != 4 || len(state.SupportDeck.UnlockSlotNums) != 4 {
 		return friendPointPartnerView{}, false
@@ -68,11 +77,13 @@ func friendPointPartnerViewFromState(state release.State) (friendPointPartnerVie
 		cardByUniqueID[card.UniqueID] = card
 	}
 	decks := deckInfosFromRelease(state.Decks)
-	rentalDeck, found := selectRentalPartnerDeck(decks, arthurType, cardByUniqueID)
-	if !found {
-		return friendPointPartnerView{}, false
+	if useRental {
+		rentalDeck, found := selectRentalPartnerDeck(decks, arthurType, cardByUniqueID)
+		if !found {
+			return friendPointPartnerView{}, false
+		}
+		arthurType = rentalDeck.ArthurType
 	}
-	arthurType = rentalDeck.ArthurType
 	buddies := make(map[int64]release.Buddy, len(state.Buddies))
 	for _, buddy := range state.Buddies {
 		buddies[buddy.UniqueID] = buddy

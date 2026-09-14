@@ -23,16 +23,17 @@ const (
 )
 
 type cnAvatarRuntimeMaster struct {
-	SchemaVersion             int                              `json:"schema_version"`
-	ClientProfile             string                           `json:"client_profile"`
-	Source                    json.RawMessage                  `json:"source"`
-	LocalAccountConfigVersion int                              `json:"local_account_config_version"`
-	InitialOwnedPartIDs       []int                            `json:"initial_owned_part_ids"`
-	DefaultDecks              map[string][]int                 `json:"default_decks"`
-	ShopPolicy                release.AvatarShopPolicy         `json:"shop_policy"`
-	PartDefinitions           []release.AvatarPartDefinition   `json:"part_definitions"`
-	Series                    []release.AvatarSeriesDefinition `json:"series"`
-	SeriesCompletions         []release.AvatarSeriesCompletion `json:"series_completions"`
+	SchemaVersion             int                                  `json:"schema_version"`
+	ClientProfile             string                               `json:"client_profile"`
+	Source                    json.RawMessage                      `json:"source"`
+	LocalAccountConfigVersion int                                  `json:"local_account_config_version"`
+	InitialOwnedPartIDs       []int                                `json:"initial_owned_part_ids"`
+	DefaultDecks              map[string][]int                     `json:"default_decks"`
+	ShopPolicy                release.AvatarShopPolicy             `json:"shop_policy"`
+	PartDefinitions           []release.AvatarPartDefinition       `json:"part_definitions"`
+	Series                    []release.AvatarSeriesDefinition     `json:"series"`
+	SeriesCompletions         []release.AvatarSeriesCompletion     `json:"series_completions"`
+	ImportedCostumeRewards    []release.CollectionRewardDefinition `json:"imported_costume_rewards,omitempty"`
 }
 
 func loadCNAvatarRuntimeMaster(masterPath string) (cnAvatarRuntimeMaster, error) {

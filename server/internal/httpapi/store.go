@@ -2190,10 +2190,17 @@ func (s *store) naviID() int8 {
 	return s.currentNaviID
 }
 
-func (s *store) naviUnlockState() int64 {
+func (s *store) naviUnlockState() (int64, []int8) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.naviUnlockFlag
+	ids := make([]int8, 0, len(s.selectableNaviIDs))
+	for id := range s.selectableNaviIDs {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	// Older clients interpret negative masks as no ownership. Extended clients
+	// use the persisted ID set, including IDs 63 and above, without bit shifts.
+	return s.naviUnlockFlag & math.MaxInt64, ids
 }
 
 func (s *store) naviOwnershipState() map[int8]struct{} {
@@ -2239,14 +2246,22 @@ func (s *store) purchaseNavi(id int8) error {
 	s.coinFree -= freeSpend
 	s.coin -= price - freeSpend
 	s.selectableNaviIDs[id] = struct{}{}
-	s.naviUnlockFlag |= int64(1) << uint(id)
+	if id < 63 {
+		s.naviUnlockFlag |= int64(1) << uint(id)
+	}
 	return nil
 }
 
 func (s *store) presentState() ([]release.Present, []release.Present) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return clonePresents(s.presents), clonePresents(s.presentHistories)
+	histories := make([]release.Present, 0, len(s.presentHistories))
+	for _, present := range s.presentHistories {
+		if present.State != release.PresentStateAdminDeleted {
+			histories = append(histories, present)
+		}
+	}
+	return clonePresents(s.presents), clonePresents(histories)
 }
 
 type receivedReward struct {
@@ -3154,10 +3169,10 @@ func (s *store) coinState() (int, int) {
 }
 
 type battlePointStatus struct {
-	Current     int
-	Max         int
-	NextSeconds int
-	HealSeconds int
+	Current         int
+	Max             int
+	NextSeconds     int
+	IntervalSeconds int
 }
 
 func (s *store) battlePointState() battlePointStatus {
@@ -3194,15 +3209,15 @@ func (s *store) refreshBattlePointsLocked(now time.Time) {
 
 func (s *store) battlePointStatusLocked(now time.Time) battlePointStatus {
 	s.refreshBattlePointsLocked(now)
-	status := battlePointStatus{Current: s.bp, Max: s.bpMax}
+	// PointTimer.SetTimer(next_sec, heal_sec) consumes a per-point interval,
+	// including at capacity: partial BP updates reuse the cached heal_sec.
+	status := battlePointStatus{Current: s.bp, Max: s.bpMax,
+		IntervalSeconds: int(s.bpRecoveryInterval / time.Second)}
 	if s.bp >= s.bpMax {
 		return status
 	}
 	remaining := s.bpNextRecovery.Sub(now)
 	status.NextSeconds = int((remaining + time.Second - 1) / time.Second)
-	missingAfterNext := s.bpMax - s.bp - 1
-	status.HealSeconds = status.NextSeconds +
-		missingAfterNext*int(s.bpRecoveryInterval/time.Second)
 	return status
 }
 
@@ -4595,10 +4610,10 @@ func (s *store) setPushOption(flag int) bool {
 }
 
 type apStatus struct {
-	Current     int
-	Max         int
-	NextSeconds int
-	HealSeconds int
+	Current         int
+	Max             int
+	NextSeconds     int
+	IntervalSeconds int
 }
 
 func (s *store) refreshAPLocked(now time.Time) {
@@ -4629,15 +4644,14 @@ func (s *store) refreshAPLocked(now time.Time) {
 
 func (s *store) apStatusLocked(now time.Time) apStatus {
 	s.refreshAPLocked(now)
-	status := apStatus{Current: s.ap, Max: s.apMax}
+	// APTimer shares the same PointTimer interval contract as BPTimer.
+	status := apStatus{Current: s.ap, Max: s.apMax,
+		IntervalSeconds: int(s.apRecoveryInterval / time.Second)}
 	if s.ap >= s.apMax {
 		return status
 	}
 	remaining := s.apNextRecovery.Sub(now)
 	status.NextSeconds = int((remaining + time.Second - 1) / time.Second)
-	missingAfterNext := s.apMax - s.ap - 1
-	status.HealSeconds = status.NextSeconds +
-		missingAfterNext*int(s.apRecoveryInterval/time.Second)
 	return status
 }
 

@@ -7,9 +7,9 @@ import (
 
 // NextBattle implements the CN TEAMBATTLE (mode 1) default handover. Managed
 // AwakeTakeOverSet only supplies configurable flags in EXPLORE (mode 0).
-// Ordinary waves reset turn/cost/sphere use; awakening carries the cost curve
-// into the next turn (user-confirmed gameplay). 5d160/49830 recycles the trash
-// without taking held cards away. a50c4 restores KO users to ONE HP only
+// Ordinary waves reset turn/cost/sphere use and recycle the trash. Awakening
+// carries the cost curve and preserves the draw/discard cycle, matching the
+// native is_deck_trash=1 takeover flag. a50c4 restores KO users to ONE HP only
 // while they have not been formally retired by battle5_api_gameover.
 // UserSet and RNG initialization are not repeated at this boundary.
 // Return a separate engine so failure cannot partially advance a live room.
@@ -27,7 +27,9 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 	}
 	next.costTurnOffset = 0
 	if engine.endType == 4 {
-		next.costTurnOffset = engine.costTurnOffset + engine.turn
+		// The original is_cost=1 takeover repeats the awakening turn's
+		// maximum COST; only the following turn advances it (9 -> 9 -> 10).
+		next.costTurnOffset = engine.costTurnOffset + maxInt(0, engine.turn-1)
 	}
 	next.elapsedWaveTurns += next.turn
 	next.turn, next.endType = 0, 0
@@ -63,7 +65,13 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 			player.Spheres[slot].Playable = false
 			player.Spheres[slot].Remaining = 0
 		}
-		next.recycleDrawPool(player)
+		if engine.endType == 4 {
+			// Recycling here mixes used cards into the not-yet-drawn cards,
+			// allowing duplicates before the first ten slots have all appeared.
+			player.Discard = append([]int(nil), player.Discard...)
+		} else {
+			next.recycleDrawPool(player)
+		}
 	}
 	return &next, nil
 }

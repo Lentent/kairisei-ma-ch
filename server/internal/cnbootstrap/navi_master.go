@@ -42,6 +42,7 @@ type cnNaviPublicationPolicy struct {
 
 type cnNaviSummary struct {
 	OfficialNavigatorRows    int   `json:"official_navigator_rows"`
+	ImportedNavigatorRows    int   `json:"imported_navigator_rows,omitempty"`
 	ClientPublished          int   `json:"client_published"`
 	ExcludedMissingLive2D    int   `json:"excluded_missing_live2d"`
 	ExcludedMissingLive2DIDs []int `json:"excluded_missing_live2d_ids"`
@@ -111,9 +112,13 @@ func validateCNNaviRuntimeMaster(master cnNaviRuntimeMaster) error {
 	}
 	seen := make(map[int]struct{}, len(master.Navigators))
 	published := 0
+	imported := 0
 	excluded := make([]int, 0)
 	for _, navigator := range master.Navigators {
-		if navigator.NaviID < 0 || navigator.NaviID >= 64 || navigator.Name == "" ||
+		if navigator.Live2DSourceState == "PRESENT_IN_JP_DERIVED_OVERLAY" {
+			imported++
+		}
+		if navigator.NaviID < 0 || navigator.NaviID > 127 || navigator.Name == "" ||
 			navigator.PictID <= 0 || navigator.ItemPictID <= 0 ||
 			navigator.Live2DFolder == "" || navigator.VoiceID < 0 {
 			return fmt.Errorf("invalid CN navigator %d", navigator.NaviID)
@@ -124,7 +129,9 @@ func validateCNNaviRuntimeMaster(master cnNaviRuntimeMaster) error {
 		expectedBundle := fmt.Sprintf("live2d/live2d_%s.dat", navigator.Live2DFolder)
 		if navigator.ClientPublished {
 			validSource := navigator.Live2DSourceState == "PRESENT_IN_CN_OFFICIAL_ASSET_MAP" ||
-				(master.Publication.Evidence == "INFERRED" && navigator.Live2DSourceState == "PRESENT_IN_PRIVATE_DERIVED_OVERLAY")
+				(master.Publication.Evidence == "INFERRED" &&
+					(navigator.Live2DSourceState == "PRESENT_IN_PRIVATE_DERIVED_OVERLAY" ||
+						navigator.Live2DSourceState == "PRESENT_IN_JP_DERIVED_OVERLAY"))
 			if navigator.Live2DBundle != expectedBundle || !validSource {
 				return fmt.Errorf("published CN navigator %d has no Live2D resource closure", navigator.NaviID)
 			}
@@ -137,7 +144,9 @@ func validateCNNaviRuntimeMaster(master cnNaviRuntimeMaster) error {
 		}
 		seen[navigator.NaviID] = struct{}{}
 	}
-	if master.Summary.OfficialNavigatorRows != len(master.Navigators) ||
+	if master.Summary.OfficialNavigatorRows < 0 || master.Summary.ImportedNavigatorRows < 0 ||
+		master.Summary.OfficialNavigatorRows+master.Summary.ImportedNavigatorRows != len(master.Navigators) ||
+		master.Summary.ImportedNavigatorRows != imported ||
 		master.Summary.ClientPublished != published || published == 0 ||
 		master.Summary.ExcludedMissingLive2D != len(excluded) ||
 		!slices.Equal(master.Summary.ExcludedMissingLive2DIDs, excluded) {

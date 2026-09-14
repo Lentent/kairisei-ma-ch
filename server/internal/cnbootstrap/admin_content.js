@@ -96,7 +96,7 @@ async function loadContentCatalog(){
 }
 function renderContentCatalog(){
   $('#content-selected').textContent=`已选${contentPicker.selected.size}项，跨页保留`;
-  $('#content-catalog').innerHTML=contentPicker.rows.map(c=>`<button class="catalog-card ${contentPicker.selected.has(contentKey(c))?'selected':''}" data-key="${contentKey(c)}" ${c.resource_state==='unavailable'?'disabled':''}><div class="thumb">${image(c.image_url,c.name)}</div><div class="catalog-copy"><b>${esc(c.name)}</b><span class="sub">${c.reward_type_id} ${cardJobName(c.arthur_type)}</span><span class="sub">${esc(c.detail||'')}</span></div></button>`).join('');
+  $('#content-catalog').innerHTML=contentPicker.rows.map(c=>`<button class="catalog-card ${contentPicker.selected.has(contentKey(c))?'selected':''}" data-key="${contentKey(c)}" ${c.resource_state==='unavailable'?'disabled':''}><div class="thumb">${image(c.image_url,c.name)}</div><div class="catalog-copy"><b>${esc(c.name)}</b><span class="sub">${c.reward_type_id} ${cardJobName(c.arthur_type)}</span><span class="sub">${esc(c.kind==='card'?cardSourceDescription(c):c.detail||'')}</span></div></button>`).join('');
   $$('#content-catalog [data-key]').forEach(b=>b.onclick=()=>{const c=contentPicker.rows.find(c=>contentKey(c)===b.dataset.key);contentPicker.selected.has(b.dataset.key)?contentPicker.selected.delete(b.dataset.key):contentPicker.selected.set(b.dataset.key,c);renderContentCatalog()});
 }
 ['#content-kind','#content-job','#content-source'].forEach(id=>$(id).onchange=()=>{contentPicker.page=0;loadContentCatalog()});let contentSearchTimer;$('#content-search').oninput=()=>{clearTimeout(contentSearchTimer);contentSearchTimer=setTimeout(()=>{contentPicker.page=0;loadContentCatalog()},200)};

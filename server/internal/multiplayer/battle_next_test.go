@@ -308,7 +308,7 @@ func TestDefaultNativeTerminalRetainsBurstListsAndCleansKO(t *testing.T) {
 	}
 }
 
-func TestAwakeningCarriesNextTurnCost(t *testing.T) {
+func TestAwakeningCarriesCurrentTurnCost(t *testing.T) {
 	for _, turn := range []int{1, 4, 7, 12} {
 		engine, _ := nextBattleFixture(t)
 		engine.phase, engine.endType, engine.turn = battlePhaseEnded, 4, turn
@@ -322,9 +322,80 @@ func TestAwakeningCarriesNextTurnCost(t *testing.T) {
 		if _, err = next.TurnPhase(); err != nil {
 			t.Fatal(err)
 		}
-		want := minInt(10, 3+turn)
+		want := minInt(10, 3+turn-1)
 		if next.turnCost() != want || next.players[0].Cost != want {
 			t.Fatalf("turn %d: cost %d, want %d", turn, next.players[0].Cost, want)
+		}
+		// Starting the second post-awakening turn advances the cost normally.
+		next.turn++
+		if next.turnCost() != minInt(10, want+1) {
+			t.Fatal("post-awakening cost did not resume normal growth")
+		}
+		// A further awakening at that turn must also inherit its current cost.
+		next.phase, next.endType = battlePhaseEnded, 4
+		again, err := next.NextBattle(1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.turnCost() != next.turnCost() {
+			t.Fatal("repeated awakening changed current cost")
+		}
+	}
+}
+
+func TestAwakeningPreservesFirstDrawCycle(t *testing.T) {
+	for _, endType := range []int{1, 4} {
+		engine, _ := nextBattleFixture(t)
+		if _, err := engine.Start(); err != nil {
+			t.Fatal(err)
+		}
+		player := &engine.players[0]
+		seen := map[int]bool{}
+		// Five cards reached the hand, and two were used before the transition.
+		for i := 0; i < 5; i++ {
+			slot := engine.drawCard(player)
+			seen[slot] = true
+			if i < 2 {
+				player.Discard = append(player.Discard, slot-1)
+			} else {
+				player.Hand[i-2] = slot
+			}
+		}
+		engine.phase, engine.endType, engine.turn = battlePhaseEnded, endType, 2
+		before := *player
+		rng := engine.rng
+		next, err := engine.NextBattle(1, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := &next.players[0]
+		if p.Hand != before.Hand {
+			t.Fatal("transition replaced retained hand")
+		}
+		if endType == 1 {
+			if len(p.Discard) != 0 || p.remainingDeckCount() != 7 {
+				t.Fatal("ordinary wave must still recycle used cards")
+			}
+			continue
+		}
+		if p.DeckOrder != before.DeckOrder || p.DrawIndex != before.DrawIndex || p.DrawCount != before.DrawCount || next.rng != rng {
+			t.Fatal("awakening reset the draw order or consumed shuffle RNG")
+		}
+		for i := 0; i < 5; i++ {
+			slot := next.drawCard(p)
+			if slot == 0 || seen[slot] {
+				t.Fatalf("awakening repeated slot %d before all ten cards appeared", slot)
+			}
+			seen[slot] = true
+		}
+		if len(seen) != 10 || len(p.Discard) != 2 {
+			t.Fatal("awakening lost unused cards or discarded cards")
+		}
+		if slot := next.drawCard(p); slot != before.Discard[0]+1 && slot != before.Discard[1]+1 {
+			t.Fatal("depleted draw pool did not recycle the discarded cards")
+		}
+		if player.DeckOrder != before.DeckOrder || len(player.Discard) != 2 {
+			t.Fatal("advancing the next stage mutated the preceding engine")
 		}
 	}
 }

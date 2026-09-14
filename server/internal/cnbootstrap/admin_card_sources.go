@@ -1,10 +1,39 @@
 package cnbootstrap
 
 import (
+	"encoding/json"
 	"kairisei.local/server/internal/release"
 	"slices"
 	"strings"
 )
+
+// Region comes from the import receipt, never from names or card ID ranges.
+// It is a catalog shortcut, not evidence of a crystal-gacha acquisition path.
+func cnAdminJPCardIDs(source json.RawMessage) (map[int]bool, error) {
+	var provenance struct {
+		Imports []struct {
+			Region string `json:"region"`
+			IDs    struct {
+				Cards []int `json:"card"`
+			} `json:"ids"`
+		} `json:"imported_inventory"`
+	}
+	ids := make(map[int]bool)
+	if len(source) == 0 {
+		return ids, nil
+	}
+	if err := json.Unmarshal(source, &provenance); err != nil {
+		return nil, err
+	}
+	for _, imported := range provenance.Imports {
+		if imported.Region == "JP" {
+			for _, id := range imported.IDs.Cards {
+				ids[id] = true
+			}
+		}
+	}
+	return ids, nil
+}
 
 func cnAdminGachaCardEligible(base release.GachaProfile, entry cnAdminCatalogEntry, id int) bool {
 	if base.UnownedOnly && entry.Rarity != 6 {

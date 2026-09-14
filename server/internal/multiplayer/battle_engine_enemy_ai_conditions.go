@@ -60,7 +60,7 @@ func enemyAITriggerSupported(trigger string) bool {
 		"DEAL_NUM_BY_HIGH_USER", "USER_HAND_NUM_ONE", "USER_HAND_NUM", "SKILL_ROLE_KIND_DEBUFF_BY_ENEMY_ONE",
 		"SKILL_ROLE_KIND_DEBUFF_BY_ENEMY", "SKILL_ROLE_KIND_DEBUFF_BY_ENEMY_ONE_AND", "USER_DEAD",
 		"SKILL_ROLE_KIND_DEBUFF_BY_USER_ONE", "SKILL_ROLE_KIND_BUFF_BY_USER_ONE", "ALL_DAMAGE",
-		"ALL_DAMAGE_TURN_APPOINT", "ENEMY_ALIVE", "AI_FLAG_NONE", "USER_PLAY_CARD_NUM":
+		"ALL_DAMAGE_TURN_APPOINT", "ENEMY_ALIVE", "AI_FLAG_NONE", "AI_VAR", "USER_PLAY_CARD_NUM":
 		return true
 	default:
 		return false
@@ -211,7 +211,7 @@ func (engine *BattleEngine) enemyAIConditionSatisfied(enemy *battleEnemy, condit
 		return false
 	}
 	fields := condition.Fields
-	if !engine.enemyAIPartsCondition(enemy, fields[1]) || !nativeEnemyAITurnEnabled(fields, engine.turn) {
+	if !engine.enemyAIPartsCondition(enemy, fields[1]) || !engine.enemyTranceCondition(enemy, fields[2]) || !nativeEnemyAITurnEnabled(fields, engine.turn) {
 		return false
 	}
 	if !combatValueInRange(enemy.HP*100/maxInt(1, enemy.MaxHP), fields[3], fields[4]) {
@@ -237,6 +237,8 @@ func (engine *BattleEngine) enemyAIConditionSatisfied(enemy *battleEnemy, condit
 		return enemyAIFlagsAll(enemy, fields[30:33], true)
 	case "AI_FLAG_NONE":
 		return enemyAIFlagsNone(enemy, fields[30:33], combatParameterInt(fields[33]) != 0)
+	case "AI_VAR":
+		return enemyAIVariableInRange(enemy, fields[30], fields[31], fields[32], false)
 	case "ENEMY_DEAD":
 		return engine.enemyMembersAll(fields[30:33], false)
 	case "ENEMY_ALIVE":

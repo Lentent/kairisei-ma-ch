@@ -179,3 +179,60 @@ func TestCardSourceTabsKeepMultiSourceCardsAndExcludeEvolvedGachaCandidates(t *t
 		t.Fatalf("profession filter did not intersect source before pagination: %s", response.Body.String())
 	}
 }
+
+func TestImportedCardCatalogFiltersIntersectBeforePagination(t *testing.T) {
+	master := cnCardRuntimeMaster{
+		Source: json.RawMessage(`{"imported_inventory":[{"region":"JP","ids":{"card":[10214045,10214046,10214048,10214050,10214053]}}]}`),
+		CardTemplates: []release.Card{
+			{CardID: 10214045, Name: "絢爛型オルトリート", RarityRank: 6},
+			{CardID: 10214046, Name: "蹴球型ドモヴォーイ", RarityRank: 6},
+			{CardID: 10214048, Name: "奏楽型ダカーポ", RarityRank: 6},
+			{CardID: 10214050, Name: "聖夜型ルー", RarityRank: 6},
+			{CardID: 10214053, Name: "新春型モードレッド", RarityRank: 6},
+			// A Japanese name without an import receipt is not a JP import.
+			{CardID: 10214099, Name: "既存カード", RarityRank: 6},
+		},
+		DeckRankPolicy: release.DeckRankPolicy{Cards: map[int]release.CardRankRule{
+			10214045: {ArthurType: 3}, 10214046: {ArthurType: 4}, 10214048: {ArthurType: 2},
+			10214050: {ArthurType: 1}, 10214053: {ArthurType: 2}, 10214099: {ArthurType: 2},
+		}},
+	}
+	catalog, _, err := buildCNAdminCatalog(master, cnItemRuntimeMaster{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := &cnAdmin{catalog: catalog}
+	for _, tc := range []struct {
+		query string
+		total int
+		first int
+	}{
+		{"source=jp_import&arthur_type=0", 5, 10214045},
+		{"source=jp_import&arthur_type=1", 1, 10214050},
+		{"source=jp_import&arthur_type=2", 2, 10214048},
+		{"source=jp_import&arthur_type=3", 1, 10214045},
+		{"source=jp_import&arthur_type=4", 1, 10214046},
+		{"source=jp_import&arthur_type=2&offset=1", 2, 10214053},
+		{"source=jp_import&arthur_type=2&q=10214053", 1, 10214053},
+		{"source=jp_import&arthur_type=1&q=10214053", 0, 0},
+		{"source=other&arthur_type=2", 3, 10214048},
+		{"source=gacha&arthur_type=2", 0, 0},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			admin.catalogEntries(response, httptest.NewRequest("GET", "/api/catalog?kind=card&limit=1&"+tc.query, nil))
+			var page struct {
+				Total   int
+				Entries []cnAdminCatalogEntry
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &page); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusOK || page.Total != tc.total ||
+				(tc.first == 0 && len(page.Entries) != 0) ||
+				(tc.first != 0 && (len(page.Entries) != 1 || page.Entries[0].RewardTypeID != tc.first || page.Entries[0].GachaEligible)) {
+				t.Fatalf("incorrect imported card page: %s", response.Body.String())
+			}
+		})
+	}
+}

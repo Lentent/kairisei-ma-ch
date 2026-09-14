@@ -140,6 +140,7 @@ func (engine *BattleEngine) ResumeResults(haveDrops ...BattleDrop) ([]BattleResu
 			}},
 		)
 		results = append(results, resumeEnemyDropResults(enemy)...)
+		results = append(results, resumeEnemyTrance(enemy)...)
 	}
 	for index := 0; index < engine.enemyCount; index++ {
 		enemy := &engine.enemies[index]
@@ -231,6 +232,9 @@ func resumeBuffResult(memberType int, effect battleEffect) (BattleResult, bool) 
 	// parameters or even a replay of the initial ResultCmd62 notification.
 	parameters := nativeStatusUIParameters(code, effect)
 	attributeFlags := 1 << combatAttributeCode(effect.Attribute)
+	if code == 206 {
+		attributeFlags = 1
+	} // Original resume omits COVERING's initial attribute mask.
 	return BattleResult{Command: resultResumeBuff, Args: []int64{
 		int64(memberType), int64(effect.ListType), int64(code), int64(effect.Remaining), int64(battleBuffKind(code)),
 		int64(retainedEffectParameterFlags(effect)), int64(attributeFlags),

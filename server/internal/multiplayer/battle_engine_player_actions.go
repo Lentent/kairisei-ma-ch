@@ -210,7 +210,7 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 	}
 	results = append(results, cardSkillResult)
 	engine.recordExecutedPlayerSkill(action, chainCount)
-	skillResults, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill.Target, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
+	skillResults, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		return engine.executePlayerRole(action, role, chainCount)
 	})
 	if err != nil {
@@ -329,6 +329,9 @@ func (engine *BattleEngine) settleActionPhase(results []BattleResult, nextPhase 
 	}
 	results = engine.settlePlayerDeaths(results)
 	engine.phase = nextPhase
+	if emitUserAttackTurn {
+		results = append(results, engine.advanceTranceStates()...)
+	}
 	if engine.endType != 0 {
 		results = append(results, battleEndResult(engine.endType))
 		engine.phase = battlePhaseEnded
@@ -350,6 +353,8 @@ func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSk
 	switch role.Function {
 	case "ATTACK_AA":
 		return engine.executePlayerAttack(action, role, chainCount)
+	case "TRANCE_GAUGE_STATE_CHANGE", "TRANCE_GAUGE_VALUE_UP", "TRANCE_GAUGE_VALUE_DOWN", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
+		return engine.executePlayerTranceRole(action, role), nil
 	case "DEF_UP_FIXED":
 		return engine.executeFixedDefense(action, role, chainCount)
 	case "ATK_UP_FIXED":
@@ -365,7 +370,7 @@ func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSk
 	case "DEBUFF_RELEASE_ONE", "DEBUFF_RELEASE_ONE_NUM", "DEBUFF_RELEASE", "DEBUFF_RELEASE_RANDOM", "DEBUFF_RELEASE_OLD",
 		"BUFF_RELEASE", "BUFF_RELEASE_ONE", "BUFF_RELEASE_ONE_NUM", "BUFF_RELEASE_RANDOM", "BUFF_RELEASE_OLD":
 		return engine.executeRelease(action, role)
-	case "ATK_OP_DRAIN", "ATK_OP_DRAIN_ALL", "ATK_OP_REVENGE", "ATK_OP_PIERCING", "ATK_OP_DAMAGE_INCREASE", "ATK_OP_ATTR_RATE_DOWN_INVALID":
+	case "ATK_OP_DRAIN", "ATK_OP_DRAIN_ALL", "ATK_OP_REVENGE", "ATK_OP_PIERCING", "ATK_OP_DAMAGE_INCREASE", "ATK_OP_ATTR_RATE_DOWN_INVALID", "ATK_OP_REFLECTION_INVALID":
 		// Attack operators are collected once by executePlayerAttack so order
 		// inside a skill-role row set cannot change the arithmetic.
 		return nil, nil
@@ -377,7 +382,7 @@ func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSk
 		return engine.executeDealChange(action, role, false)
 	case "PARAM_LIMIT_BREAK_FIXED":
 		return engine.executePlayerParameterLimit(action, role, chainCount)
-	case "REGENERATE_FIXED", "BURN", "POISON", "FREEZE", "BLEED", "ELECTRIC", "ENCHANT", "ATTR_DEF_DOWN", "ATTR_DEF_UP", "CRITICAL_UP", "CRITICAL_DAMAGE_BOOST", "WEAKNESS", "DAMAGE_UP", "DAMAGE_CUT", "DAMAGE_DOWN", "REFLECTION", "ENDURE", "COVERING", "CARD_SEAL_REGIST", "DARKNESS_REGIST", "GUTS", "STAN", "COST_BLOCK", "ATTACK_BARRIER", "ATTACK_BARRIER_APPOINT_ATTR", "ATTR_SEE", "CARD_TRAP_DAMAGE", "DARKNESS_RANDOM":
+	case "REGENERATE_FIXED", "BURN", "POISON", "FREEZE", "BLEED", "ELECTRIC", "ENCHANT", "ATTR_DEF_DOWN", "ATTR_DEF_UP", "CRITICAL_UP", "CRITICAL_DAMAGE_BOOST", "WEAKNESS", "DAMAGE_UP", "DAMAGE_CUT", "DAMAGE_DOWN", "REFLECTION", "ENDURE", "COVERING", "CARD_SEAL", "CARD_SEAL_REGIST", "DARKNESS_REGIST", "GUTS", "STAN", "COST_BLOCK", "ATTACK_BARRIER", "ATTACK_BARRIER_APPOINT_ATTR", "ATTR_SEE", "CARD_TRAP_DAMAGE", "DARKNESS_RANDOM":
 		return engine.executePersistentEffect(action, role, action.cardLevel, chainCount)
 	case "PARAM_UP_SKILL_BONUS", "LIMIT_BREAK_BONUS":
 		if action.skillBonus != nil {
@@ -397,6 +402,8 @@ func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSk
 		return engine.executePlayerBless(action, role, chainCount)
 	case "BLESS_TURN_UP":
 		return engine.changePlayerBlessTurns(action, role, combatParameterInt(role.Parameters[0])), nil
+	case "CURSE_RELEASE":
+		return engine.releasePlayerCurses(action, role), nil
 	case "HP_CUT":
 		return engine.executePlayerHPCut(action, role)
 	case "REWRITE":
@@ -440,11 +447,12 @@ func playerCombatFunctionRegistered(function string) bool {
 		"DEBUFF_RELEASE_ONE", "DEBUFF_RELEASE_ONE_NUM", "DEBUFF_RELEASE", "DEBUFF_RELEASE_RANDOM", "DEBUFF_RELEASE_OLD",
 		"BUFF_RELEASE", "BUFF_RELEASE_ONE", "BUFF_RELEASE_ONE_NUM", "BUFF_RELEASE_RANDOM", "BUFF_RELEASE_OLD",
 		"ATK_OP_DRAIN", "ATK_OP_DRAIN_ALL", "ATK_OP_REVENGE", "ATK_OP_PIERCING", "ATK_OP_DAMAGE_INCREASE",
-		"ATK_OP_ATTR_RATE_DOWN_INVALID", "DEAL_BONUS", "REGENERATE_FIXED", "BURN", "POISON", "FREEZE",
+		"ATK_OP_ATTR_RATE_DOWN_INVALID", "ATK_OP_REFLECTION_INVALID", "DEAL_BONUS", "REGENERATE_FIXED", "BURN", "POISON", "FREEZE",
 		"BLEED", "ELECTRIC", "ENCHANT", "ATTR_DEF_DOWN", "ATTR_DEF_UP", "CRITICAL_UP", "CRITICAL_DAMAGE_BOOST", "DAMAGE_UP", "DAMAGE_CUT", "DAMAGE_DOWN",
-		"PARAM_LIMIT_BREAK_FIXED", "WEAKNESS", "REFLECTION", "ENDURE", "COVERING", "BLESS", "CARD_SEAL_REGIST",
+		"PARAM_LIMIT_BREAK_FIXED", "WEAKNESS", "REFLECTION", "ENDURE", "COVERING", "BLESS", "CARD_SEAL", "CARD_SEAL_REGIST",
 		"DARKNESS_REGIST", "GUTS", "STAN", "DEAL_PENALTY", "COST_BLOCK", "HP_CUT", "BURST_GAUGE_QUICK_UP", "DOT_VALUE_UP",
-		"ATTACK_BARRIER", "ATTACK_BARRIER_APPOINT_ATTR", "ATTR_SEE", "CARD_TRAP_DAMAGE", "DARKNESS_RANDOM", "BLESS_TURN_UP":
+		"ATTACK_BARRIER", "ATTACK_BARRIER_APPOINT_ATTR", "ATTR_SEE", "CARD_TRAP_DAMAGE", "DARKNESS_RANDOM", "BLESS_TURN_UP", "CURSE_RELEASE",
+		"TRANCE_GAUGE_STATE_CHANGE", "TRANCE_GAUGE_VALUE_UP", "TRANCE_GAUGE_VALUE_DOWN", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
 		return true
 	default:
 		return false
@@ -607,7 +615,7 @@ func (engine *BattleEngine) executePlayerAttack(action battleAction, role Combat
 				battleDamageResult(enemy.MemberType, role.RoleIndex, -damage, targetHP, attributeDifference, damageAttribute, rate, critical, 0, action.memberType),
 			)
 			results = append(results, damageEffectResults(enemy.MemberType, resolution)...)
-			if resolution.Reflected > 0 {
+			if resolution.Reflected > 0 && !attackIgnoresReflection(action.roles, role) {
 				results = append(results, engine.reflectedDamageResults(actor.MemberType, enemy.MemberType, resolution.Reflected)...)
 			}
 			results = append(results, engine.playerAttackDrainResults(actor, role.RoleIndex, damage, modifiers)...)

@@ -621,6 +621,10 @@ func battlePersistentResult(memberType int, role CombatSkillRole, code int, effe
 	if role.Function == "ATTR_DEF_UP" || role.Function == "ATTR_DEF_DOWN" || role.Function == "ATTACK_BARRIER_APPOINT_ATTR" || role.Function == "ENCHANT" {
 		attributeFlags = 1 << combatAttributeCode(role.Parameters[5])
 	}
+	if role.Function == "COVERING" {
+		// 96165 -> 8d7e0 preserves its p3 attribute in the initial status too.
+		attributeFlags = 1 << combatAttributeCode(effect.Attribute)
+	}
 	if role.Function == "ATTR_DEF_UP" || role.Function == "ATTR_DEF_DOWN" || role.Function == "ENCHANT" {
 		// 88a20/8fb80 retain defense/enchant values but leave the four initial
 		// notification values zero; producer previews are separate outputs.

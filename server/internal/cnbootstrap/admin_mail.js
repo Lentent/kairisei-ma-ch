@@ -22,9 +22,13 @@ async function loadCatalog(){
 function renderCatalog(){
   $('#catalog-jobs').hidden=state.catalogKind!=='card';$('#catalog-sources').hidden=state.catalogKind!=='card';
   for(const [group,prop] of [['kinds','kind'],['sources','source'],['jobs','job']])$$(`#catalog-${group} button`).forEach(b=>b.classList.toggle('active',String(b.dataset[prop])===String(state['catalog'+prop[0].toUpperCase()+prop.slice(1)])));
+  const filters=[...$$('#catalog-kinds button.active')].map(b=>b.textContent);
+  if(state.catalogKind==='card')filters.push(...$$('#catalog-sources button.active, #catalog-jobs button.active').map(b=>b.textContent));
+  if($('#catalog-search').value.trim())filters.push(`搜索：${$('#catalog-search').value.trim()}`);
+  $('#catalog-filter-summary').textContent=`当前筛选：${filters.join(' · ')}`;
   $('#catalog-count').textContent=`${num(state.catalogTotal)} 项`;
   $('#catalog-status').textContent=`已选 ${mailWorkspace.basket.size} 种奖励 · 本页 ${state.catalog.length} 项`;
-  $('#catalog-grid').innerHTML=state.catalog.map((e,i)=>`<label class="catalog-card ${mailWorkspace.basket.has(rewardKey(e))?'selected':''} ${e.resource_state==='unavailable'?'unavailable':''}"><input type="checkbox" class="catalog-check check" data-index="${i}" ${mailWorkspace.basket.has(rewardKey(e))?'checked':''} ${e.resource_state==='unavailable'?'disabled':''} aria-label="选择${esc(e.name)}"><div class="thumb">${image(e.image_url,e.name)}</div><div class="catalog-copy"><b class="name" title="${esc(e.name)}">${esc(e.name)}</b><span class="sub">${e.reward_type_id||'货币'} ${esc(cardJobName(e.arthur_type))}</span><span class="sub">${esc(e.detail||'')}${e.resource_state==='unavailable'?' · 资源暂不可用':''}</span></div></label>`).join('')||'<div class="empty">没有匹配奖励</div>';
+  $('#catalog-grid').innerHTML=state.catalog.map((e,i)=>`<label class="catalog-card ${mailWorkspace.basket.has(rewardKey(e))?'selected':''} ${e.resource_state==='unavailable'?'unavailable':''}"><input type="checkbox" class="catalog-check check" data-index="${i}" ${mailWorkspace.basket.has(rewardKey(e))?'checked':''} ${e.resource_state==='unavailable'?'disabled':''} aria-label="选择${esc(e.name)}"><div class="thumb">${image(e.image_url,e.name)}</div><div class="catalog-copy"><b class="name" title="${esc(e.name)}">${esc(e.name)}</b><span class="sub">${e.reward_type_id||'货币'} ${esc(cardJobName(e.arthur_type))}</span><span class="sub">${esc(e.kind==='card'?cardSourceDescription(e):e.detail||'')}${e.resource_state==='unavailable'?' · 资源暂不可用':''}</span></div></label>`).join('')||'<div class="empty">没有匹配奖励</div>';
   let anchor=null;
   $$('.catalog-check').forEach(box=>box.onclick=e=>{
     const index=Number(box.dataset.index),first=e.shiftKey&&anchor!==null?Math.min(anchor,index):index,last=e.shiftKey&&anchor!==null?Math.max(anchor,index):index;
@@ -134,6 +138,7 @@ $('#mail-add-ids').onclick=async()=>{
 };
 for(const [group,prop] of [['kinds','kind'],['sources','source'],['jobs','job']])$$(`#catalog-${group} button`).forEach(b=>b.onclick=()=>{state['catalog'+prop[0].toUpperCase()+prop.slice(1)]=prop==='job'?Number(b.dataset[prop]):b.dataset[prop];state.catalogPage=0;loadCatalog()});
 $('#catalog-search').oninput=()=>{state.catalogPage=0;state.catalogRequest++;clearTimeout(loadCatalog.timer);loadCatalog.timer=setTimeout(loadCatalog,200)};
+$('#catalog-reset-filters').onclick=()=>{state.catalogSource='';state.catalogJob=0;state.catalogPage=0;$('#catalog-search').value='';clearTimeout(loadCatalog.timer);loadCatalog()};
 window.addEventListener('beforeunload',event=>{if(mailWorkspace.running){event.preventDefault();event.returnValue=''}});
 updateMailControls();
 

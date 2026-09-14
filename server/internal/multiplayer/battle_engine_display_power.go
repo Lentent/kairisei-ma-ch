@@ -73,14 +73,17 @@ func (engine *BattleEngine) cardDisplayPower(player *battlePlayer, level int, sk
 		return retainedRateRoleValue(role, level) / 100
 	case "DOT_VALUE_UP":
 		return retainedRateRoleValue(role, level)
-	case "ENDURE", "DEAL_BONUS":
+	case "CARD_SEAL_REGIST":
+		// 95d2d publishes the level-scaled resistance percentage to info+0x50.
+		return retainedRateRoleValue(role, level)
+	case "ENDURE", "DEAL_BONUS", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
 		return combatParameterInt(role.Parameters[0])
 	case "GUTS":
 		// 95fe9 writes the restored HP percentage to info+0x50.
 		return combatParameterInt(role.Parameters[2])
 	case "COST_BLOCK":
 		return combatParameterInt(role.Parameters[1])
-	case "BURST_GAUGE_QUICK_UP", "DEBUFF_RELEASE_ONE", "BUFF_RELEASE", "BUFF_RELEASE_ONE", "HP_CUT":
+	case "BURST_GAUGE_QUICK_UP", "DEBUFF_RELEASE_ONE", "BUFF_RELEASE", "BUFF_RELEASE_ONE", "HP_CUT", "CURSE_RELEASE":
 		return combatParameterInt(role.Parameters[0]) + combatParameterInt(role.Parameters[1])*level
 	case "ATTACK_BARRIER_APPOINT_ATTR":
 		// 9acb7 reports p3 (uses), not the p1+p2*level damage threshold.

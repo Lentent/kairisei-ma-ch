@@ -9,7 +9,8 @@ type battleSkillTargets struct {
 // 7adb0 resolves the outer target list once. 8b660 reuses that list for
 // SELECT and a role whose target kind equals the outer kind; other kinds
 // still select from current state. Attribute/exclusion filters remain live.
-func (engine *BattleEngine) executeSkillRoleSet(source, selected int, kind string, roles []CombatSkillRole, consume func(CombatSkillRole) ([]BattleResult, error)) ([]BattleResult, error) {
+func (engine *BattleEngine) executeSkillRoleSet(source, selected int, skill CombatSkillDefinition, roles []CombatSkillRole, consume func(CombatSkillRole) ([]BattleResult, error)) ([]BattleResult, error) {
+	kind := skill.Target
 	previous := engine.skillTargets
 	context := &battleSkillTargets{source: source, kind: kind}
 	switch kind {
@@ -37,6 +38,7 @@ func (engine *BattleEngine) executeSkillRoleSet(source, selected int, kind strin
 		results = append(results, rows...)
 	}
 	results = engine.projectSkillStatusResults(results)
+	results = append(results, engine.finishTranceReactions(skill.Cost)...)
 	results = append(results, engine.resolvePlayerSkillGuts()...)
 	for i := 0; i < engine.enemyCount; i++ {
 		enemy := &engine.enemies[i]

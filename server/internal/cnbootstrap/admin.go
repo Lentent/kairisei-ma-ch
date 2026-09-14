@@ -508,6 +508,8 @@ func newCNAdminHandler(
 	router.Get("/api/accounts/{userID}", admin.accountDetail)
 	router.Post("/api/accounts/{userID}/grant", admin.grantAccountResources)
 	router.Post("/api/accounts/{userID}/mail", admin.sendAccountMail)
+	router.Get("/api/accounts/{userID}/mail", admin.listAccountMail)
+	router.Post("/api/accounts/{userID}/mail/delete", admin.deleteAccountMail)
 	router.Post("/api/accounts/{userID}/credentials", admin.setAccountCredentials)
 	router.Delete("/api/accounts/{userID}/credentials", admin.unbindAccount)
 	router.Get("/api/catalog", admin.catalogEntries)
@@ -677,6 +679,10 @@ func applyCNAdminCatalogAssetCoverage(catalog []cnAdminCatalogEntry, assetsRoot 
 }
 
 func buildCNAdminCatalog(cardMaster cnCardRuntimeMaster, itemMaster cnItemRuntimeMaster) ([]cnAdminCatalogEntry, map[string]cnAdminCatalogEntry, error) {
+	jpCards, err := cnAdminJPCardIDs(cardMaster.Source)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read catalog import provenance: %w", err)
+	}
 	evolved := make(map[int]bool)
 	for _, transition := range cardMaster.EvolutionTransitions {
 		evolved[transition.ToCardID] = true
@@ -689,10 +695,14 @@ func buildCNAdminCatalog(cardMaster cnCardRuntimeMaster, itemMaster cnItemRuntim
 		{Kind: "currency", RewardType: 12, Name: "体力", Detail: "领取时补充 BP，上限封顶"},
 	}
 	for _, card := range cardMaster.CardTemplates {
+		sourceTags := cnCardSourceTags(card.AcquisitionText)
+		if jpCards[card.CardID] {
+			sourceTags = append(sourceTags, "jp_import")
+		}
 		entries = append(entries, cnAdminCatalogEntry{
 			Kind: "card", RewardType: 6, RewardTypeID: card.CardID,
 			Name: card.Name, Detail: card.AcquisitionText,
-			SourceTags:    cnCardSourceTags(card.AcquisitionText),
+			SourceTags:    sourceTags,
 			GachaEligible: cnCardCrystalGachaSource(card.AcquisitionText) && !evolved[card.CardID] && card.RarityRank >= 3,
 			ImageURL:      fmt.Sprintf("/assets/card/%d.webp", card.CardID),
 			Rarity:        card.RarityRank, LevelMax: card.LevelMax,

@@ -35,4 +35,21 @@ func TestRentalProfessionAndKindCounts(t *testing.T) {
 	if got := view.deckKindCounts(deck); !reflect.DeepEqual(got, []int{0, 2, 2, 2, 1, 1, 1, 1}) {
 		t.Fatalf("kinds %v", got)
 	}
+	// A public thief rental must not replace the mercenary deck selected by
+	// this same player as a solo partner, including its appearance and slots.
+	state.Avatars[0].CostumeID = 24
+	state.Avatars[2].CostumeID = 26
+	state.SupportDeck.UnlockSlotNums[0] = 2
+	state.SupportDeck.UnlockSlotNums[2] = 3
+	own, ok := partnerViewFromState(state, 1)
+	if !ok || own.ArthurType != 1 || own.Avatar.CostumeID != 24 || own.SupportUnlocked != 2 {
+		t.Fatalf("own selected profession replaced by public rental: %+v, %v", own, ok)
+	}
+	if _, found := exactDeck(own.Decks, own.ArthurType, 0); !found {
+		t.Fatal("own selected deck disappeared")
+	}
+	public, ok := friendPointPartnerViewFromState(state)
+	if !ok || public.ArthurType != 3 || public.Avatar.CostumeID != 26 {
+		t.Fatal("own selection changed public rental")
+	}
 }

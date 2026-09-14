@@ -62,7 +62,8 @@ func (engine *BattleEngine) executeEnemyPassiveSkill(actor *battleEnemy) ([]Batt
 		}
 	}
 	engine.nativeSkillSerial++
-	return engine.projectSkillStatusResults(results), nil
+	results = engine.projectSkillStatusResults(results)
+	return append(results, engine.finishTranceReactions(skill.Cost)...), nil
 }
 
 func validateEnemyPassiveContracts(catalog *CombatCatalog) error {

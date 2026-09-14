@@ -286,6 +286,7 @@ func TestAccountProjectionBoundsInventoryAndKeepsDeckReferences(t *testing.T) {
 	if len(content) > 16*1024 || len(loaded.Cards) != 3 || loaded.Cards[2].UniqueID != 10000 || loaded.Cards[1].LoveMax != 10000 || loaded.Cards[0].HP != 1234 || !slices.Equal(loaded.Cards[0].SkillLevels, []int16{3, 4}) || len(loaded.SupportDeck.CardCollectionIDs) != 0 || len(loaded.SupportDeck.CardCollectionLoveMaxIDs) != 0 || loaded.SupportDeck.UnlockSlotNums[0] != 1 {
 		t.Fatalf("public projection lost deck data or retained inventory/history: %d bytes, %+v", len(content), loaded.Cards)
 	}
+	t.Logf("10,000 inventory cards: public projection %d bytes, %d referenced cards", len(content), len(loaded.Cards))
 }
 
 func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs(t *testing.T) {

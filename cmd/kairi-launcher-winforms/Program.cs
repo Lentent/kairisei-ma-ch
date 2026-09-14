@@ -293,7 +293,7 @@ namespace KairiseiLauncher
                     if (network.OperationalStatus != OperationalStatus.Up || network.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
                     foreach (var item in network.GetIPProperties().UnicastAddresses)
                     {
-                        if (item.Address.AddressFamily == AddressFamily.InterNetwork && IsPrivate(item.Address))
+                        if (item.Address.AddressFamily == AddressFamily.InterNetwork)
                             candidates.Add(item.Address.ToString());
                     }
                 }
@@ -351,15 +351,13 @@ namespace KairiseiLauncher
             {
                 address.Enabled = true;
                 var current = ParseIPv4(address.Text);
-                if (current == null || !IsPrivate(current) || IPAddress.IsLoopback(current) || current.ToString() == "10.0.2.2")
+                if (current == null || current.ToString() == "10.0.2.2")
                     address.Text = address.Items.Count > 0 ? address.Items[0].ToString() : "192.168.1.100";
-                hint.Text = "电脑和手机需位于同一可信局域网。\r\n在 Windows 专用网络放行主端口和战斗端口。";
+                hint.Text = "填写客户端可访问的 IPv4，支持虚拟局域网及内网穿透。\r\n需放行或映射 TCP 主端口和战斗端口。";
             }
             else
             {
                 address.Enabled = true;
-                var current = ParseIPv4(address.Text);
-                if (current != null && IsPrivate(current)) address.Text = "";
                 hint.Text = "填写这台服务器的公网 IPv4。\r\n需映射 TCP 主端口与战斗端口；Admin 不会公网开放。";
             }
             UpdateClientConfig();
@@ -375,10 +373,6 @@ namespace KairiseiLauncher
         {
             var parsed = ParseIPv4(address.Text);
             if (parsed == null) throw new InvalidOperationException("连接地址必须是有效的 IPv4 地址。");
-            if (mode.SelectedIndex == 1 && (!IsPrivate(parsed) || IPAddress.IsLoopback(parsed) || parsed.ToString() == "10.0.2.2"))
-                throw new InvalidOperationException("局域网模式必须填写本机的私有 IPv4 地址。");
-            if (mode.SelectedIndex == 2 && IsPrivate(parsed))
-                throw new InvalidOperationException("公网模式应填写公网 IPv4；内网地址请选择局域网模式。");
             return parsed.ToString();
         }
 

@@ -218,7 +218,13 @@ func (engine *BattleEngine) ReserveChaliceSphere(memberType int, slot int) ([]Ba
 	if engine.continuePending {
 		return nil, errors.New("combat continuation is pending")
 	}
-	if engine.phase != battlePhaseUser && engine.phase != battlePhaseUserAttack {
+	// Original x86 accepts reservations while the already-computed chalice
+	// user/enemy results are being animated. Keep the playable/count checks:
+	// enemy cleanup clears eligibility for new reservations, but cancellation
+	// remains valid after that cleanup.
+	if engine.phase != battlePhaseUser && engine.phase != battlePhaseUserAttack &&
+		engine.phase != battlePhaseChaliceUser && engine.phase != battlePhaseEnemy &&
+		engine.phase != battlePhaseChaliceEnemy {
 		return nil, errors.New("combat chalice sphere reserve phase is unavailable")
 	}
 	if memberType < 1 || memberType > maxRoomMembers || slot < 0 || slot > deckSphereSlots {
@@ -242,6 +248,16 @@ func (engine *BattleEngine) ExecuteChaliceUserPhase() ([]BattleResult, error) {
 	if engine.phase != battlePhaseUserAttack {
 		return nil, errors.New("combat chalice user phase is unavailable")
 	}
+	results, err := engine.executeReservedChaliceSpheres()
+	if err != nil {
+		return nil, err
+	}
+	return engine.settleActionPhase(results, battlePhaseChaliceUser, false), nil
+}
+
+// Both original chalice APIs execute the same reserved-action routine (65b9a).
+// The enemy API then expires effects, unless the summons ended the battle.
+func (engine *BattleEngine) executeReservedChaliceSpheres() ([]BattleResult, error) {
 	actions := make([]battleAction, 0, maxRoomMembers)
 	for playerIndex := range engine.players {
 		player := &engine.players[playerIndex]
@@ -303,7 +319,7 @@ func (engine *BattleEngine) ExecuteChaliceUserPhase() ([]BattleResult, error) {
 			player.Spheres[sphereIndex].ChalicePlayable = false
 		}
 	}
-	return engine.settleActionPhase(results, battlePhaseChaliceUser, false), nil
+	return results, nil
 }
 
 func (engine *BattleEngine) ExecuteChaliceEnemyPhase() ([]BattleResult, error) {
@@ -312,6 +328,19 @@ func (engine *BattleEngine) ExecuteChaliceEnemyPhase() ([]BattleResult, error) {
 	}
 	if engine.phase != battlePhaseEnemy {
 		return nil, errors.New("combat chalice enemy phase is unavailable")
+	}
+	results, err := engine.executeReservedChaliceSpheres()
+	if err != nil {
+		return nil, err
+	}
+	// Only newly executed summons need action settlement here. With no
+	// summons, preserve the existing enemy-tail cleanup of unresolved KO
+	// members; it must not manufacture another retirement event.
+	if len(results) != 0 {
+		results = engine.settleActionPhase(results, battlePhaseChaliceEnemy, false)
+	}
+	if engine.endType != 0 {
+		return results, nil
 	}
 	for playerIndex := range engine.players {
 		for sphereIndex := range engine.players[playerIndex].Spheres {
@@ -332,7 +361,8 @@ func (engine *BattleEngine) ExecuteChaliceEnemyPhase() ([]BattleResult, error) {
 		return nil, err
 	}
 	rows = append(rows, display...)
-	return append([]BattleResult{{Command: resultBuffPartition}}, rows...), nil
+	results = append(results, BattleResult{Command: resultBuffPartition})
+	return append(results, rows...), nil
 }
 
 func (engine *BattleEngine) executeSphereAction(action battleAction, chainCount int) ([]BattleResult, error) {
@@ -349,7 +379,7 @@ func (engine *BattleEngine) executeSphereAction(action battleAction, chainCount 
 	}
 	results := []BattleResult{header}
 	engine.recordExecutedPlayerSkill(action, chainCount)
-	skillRows, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill.Target, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
+	skillRows, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		return engine.executePlayerRole(action, role, chainCount)
 	})
 	if err != nil {

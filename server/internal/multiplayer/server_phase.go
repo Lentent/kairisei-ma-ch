@@ -419,6 +419,9 @@ func (s *Server) tryAdvanceChaliceEnemy(roomID int64) error {
 	if roomContinuePending(current) {
 		return s.continueAtBarrierLocked(hub, current)
 	}
+	if current.engineBattleEnd != 0 {
+		return s.completeGoBattleLocked(hub, current)
+	}
 	if current.engine == nil {
 		hub.mu.Unlock()
 		return errors.New("ChaliceSphrExecEnemyPhaseFinish Go battle engine is unavailable")

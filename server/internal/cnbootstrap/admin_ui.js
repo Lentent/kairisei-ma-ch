@@ -1,5 +1,6 @@
 'use strict';
 const cardJobName=job=>({1:'佣兵',2:'富豪',3:'盗贼',4:'歌姬'}[job]||'');
+const cardSourceDescription=card=>[(card.source_tags||[]).includes('jp_import')?'日服卡牌':'',card.detail||'获取方式未标注'].filter(Boolean).join(' · ');
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={'player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];

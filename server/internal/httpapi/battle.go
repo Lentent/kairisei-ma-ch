@@ -504,8 +504,7 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 			// The original SetDeckData sends the same account ID for each
 			// selected own profession. Reuse the ordinary partner deck DTO,
 			// with state SELF at result, without rental points or follow offers.
-			ownState.User.ActiveArthurType = int(selection.ArthurType)
-			view, available := friendPointPartnerViewFromState(ownState)
+			view, available := partnerViewFromState(ownState, selection.ArthurType)
 			if !available {
 				writeError(writer, http.StatusBadRequest, "selected own partner profession is unavailable")
 				return

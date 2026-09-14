@@ -16,7 +16,9 @@ import (
 	"kairisei.local/server/internal/release"
 )
 
-const maxCNBattleRuntimeMasterBytes = 8 * 1024 * 1024
+// Matches the generator's bounded JSON input/output budget. The complete CN
+// encounter registry exceeds 8 MiB after restoring omitted difficulties.
+const maxCNBattleRuntimeMasterBytes = 16 * 1024 * 1024
 
 const (
 	cnBattleGeneratedGroupIDMin = 700000000
@@ -274,6 +276,11 @@ func validateCNBattleRuntimeMaster(master cnBattleRuntimeMaster) error {
 		master.TowerConfigVersion <= 0 || len(master.TowerProfiles) == 0 {
 		return errors.New("CN battle runtime master is incomplete")
 	}
+	importedEntries, err := cnBattleImportedEntries(master)
+	if err != nil {
+		return err
+	}
+	seenImported := make(map[int]struct{}, len(importedEntries))
 	var localProfile struct {
 		Grouping                 string `json:"grouping"`
 		ScheduleGroupLimit       int    `json:"schedule_group_limit"`
@@ -645,6 +652,14 @@ func validateCNBattleRuntimeMaster(master cnBattleRuntimeMaster) error {
 				}
 			}
 			_, validDifficulty := validDifficultyNames[boss.Difficulty]
+			if imported, ok := importedEntries[boss.BossID]; ok {
+				if imported.Name != boss.Description || imported.Difficulty != boss.Difficulty ||
+					(imported.RenderMode == "3d") != (boss.IsModel == 1) {
+					return fmt.Errorf("imported BOSS %d differs from its source identity", boss.BossID)
+				}
+				seenImported[boss.BossID] = struct{}{}
+				validDifficulty = validDifficulty || imported.DifficultyKind == "LOCAL_CHALLENGE"
+			}
 			rewardCardIDs := make([]int, len(boss.RewardCards))
 			seenRewardCardIDs := make(map[int]struct{}, len(boss.RewardCards))
 			validRewardCards := len(boss.RewardCards) > 0
@@ -692,6 +707,9 @@ func validateCNBattleRuntimeMaster(master cnBattleRuntimeMaster) error {
 	}
 	if len(seenHistoricalDropFamilies) != len(historicalDropByFamily) {
 		return errors.New("CN battle historical drop override coverage is incomplete")
+	}
+	if len(seenImported) != len(importedEntries) {
+		return errors.New("imported BOSS entry coverage is incomplete")
 	}
 	if len(master.Summary.DifficultyOverrideCounts) != len(difficultyOverrideCounts) {
 		return errors.New("CN battle difficulty-override summary is invalid")
@@ -754,7 +772,9 @@ func validateCNBattleRuntimeMaster(master cnBattleRuntimeMaster) error {
 	previousDuplicateFamilyID := 0
 	for _, family := range master.DeduplicatedFamilies {
 		expectedSourceState := "CONFIRMED_NORMALIZED_CN_OFFICIAL_MASTER_CONTENT_EQUALITY"
-		if family.CanonicalFamilyID <= 0 || family.DuplicateFamilyID < family.CanonicalFamilyID ||
+		// An older discovered alias can point to an already published larger ID.
+		// The checks below require a published canonical and an unpublished alias.
+		if family.CanonicalFamilyID <= 0 || family.DuplicateFamilyID <= 0 ||
 			family.DuplicateFamilyID <= previousDuplicateFamilyID || len(family.BossAliases) == 0 ||
 			family.SourceState != expectedSourceState ||
 			family.OfficialPeriodNameState != "ABSENT_FROM_CN_OFFICIAL_LOCAL_TEXTASSETS" {

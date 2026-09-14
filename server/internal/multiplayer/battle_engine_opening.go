@@ -2,24 +2,48 @@ package multiplayer
 
 import "fmt"
 
-// CardCsvData's CARD_PASSIVE (column 33) is separate from the support-deck
-// skill. The current CN main-card passive family only produces BEGINNING_DRAW
-// (9974f -> buff 412). Resolve the actual support master; never infer this from
-// rarity, character name or a hard-coded card-ID list.
-func (catalog *CombatCatalog) cardBeginningDraw(card CombatCardDefinition) (bool, error) {
+// CARD_PASSIVE (column 33) is separate from EX. 5ea1e executes its own
+// PASSIVE skill through 7adb0; the original table only used BEGINNING_DRAW,
+// but D497 also confirms DAMAGE_BOOST at this same native entry point.
+func (catalog *CombatCatalog) cardMainPassive(card CombatCardDefinition) (CombatSkillDefinition, []CombatSkillRole, error) {
 	if card.PassiveSkillID == 0 {
-		return false, nil
+		return CombatSkillDefinition{}, nil, nil
 	}
 	variants := catalog.SupportSkills[card.PassiveSkillID]
-	if len(variants) != 1 || variants[0].Target != "SELF" ||
+	if len(variants) != 1 || (variants[0].Target != "SELF" && variants[0].Target != "USER_ALL") ||
 		variants[0].BranchCondition != "" || variants[0].BranchCondition2 != "" {
-		return false, fmt.Errorf("card %d passive %d has unsupported target/branches", card.ID, card.PassiveSkillID)
+		return CombatSkillDefinition{}, nil, fmt.Errorf("card %d passive %d has unsupported target/branches", card.ID, card.PassiveSkillID)
 	}
 	roles := catalog.SupportSkillRoles[variants[0].FunctionID]
-	if len(roles) != 1 || roles[0].Function != "BEGINNING_DRAW" || roles[0].Target != "SELECT" || roles[0].ExcludeSelf {
-		return false, fmt.Errorf("card %d passive %d has unsupported roles", card.ID, card.PassiveSkillID)
+	if len(roles) == 0 || len(roles) > 5 {
+		return CombatSkillDefinition{}, nil, fmt.Errorf("card %d passive %d has unsupported roles", card.ID, card.PassiveSkillID)
 	}
-	return true, nil
+	for _, role := range roles {
+		if !mainCardPassiveFunctionRegistered(role.Function) || role.Target != "SELECT" || role.ExcludeSelf ||
+			(role.Function == "BEGINNING_DRAW" && variants[0].Target != "SELF") {
+			return CombatSkillDefinition{}, nil, fmt.Errorf("card %d passive %d has unsupported roles", card.ID, card.PassiveSkillID)
+		}
+	}
+	return variants[0], roles, nil
+}
+
+func mainCardPassiveFunctionRegistered(function string) bool {
+	switch function {
+	case "BEGINNING_DRAW", "DAMAGE_BOOST":
+		return true
+	default:
+		return false
+	}
+}
+
+func (catalog *CombatCatalog) cardBeginningDraw(card CombatCardDefinition) (bool, error) {
+	_, roles, err := catalog.cardMainPassive(card)
+	for _, role := range roles {
+		if role.Function == "BEGINNING_DRAW" {
+			return true, err
+		}
+	}
+	return false, err
 }
 
 // 5ea1e runs after each user's EX/chalice passives. 9974f/88a20 records
@@ -30,29 +54,53 @@ func (engine *BattleEngine) executeMainCardPassives(owner *battlePlayer) ([]Batt
 	var results []BattleResult
 	for _, card := range owner.Deck {
 		definition := engine.catalog.Cards[card.CardID]
-		enabled, err := engine.catalog.cardBeginningDraw(definition)
+		skill, roles, err := engine.catalog.cardMainPassive(definition)
 		if err != nil {
 			return nil, err
 		}
-		if !enabled {
+		if len(roles) == 0 {
 			continue
 		}
-		skill := engine.catalog.SupportSkills[definition.PassiveSkillID][0]
-		role := engine.catalog.SupportSkillRoles[skill.FunctionID][0]
+		target := owner.MemberType
+		if skill.Target == "USER_ALL" {
+			target = 0
+		}
 		header, err := engine.playerCardSkillResult(battleAction{
 			memberType: owner.MemberType, cardType: card.CardType, cardID: card.CardID,
-			cardLevel: card.Level, target: owner.MemberType, skill: skill,
+			cardLevel: card.Level, target: target, skill: skill,
 		}, 0)
 		if err != nil {
 			return nil, err
 		}
 		header.Args[6], header.Args[10] = 0, 1
-		owner.Effects = append(owner.Effects, battleEffect{Function: "BEGINNING_DRAW", ListType: 1,
-			Source: owner.MemberType, SourceSkillID: skill.ID, CardType: card.CardType, RoleIndex: role.RoleIndex, AppliedTurn: engine.turn})
-		// 88a20's PASSIVE registration emits the base query before the
-		// deferred 69/6 pair, even when BEGINNING_DRAW changes no parameter.
-		results = append(results, engine.projectSkillStatusResults([]BattleResult{header, playerBaseParameterResult(owner), battleBuffResultWithListType(owner.MemberType, role.RoleIndex, 1,
-			battleBuffCodes["BEGINNING_DRAW"], 0, 1, 0, 0, 0, 0)})...)
+		skillResults := []BattleResult{header}
+		for _, role := range roles {
+			role.SourceSkillID = skill.ID
+			effect := battleEffect{Function: "BEGINNING_DRAW", ListType: 1,
+				Source: owner.MemberType, SourceSkillID: skill.ID, CardType: card.CardType, RoleIndex: role.RoleIndex, AppliedTurn: engine.turn}
+			flags := 1
+			if role.Function == "DAMAGE_BOOST" {
+				effect, err = sphereSupportEffect(role, card.Level, engine.turn, owner.MemberType)
+				if err != nil {
+					return nil, err
+				}
+				flags = sphereSupportAttributeFlags(effect.Attribute)
+			}
+			for i := range engine.players {
+				target := &engine.players[i]
+				if target.HP <= 0 || target.GameOver || (skill.Target == "SELF" && target.MemberType != owner.MemberType) ||
+					!combatRoleAllowsTarget(role, owner.MemberType, target.MemberType, target.Attribute) {
+					continue
+				}
+				target.Effects = append(target.Effects, effect)
+				// Native queries each target's base parameters before draining
+				// the passive 69/6 rows after the complete skill's role set.
+				skillResults = append(skillResults, playerBaseParameterResult(target), battleBuffResultWithListType(target.MemberType, role.RoleIndex, 1,
+					battleBuffCodes[role.Function], 0, flags, 0, 0, 0, 0))
+			}
+		}
+		results = append(results, engine.projectSkillStatusResults(skillResults)...)
+		results = append(results, engine.finishTranceReactions(skill.Cost)...)
 		engine.nativeSkillSerial++
 		display, err := engine.refreshPassiveDisplayPowers()
 		if err != nil {

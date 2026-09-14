@@ -132,6 +132,7 @@ type battleDisplayPower struct {
 }
 
 type battleEnemy struct {
+	Trance               battleEnemyTrance
 	StatusCooldown       [15]int
 	MemberType           int
 	EnemyID              int
@@ -159,7 +160,8 @@ type battleEnemy struct {
 	TurnPhysical         int
 	TurnMagic            int
 	AITurn               battleEnemyAITurnStats
-	AIFlags              uint32 // 4cee1+13b24; preserved by TurnPhase's 56dea reset.
+	AIFlags              uint32   // 4cee1+13b24; preserved by TurnPhase's 56dea reset.
+	AIVariables          [5]int32 // 4cee1+13b28; actor-local, preserved across turns.
 	ExecutedBuffKinds    [69]uint32
 	DiedTurn             int
 	DeathCount           int
@@ -412,6 +414,7 @@ func (engine *BattleEngine) loadEnemyParty(party CombatEnemyParty, drops []Battl
 		hp := definition.HP * partySlot.HPRate
 		enemy := &engine.enemies[index]
 		*enemy = battleEnemy{
+			Trance:     newEnemyTrance(definition),
 			MemberType: 5 + index, EnemyID: partySlot.EnemyID, Parent: partySlot.ParentIndex,
 			HP: hp, MaxHP: hp, BaseMaxHP: hp,
 			Attack: definition.Attack, BaseAttack: definition.Attack,

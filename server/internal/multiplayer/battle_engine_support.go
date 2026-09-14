@@ -144,6 +144,7 @@ func (engine *BattleEngine) executePlayerSupportPassives() ([]BattleResult, erro
 				}
 			}
 			results = append(results, engine.projectSkillStatusResults(skillResults)...)
+			results = append(results, engine.finishTranceReactions(skill.Cost)...)
 			engine.nativeSkillSerial++
 			display, err := engine.refreshPassiveDisplayPowers()
 			if err != nil {

@@ -16,7 +16,9 @@ import (
 	"kairisei.local/server/internal/release"
 )
 
-const maxCNCardMasterBytes = 8 * 1024 * 1024
+// Full CN inventory plus compatible imported cards exceeds the original 8 MiB
+// snapshot. Keep a bounded allowance for the complete runtime catalog.
+const maxCNCardMasterBytes = 16 * 1024 * 1024
 
 type cnCardRuntimeMaster struct {
 	SchemaVersion                     int                                 `json:"schema_version"`

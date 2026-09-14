@@ -9,6 +9,7 @@ func recordEnemyAIDamage(enemy *battleEnemy, damage, physics int) {
 	}
 	enemy.AITurn.Damage[physics] += int64(damage)
 	enemy.AITurn.Hits[physics]++
+	enemy.Trance.Damage += int64(damage) // 574df also calls 574af.
 }
 
 // 8bb40 -> 56f95 remembers successful applications on this enemy until
@@ -46,6 +47,9 @@ func (engine *BattleEngine) recordAIStatusApplied(member int, effect battleEffec
 		recordEnemyAIBadStatus(enemy, effect.Function)
 		if kind := branchStatusKind(effect, false); kind >= 0 && kind < 32 {
 			enemy.AITurn.DebuffKinds |= 1 << uint(kind)
+			if (kind < 7 || kind > 10) && kind != 22 && kind != 25 {
+				enemy.Trance.Debuff = true
+			} // 56fbe
 		}
 		return
 	}
@@ -57,6 +61,9 @@ func (engine *BattleEngine) recordAIStatusApplied(member int, effect battleEffec
 			enemy := &engine.enemies[i]
 			if enemy.MemberType != 0 {
 				enemy.AITurn.PlayerBuffKinds[kind]++
+				if kind == 16 {
+					enemy.Trance.Covering = true
+				}
 			}
 		}
 	}

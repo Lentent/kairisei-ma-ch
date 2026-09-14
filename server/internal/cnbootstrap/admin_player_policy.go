@@ -74,6 +74,18 @@ func (o *cnOperationStore) loadPlayerPolicy() error {
 		if err := json.Unmarshal(doc.Payload, &value); err != nil {
 			return err
 		}
+		// Stored policy predates newly published navigators after a resource
+		// upgrade. Complete only missing IDs; saved prices and switches win.
+		// Keep duplicates/unknown IDs intact so normal validation rejects them.
+		seen := make(map[int8]bool, len(value.Navigators))
+		for _, n := range value.Navigators {
+			seen[n.NaviID] = true
+		}
+		for _, n := range o.playerDefaults.Navigators {
+			if !seen[n.NaviID] {
+				value.Navigators = append(value.Navigators, n)
+			}
+		}
 	} else {
 		value = *o.playerDefaults
 	}

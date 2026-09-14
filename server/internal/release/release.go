@@ -942,6 +942,9 @@ type Mission struct {
 
 // Present mirrors proto.PresentBoxInfo. reward0..reward2 are intentionally
 // concrete objects because the CN parser dereferences all three unconditionally.
+// PresentStateAdminDeleted is a local history tombstone, never sent to clients.
+const PresentStateAdminDeleted int8 = -1
+
 type Present struct {
 	PresentID      int64  `json:"presentid"`
 	IssuedAtUnix   int64  `json:"issued_at_unix,omitempty"` // persistence only; client receives add_elapsed_sec
@@ -1846,8 +1849,7 @@ func Load(root string) (*Release, error) {
 		}
 		selectableNavi[id] = struct{}{}
 	}
-	if len(selectableNavi) == 0 ||
-		state.User.NaviUnlockFlag <= 0 {
+	if len(selectableNavi) == 0 {
 		return nil, errors.New("server state has no selectable navigator closure")
 	}
 	if _, exists := selectableNavi[state.User.NaviID]; !exists {
@@ -1856,7 +1858,7 @@ func Load(root string) (*Release, error) {
 	if len(state.User.NaviCatalogIDs) > 0 {
 		catalogNavi := make(map[int8]struct{}, len(state.User.NaviCatalogIDs))
 		for _, id := range state.User.NaviCatalogIDs {
-			if id < 0 || id >= 64 {
+			if id < 0 {
 				return nil, errors.New("server state has an invalid navigator catalog ID")
 			}
 			if _, exists := catalogNavi[id]; exists {

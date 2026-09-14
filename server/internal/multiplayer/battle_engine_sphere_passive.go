@@ -186,6 +186,7 @@ func (engine *BattleEngine) executeSphereSupportPassive(owner *battlePlayer) ([]
 		}
 	}
 	results = append(results, engine.projectSkillStatusResults(statusResults)...)
+	results = append(results, engine.finishTranceReactions(skill.Cost)...)
 	engine.nativeSkillSerial++
 	display, err := engine.refreshPassiveDisplayPowers()
 	if err != nil {

@@ -376,13 +376,9 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 			"battle_port":    battleSV.Port,
 		})
 	})
-	router.Get("/local/server/default.list", func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		writer.Header().Set("Cache-Control", "no-store")
-		_, _ = writer.Write([]byte(
-			"ALL,0,本地服务器," + advertiseHost + "," + strconv.Itoa(port) + ",0,,ALL,,,\n",
-		))
-	})
+	for _, name := range []string{"default", "apple-review", "qa"} {
+		router.Get("/local/server/"+name+".list", cnBootstrapServerList(advertiseHost, port))
+	}
 	router.Get("/local/gacha/banner.png", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "image/png")
 		writer.Header().Set("Cache-Control", "no-store")
@@ -764,7 +760,7 @@ func loadCNRuntimeStatePreparer(cardMasterPath, exploreMasterPath, storyMasterPa
 	if err != nil {
 		return nil, err
 	}
-	costumes, err := loadCNCostumeRewards()
+	costumes, err := loadCNCostumeRewards(avatarMaster.ImportedCostumeRewards)
 	if err != nil {
 		return nil, err
 	}
@@ -2009,7 +2005,8 @@ func cnBootstrapLogin(accounts *cnAccountStore, advertiseHost string, port int, 
 			return
 		}
 		var payload struct {
-			UUID string `json:"uuid"`
+			UUID          string `json:"uuid"`
+			ClientVersion string `json:"clver"`
 		}
 		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(writer, "decode CN local login", http.StatusBadRequest)
@@ -2017,6 +2014,10 @@ func cnBootstrapLogin(accounts *cnAccountStore, advertiseHost string, port int, 
 		}
 		if payload.UUID == "" {
 			http.Error(writer, "CN local login UUID is required", http.StatusBadRequest)
+			return
+		}
+		if !cnClientVersionAllowed(payload.ClientVersion) {
+			cnRejectOldClient(writer)
 			return
 		}
 		identity, err := accounts.resolveLogin(payload.UUID)
@@ -2044,7 +2045,7 @@ func cnBootstrapLogin(accounts *cnAccountStore, advertiseHost string, port int, 
 			"web_url":          baseURL + "/disabled/web",
 			"charge_url":       baseURL + "/disabled/charge",
 			"products_url":     baseURL + "/disabled/products",
-			"update_url":       baseURL + "/disabled/update",
+			"update_url":       cnClientReleaseURL,
 			"gid":              1,
 			"userid":           identity.UserID,
 			"uid":              uid,

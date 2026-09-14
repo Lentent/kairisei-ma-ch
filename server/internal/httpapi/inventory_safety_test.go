@@ -14,6 +14,17 @@ import (
 	"kairisei.local/server/internal/release"
 )
 
+func TestAdminWithdrawnMailIsNotClaimHistory(t *testing.T) {
+	s := &store{presentHistories: []release.Present{
+		{PresentID: 1, State: release.PresentStateAdminDeleted},
+		{PresentID: 2, State: 1},
+	}}
+	_, history := s.presentState()
+	if len(history) != 1 || history[0].PresentID != 2 || len(s.presentHistories) != 2 {
+		t.Fatal("withdrawal appeared as a received reward or lost its tombstone")
+	}
+}
+
 func TestCardFusionMaterialCount(t *testing.T) {
 	// Load the shipped policy: a fixture-only limit would miss the original bug.
 	content, err := os.ReadFile("../../config/cn602-card-progression-runtime-profile.json")

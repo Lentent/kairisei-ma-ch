@@ -51,8 +51,8 @@ func projectCNBattleRuntime(master cnBattleRuntimeMaster) (cnBattleRuntimeMaster
 			}
 		}
 	}
-	// Native solo reads TeamBattleBossInfo.awake.is_cost before its first
-	// Start. The server engine's cost offset alone cannot affect that path.
+	// Native solo reads TeamBattleBossInfo.awake before its first Start.
+	// Keep its cost and draw/discard inheritance aligned with the room engine.
 	awakeBosses := make(map[int]bool)
 	for _, replay := range master.Replays {
 		if len(replay.Battles) < 2 {
@@ -105,6 +105,7 @@ func projectCNSoloAwakeCost(groups []json.RawMessage, bossKey string, awakeBosse
 				return nil, fmt.Errorf("boss %d has no awake configuration", id)
 			}
 			awake["1"] = json.RawMessage("1")
+			awake["4"] = json.RawMessage("1") // is_deck_trash: preserve the current draw cycle.
 			boss["18"], _ = json.Marshal(awake)
 			changed = true
 		}

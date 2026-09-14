@@ -253,7 +253,7 @@ func persistentRoleValue(role CombatSkillRole, level int, actor *battlePlayer, c
 		return combatParameterInt(role.Parameters[1]) + combatParameterInt(role.Parameters[2])*level
 	case "CARD_TRAP_DAMAGE":
 		return cardTrapDamageRoleValue(role, level, chainCount, combatStatValue(actor, role.Parameters[7]))
-	case "CRITICAL_UP", "CRITICAL_DOWN", "WEAKNESS", "CRITICAL_DAMAGE_BOOST":
+	case "CRITICAL_UP", "CRITICAL_DOWN", "WEAKNESS", "CRITICAL_DAMAGE_BOOST", "CARD_SEAL_REGIST":
 		value := retainedRateRoleValue(role, level)
 		if chainCount > 1 && role.ChainRate != 0 {
 			value = value * (100 + role.ChainRate*(chainCount-1)) / 100
@@ -976,6 +976,7 @@ func (engine *BattleEngine) tickEnemyDOTEffects() ([]BattleResult, error) {
 		return nil, nil
 	}
 	results := make([]BattleResult, 0, engine.enemyCount*4)
+	engine.clearTranceReactions()
 	for _, function := range battleDOTOrder {
 		for index := 0; index < engine.enemyCount; index++ {
 			enemy := &engine.enemies[index]
@@ -989,6 +990,7 @@ func (engine *BattleEngine) tickEnemyDOTEffects() ([]BattleResult, error) {
 			damage := enemyDOTDamage(effect)
 			enemy.HP = nativeHPCommit(enemy.HP, enemy.MaxHP, -damage, enemy.Effects)
 			recordEnemyDamage(enemy, damage, "")
+			enemy.Trance.OtherDamage += int64(damage)
 			engine.recordDamageEvent(enemy.MemberType, effect.Source, damage, effect.Attribute, "", effect.Function, false)
 			results = append(results,
 				buffStatusEffectResult(enemy.MemberType, battleBuffCodes[effect.Function]),
@@ -1001,6 +1003,7 @@ func (engine *BattleEngine) tickEnemyDOTEffects() ([]BattleResult, error) {
 				parent := &engine.enemies[enemy.Parent-1]
 				parent.HP = nativeHPCommit(parent.HP, parent.MaxHP, -damage, parent.Effects)
 				recordEnemyDamage(parent, damage, "")
+				parent.Trance.OtherDamage += int64(damage)
 				results = append(results, BattleResult{Command: resultHP, Args: []int64{
 					int64(parent.MemberType), int64(parent.MaxHP), int64(parent.HP), 1,
 				}})
@@ -1028,6 +1031,7 @@ func (engine *BattleEngine) tickEnemyDOTEffects() ([]BattleResult, error) {
 			break
 		}
 	}
+	results = append(results, engine.finishTranceReactions(1)...)
 	return results, nil
 }
 
@@ -1126,6 +1130,7 @@ func (engine *BattleEngine) tickPersistentEffects() ([]BattleResult, error) {
 			}
 		}
 		enemy.tickStatusCooldown()
+		results = append(results, tickEnemyTrance(enemy)...)
 	}
 	// The native actor list also contains the two neutral field members.
 	// They have no active skills in this PvE profile, but 72a18 still emits

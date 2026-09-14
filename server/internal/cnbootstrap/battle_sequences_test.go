@@ -5,10 +5,11 @@ import (
 	"kairisei.local/server/internal/multiplayer"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
-func TestSoloAwakeCostPreservesOtherFlags(t *testing.T) {
+func TestSoloAwakeCostAndDeckPreserveOtherFlags(t *testing.T) {
 	for _, key := range []string{"10", "13"} {
 		raw := json.RawMessage(`{"` + key + `":[{"0":7,"18":{"0":0,"1":0,"2":1,"3":1,"4":0,"5":1}},{"0":8,"18":{"1":0}}]}`)
 		before := string(raw)
@@ -24,7 +25,7 @@ func TestSoloAwakeCostPreservesOtherFlags(t *testing.T) {
 		if err = json.Unmarshal(group[key][0]["18"], &flags); err != nil {
 			t.Fatal(err)
 		}
-		if flags["1"] != 1 || flags["0"] != 0 || flags["2"] != 1 || flags["3"] != 1 || flags["4"] != 0 || flags["5"] != 1 || string(group[key][1]["18"]) != `{"1":0}` || string(raw) != before {
+		if flags["1"] != 1 || flags["0"] != 0 || flags["2"] != 1 || flags["3"] != 1 || flags["4"] != 1 || flags["5"] != 1 || string(group[key][1]["18"]) != `{"1":0}` || string(raw) != before {
 			t.Fatal("unexpected configuration mutation")
 		}
 	}
@@ -71,6 +72,22 @@ func TestNamelessPublishedSequences(t *testing.T) {
 				skills := []int{level.PassiveSkillID}
 				skills = append(skills, level.CallSkillIDs[:]...)
 				for _, action := range level.Actions {
+					// Native rows can retain an unused awakening skill (e.g.
+					// lower Christmas Constantine difficulties). No enabled
+					// initial or looping turn means the action never executes.
+					if order, ok := catalog.EnemyAIOrders[action.AIConditionID]; ok {
+						enabled := false
+						for column := 7; column <= 28; column++ {
+							if column == 18 {
+								continue // loop start, not an enabled-turn flag
+							}
+							flag, _ := strconv.Atoi(order.Fields[column])
+							enabled = enabled || flag > 0
+						}
+						if !enabled {
+							continue
+						}
+					}
 					skills = append(skills, action.SkillID)
 				}
 				for _, skillID := range skills {
@@ -146,8 +163,8 @@ func TestNamelessPublishedSequences(t *testing.T) {
 				if err := json.Unmarshal(boss["18"], &awake); err != nil {
 					t.Fatal(err)
 				}
-				if awake["1"] != 1 {
-					t.Fatalf("listing %s boss %d lacks native solo cost inheritance", listing.key, id)
+				if awake["1"] != 1 || awake["4"] != 1 {
+					t.Fatalf("listing %s boss %d lacks native solo cost/draw inheritance", listing.key, id)
 				}
 				checked++
 			}

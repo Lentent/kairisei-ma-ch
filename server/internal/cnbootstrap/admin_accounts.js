@@ -18,7 +18,7 @@ async function loadAccountsPage(){
 }
 function renderAccounts(){
   $('#account-count').textContent=`${num(accountPage.total)} 个匹配账号`;
-  $('#account-rows').innerHTML=state.accounts.map(a=>`<tr><td>${a.user_id<1900000000?`<input class="check player-check" type="checkbox" aria-label="选择${esc(playerLabel(a))}" data-id="${a.user_id}" ${selectedPlayers.has(a.user_id)?'checked':''}>`:''}</td><td><b>${esc(a.name||'未命名')}</b><span class="sub">#${a.user_id} · 存档 r${a.revision}</span></td><td>${esc(a.username||(a.user_id>=1900000000?'系统伙伴':'游客 · 未绑定'))}<details><summary class="sub">安装标识</summary><code>${esc(a.login_uuid)}</code></details></td><td>${esc(formatTime(a.last_login_utc))}</td><td><button class="secondary account-detail" data-user="${a.user_id}">详情</button> ${a.user_id<1900000000?`<button class="secondary mail-shortcut" data-user="${a.user_id}">寄礼物</button> <button class="secondary grant" data-user="${a.user_id}">加资源</button> <button class="secondary credentials" data-user="${a.user_id}">${a.username?'管理绑定':'绑定账号'}</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">没有匹配账号</td></tr>';
+  $('#account-rows').innerHTML=state.accounts.map(a=>`<tr><td>${a.user_id<1900000000?`<input class="check player-check" type="checkbox" aria-label="选择${esc(playerLabel(a))}" data-id="${a.user_id}" ${selectedPlayers.has(a.user_id)?'checked':''}>`:''}</td><td><b>${esc(a.name||'未命名')}</b><span class="sub">#${a.user_id} · 存档 r${a.revision}</span></td><td>${esc(a.username||(a.user_id>=1900000000?'系统伙伴':'游客 · 未绑定'))}<details><summary class="sub">安装标识</summary><code>${esc(a.login_uuid)}</code></details></td><td>${esc(formatTime(a.last_login_utc))}</td><td><button class="secondary account-detail" data-user="${a.user_id}">详情</button> ${a.user_id<1900000000?`<button class="secondary mail-shortcut" data-user="${a.user_id}">寄礼物</button> <button class="secondary inbox-open" data-user="${a.user_id}">管理邮件</button> <button class="secondary grant" data-user="${a.user_id}">加资源</button> <button class="secondary credentials" data-user="${a.user_id}">${a.username?'管理绑定':'绑定账号'}</button>`:''}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">没有匹配账号</td></tr>';
   let anchor=null;
   $$('.player-check').forEach((box,index)=>box.onclick=e=>{
     const boxes=$$('.player-check'),indices=e.shiftKey&&anchor!==null?[Math.min(anchor,index),Math.max(anchor,index)]:[index,index];
@@ -26,6 +26,7 @@ function renderAccounts(){
     anchor=index;updatePlayerSelection();
   });
   $$('.account-detail').forEach(b=>b.onclick=()=>openAccountDetail(Number(b.dataset.user)));
+  $$('.inbox-open').forEach(b=>b.onclick=()=>openPlayerInbox(Number(b.dataset.user)));
   $$('.credentials').forEach(b=>b.onclick=()=>openCredentials(Number(b.dataset.user)));
   $$('.grant').forEach(b=>b.onclick=()=>openGrant(Number(b.dataset.user)));
   $$('.mail-shortcut').forEach(b=>b.onclick=()=>{const a=state.accounts.find(a=>a.user_id===Number(b.dataset.user));selectedPlayers.clear();selectedPlayers.set(a.user_id,a);updatePlayerSelection();switchView('mail')});
@@ -98,3 +99,55 @@ $('#grant-cancel').onclick=()=>$('#grant-modal').classList.remove('open');$('#gr
 $('#account-detail-close').onclick=()=>$('#account-modal').classList.remove('open');$('#account-modal').onclick=e=>{if(e.target.id==='account-modal')$('#account-modal').classList.remove('open')};
 
 $('#accounts-unselect-page').onclick=()=>{state.accounts.forEach(a=>selectedPlayers.delete(a.user_id));renderAccounts()};
+
+const playerInbox={user:0,page:0,total:0,serial:0,busy:false,loading:false,rows:[],selected:new Map()};
+function updateInboxControls(){
+  const w=playerInbox;
+  $$('#inbox-modal button, #inbox-modal input, #inbox-modal select').forEach(e=>e.disabled=w.busy);
+  $('#inbox-delete').disabled=w.busy||w.loading||!w.selected.size;
+  $('#inbox-select-page').disabled=w.busy||w.loading||!w.rows.length;
+  $('#inbox-prev').disabled=w.busy||w.loading||!w.page;
+  $('#inbox-next').disabled=w.busy||w.loading||(w.page+1)*50>=w.total;
+  $('#inbox-info').textContent=`${w.total} 封 · 第 ${w.page+1} 页 · 已选 ${w.selected.size} 封`;
+}
+async function openPlayerInbox(id){
+  const w=playerInbox;if(w.busy)return;
+  clearTimeout(loadPlayerInbox.timer);w.user=id;w.page=0;w.selected.clear();
+  $('#inbox-title').textContent=`邮件管理 · ${playerLabel(state.accounts.find(a=>a.user_id===id)||{user_id:id})}`;
+  $('#inbox-search').value='';$('#inbox-filter').value='pending';$('#inbox-modal').classList.add('open');
+  await loadPlayerInbox();
+}
+async function loadPlayerInbox(){
+  const w=playerInbox,serial=++w.serial;w.loading=true;w.rows=[];
+  $('#inbox-rows').innerHTML='<tr><td colspan="5">正在加载邮件…</td></tr>';updateInboxControls();
+  try{
+    const query=new URLSearchParams({offset:w.page*50,q:$('#inbox-search').value.trim(),status:$('#inbox-filter').value});
+    const data=await api(`/api/accounts/${w.user}/mail?${query}`);if(serial!==w.serial)return;
+    w.rows=data.items;w.total=data.total;
+    if(w.page&&w.page*50>=w.total){w.page=Math.max(0,Math.ceil(w.total/50)-1);return loadPlayerInbox()}
+    $('#inbox-rows').innerHTML=w.rows.map(p=>`<tr><td><input class="check inbox-check" type="checkbox" data-id="${esc(p.present_id)}" aria-label="选择${esc(p.title)}" ${w.selected.has(p.present_id)?'checked':''}></td><td><b>${esc(p.title)}</b><span class="sub">${esc(p.message)}</span><span class="sub">${p.issued_at_unix?esc(formatTime(p.issued_at_unix*1000)):''}</span></td><td>${esc(p.reward_name||`奖励 ${p.reward_type}/${p.reward_id}`)} × ${esc(p.quantity)}</td><td>${p.state===0?'未领取':'已领取／可删除'}</td><td><button class="secondary inbox-delete-one" data-id="${esc(p.present_id)}">删除</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">没有符合条件的邮件</td></tr>';
+    $$('.inbox-check').forEach(box=>box.onchange=()=>{const p=w.rows.find(p=>p.present_id===box.dataset.id);if(box.checked){if(w.selected.size>=100){box.checked=false;return toast('每次最多选择 100 封邮件',true)}w.selected.set(p.present_id,p)}else w.selected.delete(p.present_id);updateInboxControls()});
+    $$('.inbox-delete-one').forEach(b=>b.onclick=()=>deletePlayerInbox([w.rows.find(p=>p.present_id===b.dataset.id)]));
+  }catch(e){if(serial===w.serial){$('#inbox-rows').innerHTML='<tr><td colspan="5">邮件加载失败，请刷新重试。</td></tr>';toast(e.message,true)}}
+  finally{if(serial===w.serial){w.loading=false;updateInboxControls()}}
+}
+async function deletePlayerInbox(rows){
+  const w=playerInbox;if(w.busy||w.loading||!rows.length)return;
+  const pending=rows.filter(p=>p.state===0).length;
+  if(!confirm(`删除玩家 #${w.user} 的 ${rows.length} 封邮件？\n其中 ${pending} 封尚未领取，删除后无法再领取。已领取奖励不会回收。\n\n${rows.slice(0,8).map(p=>p.title).join('\n')}${rows.length>8?'\n…':''}`))return;
+  w.busy=true;updateInboxControls();
+  try{
+    const data=await api(`/api/accounts/${w.user}/mail/delete`,{method:'POST',body:JSON.stringify({present_ids:rows.map(p=>p.present_id)})});
+    rows.forEach(p=>w.selected.delete(p.present_id));state.loaded.delete('audit');state.loaded.delete('accounts');
+    toast(`已删除 ${data.deleted.length} 封邮件${data.already_absent?`，另有 ${data.already_absent} 封已不存在`:''}`);await loadPlayerInbox();
+  }catch(e){toast(e.message+'；刷新列表核对后可重试',true)}finally{w.busy=false;updateInboxControls()}
+}
+$('#inbox-delete').onclick=()=>deletePlayerInbox([...playerInbox.selected.values()]);
+$('#inbox-close').onclick=()=>{if(!playerInbox.busy){playerInbox.serial++;clearTimeout(loadPlayerInbox.timer);$('#inbox-modal').classList.remove('open')}};
+$('#inbox-refresh').onclick=()=>loadPlayerInbox();
+$('#inbox-prev').onclick=()=>{playerInbox.page--;loadPlayerInbox()};
+$('#inbox-next').onclick=()=>{playerInbox.page++;loadPlayerInbox()};
+$('#inbox-filter').onchange=()=>{playerInbox.page=0;loadPlayerInbox()};
+$('#inbox-search').oninput=()=>{playerInbox.page=0;playerInbox.serial++;clearTimeout(loadPlayerInbox.timer);loadPlayerInbox.timer=setTimeout(loadPlayerInbox,200)};
+$('#inbox-clear').onclick=()=>{playerInbox.selected.clear();loadPlayerInbox()};
+$('#inbox-select-page').onclick=()=>{for(const p of playerInbox.rows){if(playerInbox.selected.size>=100&&!playerInbox.selected.has(p.present_id)){toast('每次最多选择 100 封邮件',true);break}playerInbox.selected.set(p.present_id,p)}$$('.inbox-check').forEach(b=>b.checked=playerInbox.selected.has(b.dataset.id));updateInboxControls()};

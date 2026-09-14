@@ -132,7 +132,7 @@ func (engine *BattleEngine) executeBurstPassives(players ...*battlePlayer) ([]Ba
 			int64(action.memberType), 0, int64(action.skill.ID), int64(action.target), int64(action.cardLevel),
 			int64(targetCode), 0, 0, int64(action.skill.FunctionID), 0, 1,
 		}})
-		skillResults, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill.Target, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
+		skillResults, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
 			return engine.executeBurstRoleWithListType(action, role, nil, 6)
 		})
 		if err != nil {
@@ -555,7 +555,7 @@ func (engine *BattleEngine) ExecuteBurst(memberType int, submission burstSkillSu
 		}
 	}
 	action := battleAction{memberType: memberType, cardLevel: leader.Level, target: target, skill: skill, roles: roles, skillBonus: &battleSkillBonus{}}
-	skillRows, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill.Target, roles, func(role CombatSkillRole) ([]BattleResult, error) {
+	skillRows, err := engine.executeSkillRoleSet(action.memberType, action.target, action.skill, roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		return engine.executeBurstRole(action, role, selectedCards)
 	})
 	if err != nil {

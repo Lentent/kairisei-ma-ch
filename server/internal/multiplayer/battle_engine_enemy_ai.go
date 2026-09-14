@@ -215,7 +215,7 @@ func (engine *BattleEngine) executeEnemyActionCandidate(enemy *battleEnemy, cand
 		return nil, err
 	}
 	results := []BattleResult{skillResult}
-	skillRows, err := engine.executeSkillRoleSet(enemy.MemberType, target, skill.Target, roles, func(role CombatSkillRole) ([]BattleResult, error) {
+	skillRows, err := engine.executeSkillRoleSet(enemy.MemberType, target, skill, roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		resolvedRole := role
 		resolvedRole.SourceSkillID = skill.ID
 		// The action's chosen member remains in ResultCmd50, but SELECT
@@ -287,6 +287,7 @@ func (engine *BattleEngine) EnemyPhase() ([]BattleResult, error) {
 		results = append(results, engine.tickPlayerDOTEffects()...)
 	}
 	results = engine.settlePlayerDeaths(results)
+	results = append(results, engine.advanceTranceStates()...)
 	engine.resumeSide = 0
 	if engine.endType != 0 {
 		engine.phase = battlePhaseEnded

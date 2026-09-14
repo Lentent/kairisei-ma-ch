@@ -36,12 +36,28 @@ func (engine *BattleEngine) projectRoleBuffParameters(rows []BattleResult) []Bat
 // of the final skill state, not the state immediately after its own consumer.
 // This only changes projection: later consumers still observe earlier effects.
 func (engine *BattleEngine) projectSkillStatusResults(rows []BattleResult) []BattleResult {
-	var immediate, statuses, dotUpdates []BattleResult
+	var immediate, statuses []BattleResult
+	type pendingUpdate struct {
+		role    int64
+		family  int
+		success bool
+		rows    []BattleResult
+	}
+	var updates []pendingUpdate
 	statusSucceeded := make(map[int64]bool)
 	for i := 0; i < len(rows); i++ {
 		row := rows[i]
 		if row.Command == 201 && len(row.Args) == 7 || row.Command == 202 && len(row.Args) == 2 {
-			dotUpdates = append(dotUpdates, row)
+			updates = append(updates, pendingUpdate{row.Args[1], 0, row.Command == 201, []BattleResult{row}})
+			continue
+		}
+		if (row.Command == 203 || row.Command == 204) && len(row.Args) == 2 {
+			update := pendingUpdate{row.Args[1], 1, row.Command == 203, []BattleResult{row}}
+			if row.Command == 203 && i+1 < len(rows) && rows[i+1].Command == 89 {
+				i++
+				update.rows = append(update.rows, rows[i])
+			}
+			updates = append(updates, update)
 			continue
 		}
 		// 7adb0 drains failed statuses/releases by role after all consumers.
@@ -96,18 +112,23 @@ func (engine *BattleEngine) projectSkillStatusResults(rows []BattleResult) []Bat
 		return listOrder(statuses[i]) < listOrder(statuses[j])
 	})
 	immediate = append(immediate, engine.projectRoleBuffParameters(statuses)...)
-	// 7adb0 drains DOT updates in a separate role loop after ordinary
-	// statuses. Any successful target suppresses that role's missing-DOT rows.
-	sort.SliceStable(dotUpdates, func(i, j int) bool { return dotUpdates[i].Args[1] < dotUpdates[j].Args[1] })
-	succeeded := make(map[int64]bool)
-	for _, row := range dotUpdates {
-		if row.Command == 201 {
-			succeeded[row.Args[1]] = true
+	// 7adb0 drains DOT, then heat updates per role after ordinary statuses.
+	// A successful target suppresses failures within that role and family.
+	sort.SliceStable(updates, func(i, j int) bool {
+		if updates[i].role != updates[j].role {
+			return updates[i].role < updates[j].role
+		}
+		return updates[i].family < updates[j].family
+	})
+	succeeded := make(map[[2]int64]bool)
+	for _, update := range updates {
+		if update.success {
+			succeeded[[2]int64{update.role, int64(update.family)}] = true
 		}
 	}
-	for _, row := range dotUpdates {
-		if row.Command == 201 || !succeeded[row.Args[1]] {
-			immediate = append(immediate, row)
+	for _, update := range updates {
+		if update.success || !succeeded[[2]int64{update.role, int64(update.family)}] {
+			immediate = append(immediate, update.rows...)
 		}
 	}
 	return immediate

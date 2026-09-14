@@ -325,7 +325,7 @@ func (engine *BattleEngine) executeBlessHolds(cardTypeFilter ...int) ([]BattleRe
 			int64(source), int64(hold.CardType), int64(hold.AppendIndex), int64(hold.Skill.ID), int64(entry.owner),
 			int64(hold.CardLevel), int64(targetCode), int64(chain), int64(action.skill.FunctionID), int64(action.branchIndex), 0,
 		}})
-		skillResults, err := engine.executeSkillRoleSet(source, entry.owner, action.skill.Target, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
+		skillResults, err := engine.executeSkillRoleSet(source, entry.owner, action.skill, action.roles, func(role CombatSkillRole) ([]BattleResult, error) {
 			role.SourceSkillID = action.skill.ID
 			var rows []BattleResult
 			var err error
@@ -467,7 +467,7 @@ func appendConditionSupported(condition string) bool {
 	switch strings.ToUpper(strings.TrimSpace(condition)) {
 	case "", "NONE", "TURN", "ENEMY_SIDE_DEBUFF", "DECK_COMBO_COUNT", "SELF_OTHER_PLAY_ATTR", "SELF_OTHER_PLAY_SKILL_KIND", "SELF_OTHER_PLAY_RARITY",
 		"SELF_HP_PER", "SELF_OTHER_PLAY_NUM", "SELF_PLAY_MOST_LOW_COST", "SELF_PLAY_COST_TOTAL",
-		"SELF_BUFF", "SELF_PLAY_COST_NUM", "SELF_NOT_PLAY_HAND_NUM", "BUFF_EXEC":
+		"SELF_BUFF", "SELF_BLESS", "SELF_PLAY_COST_NUM", "SELF_NOT_PLAY_HAND_NUM", "BUFF_EXEC":
 		return true
 	default:
 		return false

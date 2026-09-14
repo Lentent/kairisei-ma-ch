@@ -23,6 +23,7 @@ type CombatCatalog struct {
 	Spheres           map[int]CombatSphereDefinition
 	Buddies           map[int]CombatBuddyDefinition
 	BurstGauge        CombatBurstGaugeConfig
+	TranceRates       [4][2][5]int
 	PlayerSkills      map[int][]CombatSkillDefinition
 	PlayerSkillRoles  map[int][]CombatSkillRole
 	BurstSkills       map[int][]CombatSkillDefinition
@@ -178,6 +179,10 @@ type CombatEnemyPartySlot struct {
 }
 
 type CombatEnemyDefinition struct {
+	TranceLimit     int
+	OverheatLimit   int
+	OverheatTurns   int
+	OverheatResist  int
 	ID              int
 	RaceID          int
 	ModelID         string
@@ -284,7 +289,7 @@ func LoadCombatCatalog(cardMasterPath string, battleMasterRoot string) (*CombatC
 		if err != nil {
 			return err
 		}
-		if err := readCombatCSV(path, consume); err != nil {
+		if err := readCombatRows(path, name != "trance_gauge_reaction_rate.csv", consume); err != nil {
 			return fmt.Errorf("load %s: %w", name, err)
 		}
 		return nil
@@ -311,6 +316,21 @@ func LoadCombatCatalog(cardMasterPath string, battleMasterRoot string) (*CombatC
 			return fmt.Errorf("duplicate sphere ID %d", value.ID)
 		}
 		catalog.Spheres[value.ID] = value
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := load("trance_gauge_reaction_rate.csv", func(row []string) error {
+		kinds := map[string]int{"DAMAGE": 0, "ETC_DAMAGE": 1, "DEBUFF": 2, "COVERING": 3}
+		kind, ok := kinds[row[0]]
+		if !ok || len(row) < 11 {
+			return errors.New("invalid trance reaction row")
+		}
+		for state := range 2 {
+			for cost := range 5 {
+				catalog.TranceRates[kind][state][cost] = optionalCombatInt(row, 1+state*5+cost)
+			}
+		}
 		return nil
 	}); err != nil {
 		return nil, err
@@ -1029,6 +1049,10 @@ func readCombatCardCSV(path string, consume func([]string) error) error {
 }
 
 func readCombatCSV(path string, consume func([]string) error) error {
+	return readCombatRows(path, true, consume)
+}
+
+func readCombatRows(path string, numeric bool, consume func([]string) error) error {
 	stream, err := os.Open(path)
 	if err != nil {
 		return err
@@ -1050,17 +1074,20 @@ func readCombatCSV(path string, consume func([]string) error) error {
 		if err != nil {
 			return err
 		}
-		if len(row) == 0 || !isDecimalCombatID(strings.TrimPrefix(row[0], "\ufeff")) {
+		if len(row) == 0 {
 			continue
 		}
 		row[0] = strings.TrimPrefix(row[0], "\ufeff")
+		if row[0] == "" || strings.HasPrefix(row[0], "#") || numeric && !isDecimalCombatID(row[0]) {
+			continue
+		}
 		if err := consume(row); err != nil {
-			return fmt.Errorf("numeric row %d: %w", rows+1, err)
+			return fmt.Errorf("data row %d: %w", rows+1, err)
 		}
 		rows++
 	}
 	if rows == 0 {
-		return errors.New("combat master contains no numeric rows")
+		return errors.New("combat master contains no data rows")
 	}
 	return nil
 }
@@ -1266,6 +1293,8 @@ func parseCombatEnemy(row []string) (CombatEnemyDefinition, error) {
 		Defense: optionalCombatInt(row, 12), MagicDefense: optionalCombatInt(row, 13),
 		DamageReduction: optionalCombatInt(row, 14), Size: combatField(row, 24),
 		AttributeFixed: [5]int{optionalCombatInt(row, 15), optionalCombatInt(row, 16), optionalCombatInt(row, 17), optionalCombatInt(row, 18), optionalCombatInt(row, 19)},
+		TranceLimit:    optionalCombatInt(row, 20), OverheatLimit: optionalCombatInt(row, 21),
+		OverheatTurns: optionalCombatInt(row, 22), OverheatResist: optionalCombatInt(row, 23),
 	}, nil
 }
 

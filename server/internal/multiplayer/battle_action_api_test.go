@@ -491,8 +491,9 @@ func compareNativeActionAPIReceipt(t *testing.T, path, scope string) {
 		Library string `json:"lib_sha256"`
 		Cases   []struct {
 			Input struct {
-				BurstGauge       []int `json:"burst_gauge"`
-				BurstInitial     int   `json:"burst_initial"`
+				BurstGauge       []int        `json:"burst_gauge"`
+				BurstInitial     int          `json:"burst_initial"`
+				TranceRates      [4][2][5]int `json:"trance_rates"`
 				Name             string
 				Seed             *uint32
 				OfficialPartyRow []string               `json:"official_party_row"`
@@ -566,6 +567,7 @@ func compareNativeActionAPIReceipt(t *testing.T, path, scope string) {
 	for _, specimen := range receipt.Cases {
 		t.Run(specimen.Input.Name, func(t *testing.T) {
 			engine, members := nextBattleFixture(t)
+			engine.catalog.TranceRates = specimen.Input.TranceRates
 			if specimen.Input.Seed != nil {
 				engine.seed = *specimen.Input.Seed
 				engine.rng = newXorShift128(engine.seed)
