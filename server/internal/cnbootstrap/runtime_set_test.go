@@ -282,7 +282,7 @@ func profileCompleteRuntimeAccounts(t *testing.T, handler http.Handler, profile 
 	for count := 0; count <= 32; count++ {
 		if count > 0 {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(fmt.Sprintf(`{"uuid":"00000000-0000-0000-0000-%012d","clver":"6.0.3"}`, count))))
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(fmt.Sprintf(`{"uuid":"00000000-0000-0000-0000-%012d","clver":"6.0.4"}`, count))))
 			var login struct {
 				Session string `json:"sess_key"`
 			}

@@ -12,7 +12,7 @@ async function loadCatalog(){
   const serial=++state.catalogRequest;
   $('#catalog-status').textContent='正在加载目录…';
   try{
-    const data=await api('/api/catalog?'+new URLSearchParams({kind:state.catalogKind,source:state.catalogKind==='card'?state.catalogSource:'',arthur_type:state.catalogKind==='card'?state.catalogJob:0,q:$('#catalog-search').value.trim(),limit:120,offset:state.catalogPage*120}));
+    const data=await api('/api/catalog?'+new URLSearchParams({kind:state.catalogKind,source:state.catalogKind==='card'?state.catalogSource:'',arthur_type:state.catalogKind==='card'?state.catalogJob:0,rarity:(state.catalogKind==='card')?state.catalogRarity:0,q:$('#catalog-search').value.trim(),limit:120,offset:state.catalogPage*120}));
     if(serial!==state.catalogRequest)return;
     state.catalog=data.entries;state.catalogTotal=data.total;
     if(state.catalogPage>0&&state.catalogPage*120>=data.total){state.catalogPage=Math.max(0,Math.ceil(data.total/120)-1);return loadCatalog()}
@@ -20,15 +20,17 @@ async function loadCatalog(){
   }catch(e){if(serial!==state.catalogRequest)return;$('#catalog-status').textContent=e.message;toast(e.message,true)}
 }
 function renderCatalog(){
+  $('#catalog-rarity').hidden=!(state.catalogKind==='card');
   $('#catalog-jobs').hidden=state.catalogKind!=='card';$('#catalog-sources').hidden=state.catalogKind!=='card';
   for(const [group,prop] of [['kinds','kind'],['sources','source'],['jobs','job']])$$(`#catalog-${group} button`).forEach(b=>b.classList.toggle('active',String(b.dataset[prop])===String(state['catalog'+prop[0].toUpperCase()+prop.slice(1)])));
   const filters=[...$$('#catalog-kinds button.active')].map(b=>b.textContent);
   if(state.catalogKind==='card')filters.push(...$$('#catalog-sources button.active, #catalog-jobs button.active').map(b=>b.textContent));
+  if(!$('#catalog-rarity').hidden&&state.catalogRarity)filters.push(`${state.catalogRarity} 星`);
   if($('#catalog-search').value.trim())filters.push(`搜索：${$('#catalog-search').value.trim()}`);
   $('#catalog-filter-summary').textContent=`当前筛选：${filters.join(' · ')}`;
   $('#catalog-count').textContent=`${num(state.catalogTotal)} 项`;
   $('#catalog-status').textContent=`已选 ${mailWorkspace.basket.size} 种奖励 · 本页 ${state.catalog.length} 项`;
-  $('#catalog-grid').innerHTML=state.catalog.map((e,i)=>`<label class="catalog-card ${mailWorkspace.basket.has(rewardKey(e))?'selected':''} ${e.resource_state==='unavailable'?'unavailable':''}"><input type="checkbox" class="catalog-check check" data-index="${i}" ${mailWorkspace.basket.has(rewardKey(e))?'checked':''} ${e.resource_state==='unavailable'?'disabled':''} aria-label="选择${esc(e.name)}"><div class="thumb">${image(e.image_url,e.name)}</div><div class="catalog-copy"><b class="name" title="${esc(e.name)}">${esc(e.name)}</b><span class="sub">${e.reward_type_id||'货币'} ${esc(cardJobName(e.arthur_type))}</span><span class="sub">${esc(e.kind==='card'?cardSourceDescription(e):e.detail||'')}${e.resource_state==='unavailable'?' · 资源暂不可用':''}</span></div></label>`).join('')||'<div class="empty">没有匹配奖励</div>';
+  $('#catalog-grid').innerHTML=state.catalog.map((e,i)=>`<label class="catalog-card ${mailWorkspace.basket.has(rewardKey(e))?'selected':''} ${e.resource_state==='unavailable'?'unavailable':''}"><input type="checkbox" class="catalog-check check" data-index="${i}" ${mailWorkspace.basket.has(rewardKey(e))?'checked':''} ${e.resource_state==='unavailable'?'disabled':''} aria-label="选择${esc(e.name)}"><div class="thumb">${image(e.image_url,e.name)}</div><div class="catalog-copy"><b class="name" title="${esc(e.name)}">${esc(e.name)}</b><span class="sub">${e.reward_type_id||'货币'} ${esc(e.kind==='card'?cardJobName(e.arthur_type):'')} ${esc(cardStars(e))}</span><span class="sub">${esc(e.kind==='card'?cardSourceDescription(e):e.detail||'')}${e.resource_state==='unavailable'?' · 资源暂不可用':''}</span></div></label>`).join('')||'<div class="empty">没有匹配奖励</div>';
   let anchor=null;
   $$('.catalog-check').forEach(box=>box.onclick=e=>{
     const index=Number(box.dataset.index),first=e.shiftKey&&anchor!==null?Math.min(anchor,index):index,last=e.shiftKey&&anchor!==null?Math.max(anchor,index):index;
@@ -53,7 +55,7 @@ function addReward(entry,input){
 function renderBasket(){
   $('#catalog-status').textContent=`已选 ${mailWorkspace.basket.size} 种奖励 · 本页 ${state.catalog.length} 项`;
   $('#mail-basket-count').textContent=`${mailWorkspace.basket.size} 种奖励`;
-  $('#mail-basket').innerHTML=[...mailWorkspace.basket.entries()].map(([key,{entry:e,request:r}])=>`<tr><td><b>${esc(e.name)}</b><span class="sub">${esc(cardJobName(e.arthur_type))} ${e.reward_type===6?`Lv.${r.card_level} · 名声${r.card_fame} · 忠诚度${r.card_love}`:''}</span></td><td><input class="basket-quantity" type="number" min="1" max="${rewardLimit(e)}" value="${r.quantity}" data-key="${key}" aria-label="${esc(e.name)}数量"></td><td><button class="secondary basket-remove" data-key="${key}" aria-label="移除${esc(e.name)}">移除</button></td></tr>`).join('')||'<tr><td colspan="3" class="empty">从左侧勾选奖励</td></tr>';
+  $('#mail-basket').innerHTML=[...mailWorkspace.basket.entries()].map(([key,{entry:e,request:r}])=>`<tr><td><b>${esc(e.name)}</b><span class="sub">${esc(e.kind==='card'?cardJobName(e.arthur_type):'')} ${esc(cardStars(e))} ${e.reward_type===6?`Lv.${r.card_level} · 名声${r.card_fame} · 忠诚度${r.card_love}`:''}</span></td><td><input class="basket-quantity" type="number" min="1" max="${rewardLimit(e)}" value="${r.quantity}" data-key="${key}" aria-label="${esc(e.name)}数量"></td><td><button class="secondary basket-remove" data-key="${key}" aria-label="移除${esc(e.name)}">移除</button></td></tr>`).join('')||'<tr><td colspan="3" class="empty">从左侧勾选奖励</td></tr>';
   $$('.basket-quantity').forEach(input=>input.onchange=()=>{const item=mailWorkspace.basket.get(input.dataset.key),n=Number(input.value);if(!Number.isInteger(n)||n<1||n>rewardLimit(item.entry)){input.value=item.request.quantity;return toast(`数量须为1–${rewardLimit(item.entry)}的整数`,true)}item.request.quantity=n;saveMailDraft()});
   $$('.basket-remove').forEach(b=>b.onclick=()=>{mailWorkspace.basket.delete(b.dataset.key);renderBasket();renderCatalog()});
   saveMailDraft();updateMailControls();
@@ -138,7 +140,8 @@ $('#mail-add-ids').onclick=async()=>{
 };
 for(const [group,prop] of [['kinds','kind'],['sources','source'],['jobs','job']])$$(`#catalog-${group} button`).forEach(b=>b.onclick=()=>{state['catalog'+prop[0].toUpperCase()+prop.slice(1)]=prop==='job'?Number(b.dataset[prop]):b.dataset[prop];state.catalogPage=0;loadCatalog()});
 $('#catalog-search').oninput=()=>{state.catalogPage=0;state.catalogRequest++;clearTimeout(loadCatalog.timer);loadCatalog.timer=setTimeout(loadCatalog,200)};
-$('#catalog-reset-filters').onclick=()=>{state.catalogSource='';state.catalogJob=0;state.catalogPage=0;$('#catalog-search').value='';clearTimeout(loadCatalog.timer);loadCatalog()};
+$('#catalog-rarity').onchange=()=>{state.catalogRarity=Number($('#catalog-rarity').value);state.catalogPage=0;loadCatalog()};
+$('#catalog-reset-filters').onclick=()=>{state.catalogSource='';state.catalogJob=0;state.catalogRarity=0;$('#catalog-rarity').value='0';state.catalogPage=0;$('#catalog-search').value='';clearTimeout(loadCatalog.timer);loadCatalog()};
 window.addEventListener('beforeunload',event=>{if(mailWorkspace.running){event.preventDefault();event.returnValue=''}});
 updateMailControls();
 

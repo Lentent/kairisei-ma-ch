@@ -982,11 +982,20 @@ func (admin *cnAdmin) catalogEntries(writer http.ResponseWriter, request *http.R
 	arthurType := 0
 	if raw := request.URL.Query().Get("arthur_type"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 0 || parsed > 4 {
-			writeCNAdminError(writer, http.StatusBadRequest, "card arthur_type must be 0 through 4")
+		if err != nil || parsed < -1 || parsed > 4 {
+			writeCNAdminError(writer, http.StatusBadRequest, "card arthur_type must be -1 (common), 0 (all), or 1 through 4")
 			return
 		}
 		arthurType = parsed
+	}
+	rarity := 0
+	if raw := request.URL.Query().Get("rarity"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 || parsed > 8 {
+			writeCNAdminError(writer, http.StatusBadRequest, "catalog rarity must be 0 (all) through 8")
+			return
+		}
+		rarity = parsed
 	}
 	query := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("q")))
 	limit := 80
@@ -1023,7 +1032,10 @@ func (admin *cnAdmin) catalogEntries(writer http.ResponseWriter, request *http.R
 		if source != "" && !slices.Contains(entry.SourceTags, source) {
 			continue
 		}
-		if arthurType != 0 && (entry.Kind != "card" || int(entry.ArthurType) != arthurType) {
+		if arthurType != 0 && (entry.Kind != "card" || int(entry.ArthurType) != max(0, arthurType)) {
+			continue
+		}
+		if rarity != 0 && entry.Rarity != rarity {
 			continue
 		}
 		if query != "" && !strings.Contains(strings.ToLower(

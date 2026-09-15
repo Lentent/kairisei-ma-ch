@@ -364,6 +364,7 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 	}
 	r := &recorder{path: absolute}
 	router := chi.NewRouter()
+	router.Use(cnNetworkCompression(logger))
 	router.Use(r.middleware(logger))
 	router.Use(normalizeLeadingSlashes)
 	router.Use(authenticateCNSessions(accountStore))
@@ -497,7 +498,7 @@ func NewWithMultiplayerAndPVP(requestLogPath string, savePath string, saveSeedPa
 	router.Post("/CardFameStartTrain", cnBootstrapExactBusiness(businessHandler, "CardFameStartTrain", "/CardFameStartTrain", "base_uniqid", "base_fame"))
 	router.Post("/CardFameCancelTrain", cnBootstrapExactBusiness(businessHandler, "CardFameCancelTrain", "/CardFameCancelTrain", "base_uniqid"))
 	router.Post("/CardFameTrainFinish", cnBootstrapExactBusiness(businessHandler, "CardFameTrainFinish", "/CardFameTrainFinish", "base_uniqid"))
-	router.Post("/HowToGetCardShow", cnBootstrapExactBusiness(businessHandler, "HowToGetCardShow", "/HowToGetCardShow", "cardids"))
+	router.Post("/HowToGetCardShow", cnBootstrapHowToGetCardShow(businessHandler, operationStore))
 	router.Post("/CardCategoryGet", cnBootstrapCardCategoryGet(businessHandler))
 	router.Post("/CardDeckSet", cnBootstrapCardDeckSet(businessHandler))
 	router.Post("/SupportCardSlotUnlock", cnBootstrapExactBusiness(businessHandler, "SupportCardSlotUnlock", "/SupportCardSlotUnlock", "arthur_type"))

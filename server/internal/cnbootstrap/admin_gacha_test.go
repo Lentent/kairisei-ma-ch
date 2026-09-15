@@ -191,6 +191,7 @@ func TestImportedCardCatalogFiltersIntersectBeforePagination(t *testing.T) {
 			{CardID: 10214053, Name: "新春型モードレッド", RarityRank: 6},
 			// A Japanese name without an import receipt is not a JP import.
 			{CardID: 10214099, Name: "既存カード", RarityRank: 6},
+			{CardID: 10214098, Name: "通用卡", RarityRank: 5},
 		},
 		DeckRankPolicy: release.DeckRankPolicy{Cards: map[int]release.CardRankRule{
 			10214045: {ArthurType: 3}, 10214046: {ArthurType: 4}, 10214048: {ArthurType: 2},
@@ -217,6 +218,10 @@ func TestImportedCardCatalogFiltersIntersectBeforePagination(t *testing.T) {
 		{"source=jp_import&arthur_type=1&q=10214053", 0, 0},
 		{"source=other&arthur_type=2", 3, 10214048},
 		{"source=gacha&arthur_type=2", 0, 0},
+		{"arthur_type=-1&rarity=5", 1, 10214098},
+		{"arthur_type=-1&rarity=6", 0, 0},
+		{"source=jp_import&rarity=6&offset=4", 5, 10214053},
+		{"source=jp_import&rarity=5", 0, 0},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			response := httptest.NewRecorder()

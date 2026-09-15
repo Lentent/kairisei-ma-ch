@@ -19,12 +19,17 @@ type battleFrame struct {
 type frameDelivery struct {
 	connection *clientConn
 	frames     []battleFrame
+	prepared   []*preparedBattleFrame
 	previous   <-chan struct{}
 	done       chan struct{}
 }
 
 func (c *clientConn) reserveFramesLocked(frames []battleFrame) frameDelivery {
-	delivery := frameDelivery{connection: c, frames: frames, previous: c.lastDelivery, done: make(chan struct{})}
+	return c.reservePreparedFramesLocked(frames, prepareBattleFrames(frames))
+}
+
+func (c *clientConn) reservePreparedFramesLocked(frames []battleFrame, prepared []*preparedBattleFrame) frameDelivery {
+	delivery := frameDelivery{connection: c, frames: frames, prepared: prepared, previous: c.lastDelivery, done: make(chan struct{})}
 	c.lastDelivery = delivery.done
 	return delivery
 }
@@ -37,8 +42,8 @@ func (delivery frameDelivery) send() error {
 	c := delivery.connection
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	for _, frame := range delivery.frames {
-		if err := c.writeFrameLocked(frame.method, frame.payload); err != nil {
+	for _, frame := range delivery.prepared {
+		if err := c.writePreparedFrameLocked(frame); err != nil {
 			return err
 		}
 	}
@@ -50,8 +55,9 @@ func reserveRoomFramesLocked(connections []*clientConn, frames ...battleFrame) [
 		return nil
 	}
 	deliveries := make([]frameDelivery, 0, len(connections))
+	prepared := prepareBattleFrames(frames)
 	for _, connection := range connections {
-		deliveries = append(deliveries, connection.reserveFramesLocked(frames))
+		deliveries = append(deliveries, connection.reservePreparedFramesLocked(frames, prepared))
 	}
 	return deliveries
 }

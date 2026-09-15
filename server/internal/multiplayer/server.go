@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/wirecompression"
 )
 
 const (
@@ -24,12 +25,13 @@ const (
 )
 
 type Server struct {
-	hub     *Hub
-	logger  *slog.Logger
-	mu      sync.Mutex
-	closed  bool
-	conns   map[*clientConn]struct{}
-	workers sync.WaitGroup
+	hub           *Hub
+	logger        *slog.Logger
+	mu            sync.Mutex
+	closed        bool
+	conns         map[*clientConn]struct{}
+	workers       sync.WaitGroup
+	downloadBytes wirecompression.Metrics
 }
 
 type clientConn struct {
@@ -45,6 +47,7 @@ type clientConn struct {
 	completedComeback    bool
 	retired              bool
 	closed               bool
+	gzipFrames           bool // written by serve under writeMu; read by writers under writeMu
 }
 
 func NewServer(hub *Hub, logger *slog.Logger) (*Server, error) {
@@ -140,6 +143,16 @@ func (c *clientConn) serve() {
 }
 
 func (c *clientConn) handle(method string, payload string) error {
+	if method == gzipFrameMethod {
+		if !c.gzipFrames {
+			return errors.New("unnegotiated compressed frame")
+		}
+		var err error
+		method, payload, err = decodeGZIPFrame(payload)
+		if err != nil {
+			return err
+		}
+	}
 	if method != "Ping" && method != "SpeedUpRate" {
 		c.server.logger.Info(
 			"BattleSv client request",
@@ -151,7 +164,7 @@ func (c *clientConn) handle(method string, payload string) error {
 	}
 	switch method {
 	case "Ping":
-		return c.writeFrame("Pong", strconv.FormatInt(time.Now().Unix(), 10))
+		return c.handlePing(payload)
 	case "SpeedUpRate":
 		// This is a one-way clock-drift diagnostic emitted by TbpClient after
 		// Pong sampling. It is not a room mutation and has no response method.
@@ -1579,28 +1592,7 @@ func (c *clientConn) writeFrame(method string, payload string) error {
 
 // writeFrameLocked requires writeMu, but never the global Hub lock.
 func (c *clientConn) writeFrameLocked(method string, payload string) error {
-	if method == "" || strings.ContainsAny(method, "{}\r\n") {
-		return errors.New("BattleSv response method is invalid")
-	}
-	if c.closed {
-		return net.ErrClosed
-	}
-	var builder strings.Builder
-	builder.WriteString(method)
-	builder.WriteString("{\n")
-	if payload != "" {
-		builder.WriteString(payload)
-		builder.WriteByte('\n')
-	}
-	builder.WriteString("}\n")
-	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	_, err := io.WriteString(c.conn, builder.String())
-	if err != nil {
-		// A partial frame cannot be retried on this stream. Wake serve's reader
-		// so its ordinary disconnect path releases the live room barrier.
-		_ = c.conn.Close()
-	}
-	return err
+	return c.writePreparedFrameLocked(&preparedBattleFrame{frame: battleFrame{method, payload}})
 }
 
 func readFrame(reader *bufio.Reader) (string, string, error) {

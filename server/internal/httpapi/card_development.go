@@ -301,7 +301,7 @@ func (s *store) finishCardFameTraining(uniqueID int64, now time.Time) (cardFameT
 	}, nil
 }
 
-func (s *store) howToGetCards(cardIDs []int) ([]howToGetCardList, error) {
+func (s *store) howToGetCards(cardIDs []int, profiles []release.TeamBattleRewardProfile, allowedGroups map[int]struct{}) ([]howToGetCardList, error) {
 	if len(cardIDs) == 0 || len(cardIDs) > 64 {
 		return nil, errors.New("card acquisition query is empty or too large")
 	}
@@ -310,6 +310,10 @@ func (s *store) howToGetCards(cardIDs []int) ([]howToGetCardList, error) {
 	seen := make(map[int]struct{}, len(cardIDs))
 	result := make([]howToGetCardList, len(cardIDs))
 	visibleGachas := s.visibleGachasLocked()
+	battleSources, err := s.battleCardSourcesLocked(profiles, allowedGroups)
+	if err != nil {
+		return nil, err
+	}
 	for index, cardID := range cardIDs {
 		_, cardExists := s.cardDefinitions[cardID]
 		_, stackExists := s.stackCardTemplates[cardID]
@@ -323,7 +327,7 @@ func (s *store) howToGetCards(cardIDs []int) ([]howToGetCardList, error) {
 			return nil, fmt.Errorf("duplicate card acquisition query %d", cardID)
 		}
 		seen[cardID] = struct{}{}
-		entries := make([]howToGetCardEntry, 0)
+		entries := append([]howToGetCardEntry{}, battleSources[cardID]...)
 		for _, transition := range s.cardActions.EvolutionTransitions {
 			if transition.ToCardID != cardID {
 				continue
@@ -351,7 +355,13 @@ func (s *store) howToGetCards(cardIDs []int) ([]howToGetCardList, error) {
 			if entries[left].Type != entries[right].Type {
 				return entries[left].Type < entries[right].Type
 			}
-			return entries[left].ContentID < entries[right].ContentID
+			if entries[left].Subtype != entries[right].Subtype {
+				return entries[left].Subtype < entries[right].Subtype
+			}
+			if entries[left].ContentID != entries[right].ContentID {
+				return entries[left].ContentID < entries[right].ContentID
+			}
+			return entries[left].Text < entries[right].Text
 		})
 		if len(entries) == 0 {
 			entries = []howToGetCardEntry{{Type: 0, Text: ""}}
@@ -471,7 +481,8 @@ func (a *API) howToGetCardShow(writer http.ResponseWriter, request *http.Request
 		a.writeStoreError(writer, err)
 		return
 	}
-	lists, err := a.store.howToGetCards(payload.CardIDs)
+	allowedGroups, _ := request.Context().Value(cardAcquisitionGroupsKey{}).(map[int]struct{})
+	lists, err := a.store.howToGetCards(payload.CardIDs, a.release.State.TeamBattleRewards, allowedGroups)
 	if err != nil {
 		a.writeStoreError(writer, err)
 		return

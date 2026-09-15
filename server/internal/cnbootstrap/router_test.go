@@ -103,7 +103,7 @@ func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 	loginRequest := httptest.NewRequest(
 		http.MethodPost,
 		"http://local/loginSDK.php",
-		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.3"}`),
+		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.4"}`),
 	)
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, loginRequest)
@@ -1085,7 +1085,7 @@ func TestCN602ServerList(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
-	want := "ALL,0,本地服务器,10.0.2.2,18081,0,,6.0.3,,,\nALL,0,请更新客户端,10.0.2.2,18081,0,,ALL," + cnClientReleaseURL + "," + cnClientUpdateTips() + ",\n"
+	want := "ALL,0,本地服务器,10.0.2.2,18081,0,,6.0.4,,,\nALL,0,请更新客户端,10.0.2.2,18081,0,,ALL," + cnClientReleaseURL + "," + cnClientUpdateTips() + ",\n"
 	if response.Body.String() != want {
 		t.Fatalf("body = %q, want %q", response.Body.String(), want)
 	}
@@ -1174,7 +1174,7 @@ func TestCN602LocalSDKLoginContract(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"http://local//loginSDK.php",
-		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.3"}`),
+		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.4"}`),
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

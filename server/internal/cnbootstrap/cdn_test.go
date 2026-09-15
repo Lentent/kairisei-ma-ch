@@ -28,7 +28,7 @@ func TestCDNLoginKeepsAPIsAndVersionServiceLocal(t *testing.T) {
 		}
 		response := httptest.NewRecorder()
 		cnBootstrapLogin(accounts, "10.0.2.2", 26020, config)(response,
-			httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000463","clver":"6.0.3"}`)))
+			httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000463","clver":"6.0.4"}`)))
 		var result map[string]any
 		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)

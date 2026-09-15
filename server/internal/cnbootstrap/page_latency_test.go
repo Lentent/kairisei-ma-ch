@@ -1,6 +1,8 @@
 package cnbootstrap
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -67,7 +69,34 @@ func probeCompleteRuntimePages(t *testing.T, handler http.Handler, savePath, see
 				if response.Code != 200 || json.Unmarshal([]byte(strings.Split(response.Body.String(), "\n")[0]), &common) != nil || common.Code != 0 {
 					t.Fatalf("%s: %d %.500s", route, response.Code, response.Body.String())
 				}
-				rows = append(rows, map[string]any{"cards": count, "pass": pass, "route": route, "elapsed_ms": ms, "response_bytes": response.Body.Len()})
+				compression := map[string]int{}
+				for _, level := range []int{1, 6} {
+					var packed bytes.Buffer
+					zipper, err := gzip.NewWriterLevel(&packed, level)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := zipper.Write(response.Body.Bytes()); err != nil {
+						t.Fatal(err)
+					}
+					if err := zipper.Close(); err != nil {
+						t.Fatal(err)
+					}
+					compression[fmt.Sprintf("gzip%d_bytes", level)] = packed.Len()
+				}
+				rows = append(rows, map[string]any{"cards": count, "pass": pass, "route": route, "elapsed_ms": ms, "response_bytes": response.Body.Len(), "compression": compression})
+				if pass == 0 {
+					path := fmt.Sprintf("%s.%d.%s.txt", output, count, strings.TrimPrefix(route, "/"))
+					file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = file.Write(response.Body.Bytes())
+					closeErr := file.Close()
+					if err != nil || closeErr != nil {
+						t.Fatalf("write response sample: %v / %v", err, closeErr)
+					}
+				}
 			}
 		}
 	}
