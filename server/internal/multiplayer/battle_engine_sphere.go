@@ -11,6 +11,8 @@ const (
 	sphereTypeChalice = "CHALICE"
 )
 
+var errChaliceSphereUnavailable = errors.New("combat chalice sphere is unavailable")
+
 // sphereIdentityResults mirrors FUN_000a553e followed by FUN_000a5776. The
 // native producer registers every concrete sphere before it publishes the
 // fixed three-slot hands; grouping by player would change the managed setup
@@ -234,7 +236,7 @@ func (engine *BattleEngine) ReserveChaliceSphere(memberType int, slot int) ([]Ba
 	if slot != 0 {
 		sphere := &player.Spheres[slot-1]
 		if sphere.SphereID == 0 || sphere.Type != sphereTypeChalice || sphere.Count <= 0 || !sphere.ChalicePlayable {
-			return nil, errors.New("combat chalice sphere is unavailable")
+			return nil, errChaliceSphereUnavailable
 		}
 	}
 	player.ReservedChalice = slot

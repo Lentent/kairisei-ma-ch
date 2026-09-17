@@ -1518,6 +1518,11 @@ func cnCPKVersion(name string) uint64 {
 	if strings.EqualFold(name, "cv_navi_5.cpk") {
 		return 3
 	}
+	// The original JP superset restores the missing BOSS death cue while
+	// preserving every existing ACB; clients must replace their cached v1.
+	if strings.EqualFold(name, "cv_tb_1007.cpk") {
+		return 2
+	}
 	return 1
 }
 

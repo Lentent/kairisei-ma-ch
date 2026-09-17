@@ -63,6 +63,7 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 		for slot := range player.Spheres {
 			player.Spheres[slot].Count = player.Spheres[slot].Maximum
 			player.Spheres[slot].Playable = false
+			player.Spheres[slot].ChalicePlayable = false
 			player.Spheres[slot].Remaining = 0
 		}
 		if engine.endType == 4 {

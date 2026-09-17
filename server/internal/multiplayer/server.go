@@ -1008,14 +1008,27 @@ func (c *clientConn) handleChaliceSphrReserve(payload string) error {
 		return errors.New("ChaliceSphrReserve member is unavailable")
 	}
 	var results []BattleResult
-	if current.engineBattleEnd != 0 && current.engine.phase == battlePhaseEnded && !current.nextBattlePending {
+	settledAnimation := current.engineBattleEnd != 0 && current.engine.phase == battlePhaseEnded
+	nextWaveOpening := current.battleIndex > 0 && current.engine.phase <= battlePhaseTurn
+	if settledAnimation || current.nextBattlePending || nextWaveOpening {
 		// The engine computes the full phase before clients animate it. A
 		// terminal result can therefore precede a legitimate on-screen click
-		// by seconds. Acknowledge an empty reservation during that barrier;
+		// by seconds. The click may also arrive during GameNextStart or after
+		// the new wave starts, before its user input phase. Acknowledge an
+		// empty reservation throughout those transition barriers;
 		// never revive a finished engine or spend a sphere on a dead target.
 		results = []BattleResult{{Command: resultChaliceSphereReserve, Args: []int64{int64(c.memberType), 0}}}
 	} else {
 		results, err = current.engine.ReserveChaliceSphere(c.memberType, slot)
+		if errors.Is(err, errChaliceSphereUnavailable) {
+			// A rendered button can outlive its eligibility, including after
+			// awakening resets the gate. Keep the native rejection and return
+			// the actual reservation without treating a stale click as a
+			// transport failure or overwriting another valid reservation.
+			reserved := current.engine.players[c.memberType-1].ReservedChalice
+			results = []BattleResult{{Command: resultChaliceSphereReserve, Args: []int64{int64(c.memberType), int64(reserved)}}}
+			err = nil
+		}
 	}
 	if err != nil {
 		hub.mu.Unlock()

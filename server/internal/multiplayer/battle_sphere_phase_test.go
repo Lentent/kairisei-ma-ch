@@ -1,7 +1,6 @@
 package multiplayer
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -49,6 +48,9 @@ func TestEnemyAnimationChaliceReservationBroadcast(t *testing.T) {
 	if _, err := engine.ReserveChaliceSphere(2, 1); err == nil {
 		t.Fatal("unavailable summon accepted after enemy cleanup")
 	}
+	if err := guest.handle("ChaliceSphrReserve", "1"); err != nil || engine.players[1].ReservedChalice != 1 {
+		t.Fatal("stale click disconnected or changed the existing reservation", err)
+	}
 	if err := guest.handle("ChaliceSphrReserve", "0"); err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +84,23 @@ func TestChaliceEnemyVictoryAdvancesWaveAfterAnimation(t *testing.T) {
 }
 
 func TestTerminalAnimationChaliceClickDoesNotDisconnect(t *testing.T) {
-	for _, endType := range []int{1, 2} {
-		t.Run(fmt.Sprint(endType), func(t *testing.T) {
+	for _, scenario := range []struct {
+		name        string
+		endType     int
+		phase       battlePhase
+		nextPending bool
+		battleIndex int
+	}{
+		{"win-animation", 1, battlePhaseEnded, false, 0},
+		{"loss-animation", 2, battlePhaseEnded, false, 0},
+		{"awake-animation", 4, battlePhaseEnded, false, 0},
+		{"win-next-barrier", 1, battlePhaseEnded, true, 0},
+		{"awake-next-barrier", 4, battlePhaseEnded, true, 0},
+		{"awake-next-start", 0, battlePhaseStarted, false, 1},
+		{"awake-next-turn", 0, battlePhaseTurn, false, 1},
+		{"awake-next-user-stale-click", 0, battlePhaseUser, false, 1},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
 			hub := NewHub()
 			s := &Server{hub: hub, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 			left, right := net.Pipe()
@@ -93,10 +110,11 @@ func TestTerminalAnimationChaliceClickDoesNotDisconnect(t *testing.T) {
 			owner := &clientConn{server: s, conn: ownerOut, roomID: 1, memberType: 1}
 			guest := &clientConn{server: s, conn: guestOut, roomID: 1, memberType: 2}
 			engine := newSphereContractEngine(&CombatCatalog{})
-			engine.phase, engine.endType = battlePhaseEnded, endType
+			engine.phase, engine.endType = scenario.phase, scenario.endType
 			engine.players[0].Spheres[0] = battleSphere{Slot: 1, SphereID: 16000030, Type: sphereTypeChalice, Count: 1}
 			current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle}, engine: engine,
-				engineBattleEnd: endType, userAttackStarted: true, connections: map[int]*clientConn{1: owner, 2: guest}}
+				engineBattleEnd: scenario.endType, nextBattlePending: scenario.nextPending, battleIndex: scenario.battleIndex,
+				userAttackStarted: true, connections: map[int]*clientConn{1: owner, 2: guest}}
 			hub.rooms[1] = current
 			before := engine.rng
 			for _, slot := range []string{"1", "0", "1"} {
@@ -109,7 +127,7 @@ func TestTerminalAnimationChaliceClickDoesNotDisconnect(t *testing.T) {
 					t.Fatal("late click did not acknowledge empty reservation to both clients", out.output.String())
 				}
 			}
-			if engine.rng != before || engine.phase != battlePhaseEnded || engine.players[0].ReservedChalice != 0 || engine.players[0].Spheres[0].Count != 1 || current.nextBattlePending {
+			if engine.rng != before || engine.phase != scenario.phase || engine.players[0].ReservedChalice != 0 || engine.players[0].Spheres[0].Count != 1 || current.nextBattlePending != scenario.nextPending {
 				t.Fatal("late reservation mutated settled battle state or advanced the animation barrier")
 			}
 			owner.comebackPending = true

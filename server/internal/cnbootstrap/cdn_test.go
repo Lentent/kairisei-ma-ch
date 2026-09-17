@@ -70,6 +70,7 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 	write("patch/version.dat", version)
 	write("patch/"+cn602MenuBundle, []byte("menu"))
 	write("cpk/cv_navi_5.cpk", []byte("voice bytes"))
+	write("cpk/cv_tb_1007.cpk", []byte("complete boss voice bytes"))
 	assetPath := writeTestAssetMap(t, root, version)
 	content, err := os.ReadFile(assetPath)
 	if err != nil {
@@ -84,7 +85,7 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 	write(filepath.Base(assetPath), content)
 	write("aliases.json", []byte(`{"schema_version":1,"client_profile":"cn602-bootstrap","aliases":[{"alias_cpk_name":"cv_navi_94.cpk","source_cpk_name":"cv_navi_5.cpk"}]}`))
 	files := []map[string]any{}
-	for _, name := range []string{"patch/" + cn602MenuBundle, "cpk/cv_navi_5.cpk"} {
+	for _, name := range []string{"patch/" + cn602MenuBundle, "cpk/cv_navi_5.cpk", "cpk/cv_tb_1007.cpk"} {
 		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {
 			t.Fatal(err)
@@ -108,7 +109,7 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 	var result struct {
 		Files []cdnObject `json:"files"`
 	}
-	if err := json.Unmarshal(content, &result); err != nil || len(result.Files) != 3 {
+	if err := json.Unmarshal(content, &result); err != nil || len(result.Files) != 4 {
 		t.Fatalf("export: %v %s", err, content)
 	}
 	aliases, err := loadCPKAliases(filepath.Join(root, "cpk"), filepath.Join(root, "aliases.json"))
@@ -137,7 +138,7 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 			t.Fatalf("export/HTTP differ for %s: %d", object.Key, response.Code)
 		}
 	}
-	if !strings.Contains(string(content), cn602MenuBundle+".vF00DCAFE") || !strings.Contains(string(content), "cv_navi_94.cpk.v3") {
+	if !strings.Contains(string(content), cn602MenuBundle+".vF00DCAFE") || !strings.Contains(string(content), "cv_navi_94.cpk.v3") || !strings.Contains(string(content), "cv_tb_1007.cpk.v2") {
 		t.Fatalf("overlay CRC or alias source version lost: %s", content)
 	}
 	old := httptest.NewRecorder()

@@ -81,7 +81,7 @@ func TestNextBattleNativeStateAndRotation(t *testing.T) {
 	player.Hand = [5]int{1, 2, 3}
 	player.DeckOrder, player.DrawIndex, player.DrawCount = [10]int{3, 4, 5, 6}, 0, 4
 	player.Discard = []int{7, 8, 9}
-	player.Spheres[0] = battleSphere{SphereID: 123, Count: 0, Maximum: 1, Remaining: 3}
+	player.Spheres[0] = battleSphere{SphereID: 123, Count: 0, Maximum: 1, Remaining: 3, ChalicePlayable: true}
 	engine.players[1].HP = 0 // KO in the winning action, not formally retired.
 	before := *engine
 	next, err := engine.NextBattle(1, nil)
@@ -92,6 +92,9 @@ func TestNextBattleNativeStateAndRotation(t *testing.T) {
 		t.Fatal("next wave mutated its predecessor")
 	}
 	got := next.players[0]
+	if got.Spheres[0].ChalicePlayable {
+		t.Fatal("previous wave chalice eligibility survived the native handover reset")
+	}
 	if got.HP != 123 || got.Burst != 42 || got.Cost != 3 || got.DamageTaken != 0 || got.Hand != player.Hand || next.turn != 0 || next.endType != 0 || next.phase != battlePhaseCreated || next.players[1].HP != 1 || next.players[1].GameOver || got.Spheres[0].Count != 1 || got.Spheres[0].Remaining != 0 {
 		t.Fatal("native wave handover lost player state or failed to reset wave state")
 	}
