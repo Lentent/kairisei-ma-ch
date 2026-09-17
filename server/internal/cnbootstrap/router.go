@@ -1513,10 +1513,10 @@ func cnBootstrapCPKResource(delivery []cnCPKDelivery) http.HandlerFunc {
 }
 
 func cnCPKVersion(name string) uint64 {
-	// D-452 encrypts the same-size UMARU payload. The original client compares
-	// per-file versions, so a changed download URL alone cannot invalidate v1.
+	// D-502 appends six original JP cues to the D-452 UMARU payload.
+	// Per-file versions must advance so clients replace their cached v2.
 	if strings.EqualFold(name, "cv_navi_5.cpk") {
-		return 2
+		return 3
 	}
 	return 1
 }

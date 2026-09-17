@@ -137,7 +137,7 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 			t.Fatalf("export/HTTP differ for %s: %d", object.Key, response.Code)
 		}
 	}
-	if !strings.Contains(string(content), cn602MenuBundle+".vF00DCAFE") || !strings.Contains(string(content), "cv_navi_94.cpk.v2") {
+	if !strings.Contains(string(content), cn602MenuBundle+".vF00DCAFE") || !strings.Contains(string(content), "cv_navi_94.cpk.v3") {
 		t.Fatalf("overlay CRC or alias source version lost: %s", content)
 	}
 	old := httptest.NewRecorder()
