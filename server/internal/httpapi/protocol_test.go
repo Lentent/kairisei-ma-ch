@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"kairisei.local/server/internal/game"
 )
 
 func TestWireDeckEmptySphereIDsRemainArray(t *testing.T) {
-	payload, err := json.Marshal(toWireDeck(deckInfo{
+	payload, err := json.Marshal(toWireDeck(game.DeckInfo{
 		CardUniqueIDs:        []int64{1},
 		SupportCardUniqueIDs: []int64{0},
 		SphereUniqueIDs:      []int64{},
@@ -26,7 +28,7 @@ func TestWireDeckEmptySphereIDsRemainArray(t *testing.T) {
 }
 
 func TestWireDeckNilSphereIDsNormalizeToArray(t *testing.T) {
-	payload, err := json.Marshal(toWireDeck(deckInfo{}))
+	payload, err := json.Marshal(toWireDeck(game.DeckInfo{}))
 	if err != nil {
 		t.Fatalf("marshal wire deck: %v", err)
 	}

@@ -11,11 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Exercise the native repeated-ID request through the production adapter,
 // account projection and SQLite, including depletion and a subsequent refresh.
-func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, seedPath string, cards cnCardRuntimeMaster, output string) {
+func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, seedPath string, cards masterdata.CardRuntimeMaster, output string) {
 	t.Helper()
 	if !filepath.IsAbs(output) {
 		t.Fatal("absolute probe output required")
@@ -23,13 +27,18 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 	if err := os.Mkdir(output, 0700); err != nil {
 		t.Fatal(err)
 	}
-	storage, err := newCNSaveDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachProbeCardCatalog(t, storage, cards)
-	accounts := &cnAccountStore{storage: storage}
-	if _, err := accounts.resolveLogin("00000000-0000-0000-0475-000000000000"); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	testfixture.AttachProbeCardCatalog(t, storage, cards)
+	accounts := testfixture.TestAccountRepository(t, storage)
+	if _, err := accounts.ResolveLogin("00000000-0000-0000-0475-000000000000"); err != nil {
 		t.Fatal(err)
 	}
 	for caseID, scenario := range []struct {
@@ -48,11 +57,11 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 		{"MR mixed", []int{9, 9}, []int{9, 9}, 50000000, []int{20000004, 20000031}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			identity, err := accounts.resolveLogin(fmt.Sprintf("00000000-0000-0000-0475-%012d", caseID+1))
+			identity, err := accounts.ResolveLogin(fmt.Sprintf("00000000-0000-0000-0475-%012d", caseID+1))
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, err := accounts.loadState(identity.UserID)
+			state, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +75,7 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 			base.UniqueID, base.Level, base.Experience = 900000, 1, 0
 			state.Cards = append(state.Cards, base)
 			state.User.Gold = scenario.gold
-			state.Onboarding.Step = cnOnboardingStepCount
+			state.Onboarding.Step = masterdata.OnboardingStepCount
 			state.StackCards = nil
 			selected := []int{}
 			materialIDs := append([]int(nil), scenario.ids...)
@@ -91,7 +100,7 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 			if len(state.StackCards) != len(scenario.stock) {
 				t.Fatal("EXP templates missing")
 			}
-			if err := accounts.persistState(identity.UserID, state); err != nil {
+			if err := accounts.PersistState(identity.UserID, state); err != nil {
 				t.Fatal(err)
 			}
 			payload, _ := json.Marshal(map[string]any{"base_uniqid": base.UniqueID, "add_uniqids": []int{}, "add_container_uniqids": []int{}, "add_cardids": selected})
@@ -121,7 +130,7 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 				return common.Code, method
 			}
 			code, method := call("/CardFusion2", string(payload), "fusion")
-			persisted, err := accounts.loadState(identity.UserID)
+			persisted, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -192,7 +201,7 @@ func probeCompleteRuntimeFusion(t *testing.T, handler http.Handler, savePath, se
 			if code != -1200 {
 				t.Fatalf("depleted materials should be a business rejection: %d", code)
 			}
-			after, err := accounts.loadState(identity.UserID)
+			after, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}

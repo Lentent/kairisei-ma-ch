@@ -4,33 +4,42 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"kairisei.local/server/internal/release"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Replay the reported material identities and native deck/mail transitions in
 // an isolated production account; never import or mutate a player's database.
-func auditCompleteBusinessRecovery(t *testing.T, handler http.Handler, savePath, seedPath string, cards cnCardRuntimeMaster) {
+func auditCompleteBusinessRecovery(t *testing.T, handler http.Handler, savePath, seedPath string, cards masterdata.CardRuntimeMaster) {
 	t.Helper()
-	storage, err := newCNSaveDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachProbeCardCatalog(t, storage, cards)
-	accounts := &cnAccountStore{storage: storage}
-	identity, err := accounts.resolveLogin("00000000-0000-4000-8482-000000000001")
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	testfixture.AttachProbeCardCatalog(t, storage, cards)
+	accounts := testfixture.TestAccountRepository(t, storage)
+	identity, err := accounts.ResolveLogin("00000000-0000-4000-8482-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := accounts.loadState(identity.UserID)
+	state, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Onboarding.Step = cnOnboardingStepCount
+	state.Onboarding.Step = masterdata.OnboardingStepCount
 	state.User.Gold = 1000000
 	state.User.ArthurRank = 15
 	for _, spec := range []struct {
@@ -65,16 +74,16 @@ func auditCompleteBusinessRecovery(t *testing.T, handler http.Handler, savePath,
 			}
 		}
 	}
-	var draft release.Deck
+	var draft gamestate.Deck
 	for i := range state.Decks {
 		if state.Decks[i].ArthurType == 3 && state.Decks[i].Index == 0 {
 			state.Decks[i].CardUniqueIDs[0] = 90065
 			draft = state.Decks[i]
 		}
 	}
-	state.Engagement.Presents = []release.Present{{PresentID: 2171848891202068326, Title: "运营赠礼", Reward: release.Reward{Type: 4, Num: 25}}, {PresentID: 2171848891202068327, Title: "运营赠礼", Reward: release.Reward{Type: 4, Num: 25}}}
+	state.Engagement.Presents = []gamestate.Present{{PresentID: 2171848891202068326, Title: "运营赠礼", Reward: gamestate.Reward{Type: 4, Num: 25}}, {PresentID: 2171848891202068327, Title: "运营赠礼", Reward: gamestate.Reward{Type: 4, Num: 25}}}
 	state.Engagement.Histories = nil
-	if err := accounts.persistState(identity.UserID, state); err != nil {
+	if err := accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
 	wantPresent := -1
@@ -104,9 +113,9 @@ func auditCompleteBusinessRecovery(t *testing.T, handler http.Handler, savePath,
 		}
 		return result
 	}
-	load := func() release.State {
+	load := func() gamestate.State {
 		t.Helper()
-		s, e := accounts.loadState(identity.UserID)
+		s, e := accounts.LoadState(identity.UserID)
 		if e != nil {
 			t.Fatal(e)
 		}

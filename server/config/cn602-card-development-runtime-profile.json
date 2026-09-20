@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "client_profile": "cn602-bootstrap",
-  "time_every_fame_seconds": 3600,
-  "coin_every_hour": 1,
-  "help_path": "/disabled/web",
-  "evidence": "PLACEHOLDER"
-}

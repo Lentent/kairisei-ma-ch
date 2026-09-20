@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
 )
 
 type cnRuntimeContentGate struct {
@@ -29,43 +30,12 @@ type cnRuntimeContentGate struct {
 	PopupProfiles         int
 }
 
-type cnGateTeamBattleBoss struct {
-	cnBattleEntryRules
-	BossID      int    `json:"0"`
-	Difficulty  string `json:"4"`
-	BPUse       int    `json:"5"`
-	PictID      int    `json:"9"`
-	State       int    `json:"10"`
-	RewardCards []struct {
-		CardID int `json:"0"`
-	} `json:"12"`
-	RewardSpheres []json.RawMessage `json:"13"`
-	IsModel       int               `json:"14"`
-	UserBuffIDs   []int             `json:"15"`
-	Awake         json.RawMessage   `json:"18"`
-	Challenge     []json.RawMessage `json:"25"`
-	Unlock        json.RawMessage   `json:"27"`
-}
-
-type cnGateTeamBattleGroup struct {
-	GroupID          int                    `json:"0"`
-	StageType        int                    `json:"1"`
-	IsReleased       int                    `json:"3"`
-	Name             string                 `json:"4"`
-	PictID           int                    `json:"7"`
-	StageQuestAreaID int                    `json:"9"`
-	Bosses           []cnGateTeamBattleBoss `json:"10"`
-	Stories          []json.RawMessage      `json:"11"`
-	ButtonStrings1   []string               `json:"12"`
-	ButtonStrings2   []string               `json:"13"`
-}
-
 type cnGateTeamBattleSolo struct {
-	Groups        []cnGateTeamBattleGroup `json:"9"`
-	EventGroups   []json.RawMessage       `json:"10"`
-	SpecialGroups []json.RawMessage       `json:"11"`
-	OtherGroups   []json.RawMessage       `json:"12"`
-	Notifications []json.RawMessage       `json:"14"`
+	Groups        []masterdata.GateTeamBattleGroup `json:"9"`
+	EventGroups   []json.RawMessage                `json:"10"`
+	SpecialGroups []json.RawMessage                `json:"11"`
+	OtherGroups   []json.RawMessage                `json:"12"`
+	Notifications []json.RawMessage                `json:"14"`
 }
 
 type cnGateStageQuestBoss struct {
@@ -111,7 +81,7 @@ type cnGateStageQuest struct {
 	NewClearStage []int             `json:"new_clear_stage"`
 }
 
-func validateCNRunnableContent(state release.State) (cnRuntimeContentGate, error) {
+func validateCNRunnableContent(state gamestate.State) (cnRuntimeContentGate, error) {
 	var summary cnRuntimeContentGate
 	if state.BattlePointConfigVersion <= 0 ||
 		state.BattlePoint.RecoverySeconds != 3*60 ||
@@ -190,7 +160,7 @@ func validateCNRunnableContent(state release.State) (cnRuntimeContentGate, error
 	if err := validateCNStoryGate(state.Story, &summary); err != nil {
 		return summary, err
 	}
-	if err := validateCNEventPageProfile(state.EventPageProfile); err != nil {
+	if err := masterdata.ValidateEventPageProfile(state.EventPageProfile); err != nil {
 		return summary, fmt.Errorf("CN runtime EventPage profile: %w", err)
 	}
 	summary.EventPageProfiles = 1
@@ -242,7 +212,7 @@ func validateCNTeamBattleGate(
 		groups[group.GroupID] = struct{}{}
 		seenBosses := make(map[int]struct{}, len(group.Bosses))
 		for _, boss := range group.Bosses {
-			if err := validateCNTeamBattleBossGate(boss); err != nil {
+			if err := masterdata.ValidateTeamBattleBossGate(boss); err != nil {
 				return nil, nil, fmt.Errorf("CN TeamBattle group %d: %w", group.GroupID, err)
 			}
 			if err := validateCNUserBuffReferences(boss.BossID, boss.UserBuffIDs, userBuffProfiles); err != nil {
@@ -279,23 +249,6 @@ func validateCNUserBuffReferences(
 			return fmt.Errorf("boss %d repeats user buff %d", bossID, userBuffID)
 		}
 		seen[userBuffID] = struct{}{}
-	}
-	return nil
-}
-
-func validateCNTeamBattleBossGate(boss cnGateTeamBattleBoss) error {
-	if !boss.cnBattleEntryRules.valid() || boss.BossID <= 0 || boss.Difficulty == "" || boss.BPUse <= 0 || boss.PictID <= 0 ||
-		boss.State < 0 || boss.State > 2 || (boss.IsModel != 0 && boss.IsModel != 1) ||
-		boss.RewardCards == nil || boss.RewardSpheres == nil ||
-		(boss.UserBuffIDs != nil && len(boss.UserBuffIDs) == 0) ||
-		len(boss.Awake) == 0 || bytes.Equal(boss.Awake, []byte("null")) ||
-		boss.Challenge == nil || len(boss.Unlock) == 0 || bytes.Equal(boss.Unlock, []byte("null")) {
-		return fmt.Errorf("boss %d DTO is unavailable or incomplete", boss.BossID)
-	}
-	for _, reward := range boss.RewardCards {
-		if reward.CardID <= 0 {
-			return fmt.Errorf("boss %d references an invalid card %d", boss.BossID, reward.CardID)
-		}
 	}
 	return nil
 }
@@ -376,7 +329,7 @@ func validateCNStageQuestGate(
 }
 
 func validateCNBattleProfilesGate(
-	state release.State,
+	state gamestate.State,
 	contexts map[[3]int]struct{},
 	bossIDs map[int]struct{},
 ) error {
@@ -408,10 +361,10 @@ func validateCNBattleProfilesGate(
 	return nil
 }
 
-func validateCNExploreGate(explore release.ExploreProgressState, summary *cnRuntimeContentGate) error {
+func validateCNExploreGate(explore gamestate.ExploreProgressState, summary *cnRuntimeContentGate) error {
 	stages := explore.Stages
 	if len(stages) == 0 {
-		stages = []release.ExploreStage{explore.Stage}
+		stages = []gamestate.ExploreStage{explore.Stage}
 	}
 	if len(stages) == 0 || explore.Events == nil ||
 		explore.APRecoverySeconds <= 0 || explore.Avatar.AvatarPartIDs == nil {
@@ -448,7 +401,7 @@ func validateCNExploreGate(explore release.ExploreProgressState, summary *cnRunt
 	return nil
 }
 
-func validateCNStoryGate(story release.StoryCatalogState, summary *cnRuntimeContentGate) error {
+func validateCNStoryGate(story gamestate.StoryCatalogState, summary *cnRuntimeContentGate) error {
 	if story.MainParts == nil || story.CNMainParts == nil || story.SubCharacters == nil || story.Events == nil {
 		return errors.New("CN runtime story catalog arrays must be non-null")
 	}
@@ -600,7 +553,7 @@ func validateCNStoryGate(story release.StoryCatalogState, summary *cnRuntimeCont
 	return nil
 }
 
-func collectCNMainStoryFlags(parts []release.StoryMainPart) ([]int, int, error) {
+func collectCNMainStoryFlags(parts []gamestate.StoryMainPart) ([]int, int, error) {
 	flags := make([]int, 0)
 	seenParts := make(map[int]struct{}, len(parts))
 	seenSections := make(map[int]struct{})

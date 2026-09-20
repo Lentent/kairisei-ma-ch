@@ -2,6 +2,7 @@ package multiplayer
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -35,7 +36,8 @@ func continueRoomFixture(t *testing.T, authorize func(BattleContinue) (ContinueB
 	current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, BossID: 11, State: RoomStateBattle, OwnerMemberType: 1, Members: members},
 		continueAllowed: true, engine: engine, connections: make(map[int]*clientConn), comebackTokens: map[int]string{1: "token1", 2: "token2"},
 		disconnectedUntil: make(map[int]time.Time), gameStarted: true, turnPhaseStarted: true, userPhaseStarted: true,
-		userAttackStarted: true, chaliceUserStarted: true, enemyPhaseStarted: true, enemyPhaseFinished: map[int]bool{1: true, 2: true}}
+		userAttackStarted: true, chaliceUserStarted: true, enemyPhaseStarted: true, enemyPhaseFinished: map[int]bool{1: true, 2: true},
+		chaliceEnemyFinished: make(map[int]bool)}
 	for slot := 1; slot <= 2; slot++ {
 		current.connections[slot] = continueTestPeer(t, s, slot)
 	}
@@ -148,6 +150,35 @@ func TestContinuePaymentQuorumRetryAndReconnect(t *testing.T) {
 	if !(strings.Index(output, "ApiContinue{") < strings.Index(output, "RoomComeback{") && strings.Index(output, "RoomComeback{") < strings.Index(output, "ApiChaliceSphrExecEnemyPhase{")) {
 		t.Fatal("revival, reset snapshot and next phase are out of order")
 	}
+	for _, peer := range []*clientConn{recovered, guest} {
+		if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, peer := range []*clientConn{recovered, guest} {
+		if err := peer.handleTurnPhaseFinish(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, submitted := current.cardPlaySubmissions[1]; submitted {
+		t.Fatal("revived connected member was automatically skipped")
+	}
+	if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
+		t.Fatal(err)
+	}
+	if current.userAttackStarted {
+		t.Fatal("room did not wait for the revived member's cards")
+	}
+	card := current.engine.players[0].Hand[0]
+	if card == 0 {
+		t.Fatal("revived member has no selectable card")
+	}
+	if err := recovered.handleCardPlay(fmt.Sprintf("%d,5,0,0,0,0,0,0,0,0,0,0", card), false); err != nil {
+		t.Fatal(err)
+	}
+	if !current.userAttackStarted {
+		t.Fatal("revived member's submission did not release the input barrier")
+	}
 }
 
 func TestContinueDeclineAndTimeout(t *testing.T) {
@@ -182,6 +213,60 @@ func TestContinueDeclineAndTimeout(t *testing.T) {
 				}
 			} else if !current.chaliceEnemyStarted {
 				t.Fatal("survivors did not resume")
+			}
+			if !allDead {
+				current.engine.enemies[0].HP = 1000000
+				current.engine.enemies[0].MaxHP = 1000000
+				current.engine.enemies[0].BaseMaxHP = 1000000
+				for turn := 0; turn < 2; turn++ {
+					for _, peer := range []*clientConn{owner, guest} {
+						if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					for _, peer := range []*clientConn{owner, guest} {
+						if err := peer.handleTurnPhaseFinish(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					submission, skipped := current.cardPlaySubmissions[1]
+					if !skipped || selectedActionCount(submission) != 0 {
+						t.Fatal("connected dead member still requires a manual skip")
+					}
+					if _, selected := current.engine.selectedPlays[1]; selected || current.userAttackStarted {
+						t.Fatal("KO skip changed native selection state or bypassed the living member")
+					}
+					before := current.engine.rng
+					frames := guest.conn.(*hubCheckingConn).output.String()
+					if err := owner.server.submitAutomaticRoomCards(1); err != nil {
+						t.Fatal(err)
+					}
+					if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
+						t.Fatal(err)
+					}
+					if current.engine.rng != before || guest.conn.(*hubCheckingConn).output.String() != frames {
+						t.Fatal("repeated KO skip changed RNG or emitted another confirmation")
+					}
+					if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
+						t.Fatal(err)
+					}
+					if !current.userAttackStarted || owner.closed || current.connections[1] != owner {
+						t.Fatal("living submission failed to advance with dead spectator connected")
+					}
+					if turn == 0 {
+						for _, finish := range []func(*clientConn) error{
+							(*clientConn).handleUserAttackFinish,
+							(*clientConn).handleChaliceSphrExecUserPhaseFinish,
+							(*clientConn).handleEnemyPhaseFinish,
+						} {
+							for _, peer := range []*clientConn{owner, guest} {
+								if err := finish(peer); err != nil {
+									t.Fatal(err)
+								}
+							}
+						}
+					}
+				}
 			}
 		})
 	}

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 type questProgress struct {
@@ -78,14 +79,10 @@ func newCommonResponse(featureIDs []uint) commonResponse {
 	}
 }
 
-func marshalProtocol(common commonResponse, method any) ([]byte, error) {
-	return marshalProtocolWithPopups(common, method, []release.PopupProfile{})
-}
-
 func marshalProtocolWithPopups(
 	common commonResponse,
 	method any,
-	popups []release.PopupProfile,
+	popups []gamestate.PopupProfile,
 ) ([]byte, error) {
 	segments := make([][]byte, 0, 3)
 	for _, value := range []any{
@@ -102,7 +99,7 @@ func marshalProtocolWithPopups(
 	return bytes.Join(segments, []byte{'\n'}), nil
 }
 
-func wirePopupProfiles(profiles []release.PopupProfile) []any {
+func wirePopupProfiles(profiles []gamestate.PopupProfile) []any {
 	result := make([]any, len(profiles))
 	for index, profile := range profiles {
 		result[index] = map[string]any{
@@ -124,43 +121,6 @@ func wirePopupProfiles(profiles []release.PopupProfile) []any {
 		}
 	}
 	return result
-}
-
-type cardInfo struct {
-	UniqueID      int64
-	CardID        int
-	Level         int
-	LevelMax      int
-	Experience    int
-	NowLevelEXP   int
-	Love          int
-	LoveMax       int
-	SkillLevels   []int16
-	HP            int
-	Attack        int
-	Magic         int
-	Mind          int
-	NextLevelEXP  int
-	AddExperience int
-	BaseAddPrice  int
-	IsLock        int8
-	Fame          int
-	Slot          int
-}
-
-type deckInfo struct {
-	ArthurType           int8    `json:"arthur_type"`
-	Index                int8    `json:"idx"`
-	JobType              int8    `json:"job_type"`
-	LeaderCardIndex      int8    `json:"leader_card_idx"`
-	CardUniqueIDs        []int64 `json:"card_uniqid"`
-	SupportCardUniqueIDs []int64 `json:"support_card_uniqid"`
-	SphereUniqueIDs      []int64 `json:"sphr_uniqid"`
-	BuddyUniqueIDs       []int64 `json:"buddy_uniqid"`
-	Name                 string  `json:"name"`
-	IsActive             int8    `json:"is_active"`
-	IsRental             int8    `json:"is_rental"`
-	DeckRank             int8    `json:"deck_rank"`
 }
 
 type wireCardInfo struct {
@@ -331,7 +291,7 @@ type wireBuddySell struct {
 	Decks    []wireDeckInfo `json:"3"`
 }
 
-func toWireBuddy(buddy release.Buddy) wireBuddyInfo {
+func toWireBuddy(buddy gamestate.Buddy) wireBuddyInfo {
 	return wireBuddyInfo{
 		UniqueID: buddy.UniqueID, BuddyID: buddy.BuddyID, Level: buddy.Level,
 		Experience: buddy.Experience, NextLevelEXP: buddy.NextLevelExperience,
@@ -340,7 +300,7 @@ func toWireBuddy(buddy release.Buddy) wireBuddyInfo {
 	}
 }
 
-func toWireBuddies(buddies []release.Buddy) []wireBuddyInfo {
+func toWireBuddies(buddies []gamestate.Buddy) []wireBuddyInfo {
 	result := make([]wireBuddyInfo, len(buddies))
 	for index, buddy := range buddies {
 		result[index] = toWireBuddy(buddy)
@@ -348,7 +308,7 @@ func toWireBuddies(buddies []release.Buddy) []wireBuddyInfo {
 	return result
 }
 
-func toWireCard(card cardInfo) wireCardInfo {
+func toWireCard(card game.CardInfo) wireCardInfo {
 	return wireCardInfo{
 		UniqueID:       card.UniqueID,
 		CardID:         card.CardID,
@@ -374,7 +334,7 @@ func toWireCard(card cardInfo) wireCardInfo {
 	}
 }
 
-func toWireSphere(sphere release.Sphere) wireSphereInfo {
+func toWireSphere(sphere gamestate.Sphere) wireSphereInfo {
 	return wireSphereInfo{
 		UniqueID: sphere.UniqueID, SphereID: sphere.SphereID, Level: sphere.Level,
 		Experience: sphere.Experience, NextLevelEXP: sphere.NextLevelExperience,
@@ -383,7 +343,7 @@ func toWireSphere(sphere release.Sphere) wireSphereInfo {
 	}
 }
 
-func toWireSpheres(spheres []release.Sphere) []wireSphereInfo {
+func toWireSpheres(spheres []gamestate.Sphere) []wireSphereInfo {
 	result := make([]wireSphereInfo, len(spheres))
 	for index, sphere := range spheres {
 		result[index] = toWireSphere(sphere)
@@ -391,7 +351,7 @@ func toWireSpheres(spheres []release.Sphere) []wireSphereInfo {
 	return result
 }
 
-func toWireStackCards(cards []release.CardStack) []wireCardStackInfo {
+func toWireStackCards(cards []gamestate.CardStack) []wireCardStackInfo {
 	result := make([]wireCardStackInfo, 0, len(cards))
 	for _, card := range cards {
 		// Native CardMgr adds every returned row to its selectable inventory.
@@ -413,7 +373,7 @@ func toWireStackCards(cards []release.CardStack) []wireCardStackInfo {
 	return result
 }
 
-func toWireCards(cards []cardInfo) []wireCardInfo {
+func toWireCards(cards []game.CardInfo) []wireCardInfo {
 	result := make([]wireCardInfo, len(cards))
 	for index, card := range cards {
 		result[index] = toWireCard(card)
@@ -421,7 +381,7 @@ func toWireCards(cards []cardInfo) []wireCardInfo {
 	return result
 }
 
-func toWireDeck(deck deckInfo) wireDeckInfo {
+func toWireDeck(deck game.DeckInfo) wireDeckInfo {
 	return wireDeckInfo{
 		ArthurType:           deck.ArthurType,
 		Index:                deck.Index,
@@ -447,7 +407,7 @@ func cloneWireInt64s(values []int64) []int64 {
 	return result
 }
 
-func toWireDecks(decks []deckInfo) []wireDeckInfo {
+func toWireDecks(decks []game.DeckInfo) []wireDeckInfo {
 	result := make([]wireDeckInfo, len(decks))
 	for index, deck := range decks {
 		result[index] = toWireDeck(deck)

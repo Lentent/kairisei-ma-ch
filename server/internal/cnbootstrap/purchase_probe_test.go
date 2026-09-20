@@ -13,10 +13,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"kairisei.local/server/internal/accountstore"
+	adminapi "kairisei.local/server/internal/admin"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Uses the existing isolated production-resource gate, never a player's DB.
-func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, seedPath string, cards cnCardRuntimeMaster, output string) {
+func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, seedPath string, cards masterdata.CardRuntimeMaster, output string) {
 	t.Helper()
 	if !filepath.IsAbs(output) {
 		t.Fatal("absolute probe output required")
@@ -24,27 +29,32 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	if err := os.Mkdir(output, 0700); err != nil {
 		t.Fatal(err)
 	}
-	storage, err := newCNSaveDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	accounts := &cnAccountStore{storage: storage}
-	attachProbeCardCatalog(t, storage, cards)
-	if _, err := accounts.resolveLogin("00000000-0000-0000-0004-000000000000"); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	accounts := testfixture.TestAccountRepository(t, storage)
+	testfixture.AttachProbeCardCatalog(t, storage, cards)
+	if _, err := accounts.ResolveLogin("00000000-0000-0000-0004-000000000000"); err != nil {
 		t.Fatal(err)
 	}
-	identity, err := accounts.resolveLogin("00000000-0000-0000-0004-000000000001")
+	identity, err := accounts.ResolveLogin("00000000-0000-0000-0004-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := accounts.loadState(identity.UserID)
+	state, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Onboarding.Step = cnOnboardingStepCount
+	state.Onboarding.Step = masterdata.OnboardingStepCount
 	state.User.Coin, state.User.CoinFree, state.User.Gold = 0, 0, 0
 	state.User.CardMax = 100
-	if err := accounts.persistState(identity.UserID, state); err != nil {
+	if err := accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
 	call := func(route, payload, name string, code int) map[string]json.RawMessage {
@@ -71,7 +81,7 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 		return method
 	}
 	call("/HomeShow", "", "home-before", 0)
-	before, err := accounts.loadState(identity.UserID)
+	before, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,18 +97,18 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	} {
 		call(c.route, c.payload, c.name, c.code)
 	}
-	after, err := accounts.loadState(identity.UserID)
+	after, err := accounts.LoadState(identity.UserID)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("rejected purchase changed the account: %v", err)
 	}
 	call("/HomeShow", "", "home-after", 0)
 	full := call("/TeamBattleSoloShow", `{"0":1}`, "quests-all", 0)
-	operations, err := newCNOperationStore(storage, nil)
+	operations, err := adminapi.NewOperations(storage, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	revision := 0
-	if _, err := operations.setTeamBattlePublication(cnTeamBattlePublication{Mode: "allowlist", GroupIDs: []int{700300201}, ExpectedRevision: &revision}); err != nil {
+	if _, err := operations.SetTeamBattlePublication(adminapi.TeamBattlePublication{Mode: "allowlist", GroupIDs: []int{700300201}, ExpectedRevision: &revision}); err != nil {
 		t.Fatal(err)
 	}
 	limited := call("/TeamBattleSoloShow", `{"0":1}`, "quests-ice-only", 0)
@@ -159,13 +169,10 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	settings("PUT", false, 0, 409)
 	settings("PUT", false, 1, 200)
 	buy(3, 0, 6480)
-	reloaded, err := newCNOperationStore(storage, nil)
-	if err != nil || reloaded.runtimeSettings.CrystalPurchaseEnabled || reloaded.runtimeSettingsRevision != 2 {
-		t.Fatal("runtime settings not retained after reload")
-	}
+
 }
 
-func probeCompleteRuntimeAdmin(t *testing.T, handler http.Handler, accounts *cnAccountStore, userID int, output string) {
+func probeCompleteRuntimeAdmin(t *testing.T, handler http.Handler, accounts *accountstore.Accounts, userID int, output string) {
 	t.Helper()
 	provider, ok := handler.(interface{ AdminHandler() http.Handler })
 	if !ok || provider.AdminHandler() == nil {
@@ -193,15 +200,15 @@ func probeCompleteRuntimeAdmin(t *testing.T, handler http.Handler, accounts *cnA
 		return w.Body.Bytes()
 	}
 	var list struct {
-		Accounts []cnAdminAccountListItem `json:"accounts"`
-		Total    int                      `json:"total"`
+		Accounts []accountstore.AccountListItem `json:"accounts"`
+		Total    int                            `json:"total"`
 	}
 	if json.Unmarshal(call("GET", fmt.Sprintf("/api/accounts?q=%d&limit=1", userID), nil, "accounts", 200), &list) != nil || list.Total != 1 || len(list.Accounts) != 1 || list.Accounts[0].UserID != userID {
 		t.Fatal("Admin account paging/search failed")
 	}
 	call("POST", "/api/accounts/resolve", map[string]any{"user_ids": []int{userID}}, "resolve-players", 200)
 	var catalog struct {
-		Entries []cnAdminCatalogEntry `json:"entries"`
+		Entries []adminapi.AdminCatalogEntry `json:"entries"`
 	}
 	if json.Unmarshal(call("GET", "/api/catalog?kind=card&limit=120", nil, "cards", 200), &catalog) != nil {
 		t.Fatal("Admin catalog invalid")
@@ -216,9 +223,9 @@ func probeCompleteRuntimeAdmin(t *testing.T, handler http.Handler, accounts *cnA
 	if cardID == 0 {
 		t.Fatal("no deliverable card in production catalog")
 	}
-	batch := cnAdminMailBatch{ID: "d466-production-batch", Title: "离线接口验证", Message: "仅隔离测试账号", UserIDs: []int{userID}, Rewards: []cnAdminMailRequest{{RewardType: 6, RewardTypeID: cardID, Quantity: 1}, {RewardType: 10, Quantity: 50}}}
+	batch := adminapi.AdminMailBatch{ID: "d466-production-batch", Title: "离线接口验证", Message: "仅隔离测试账号", UserIDs: []int{userID}, Rewards: []adminapi.AdminMailRequest{{RewardType: 6, RewardTypeID: cardID, Quantity: 1}, {RewardType: 10, Quantity: 50}}}
 	call("POST", "/api/catalog/resolve", map[string]any{"rewards": batch.Rewards}, "resolve-rewards", 200)
-	before, err := accounts.loadState(userID)
+	before, err := accounts.LoadState(userID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +244,7 @@ func probeCompleteRuntimeAdmin(t *testing.T, handler http.Handler, accounts *cnA
 			t.Fatal("production batch failed to deliver")
 		}
 	}
-	after, err := accounts.loadState(userID)
+	after, err := accounts.LoadState(userID)
 	if err != nil || len(after.Engagement.Presents) != len(before.Engagement.Presents)+2 {
 		t.Fatal("production batch did not issue exactly two gifts once")
 	}

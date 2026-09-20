@@ -3,76 +3,99 @@ package cnbootstrap
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"testing"
 	"time"
 
-	"kairisei.local/server/internal/httpapi"
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/testfixture"
 )
 
-func newFriendCapacityTestAccounts(t *testing.T) *cnAccountStore {
-	t.Helper()
-	seedPath := filepath.Join("..", "..", "config", "cn602-save-template.json")
-	seed, err := os.ReadFile(seedPath)
-	if err != nil {
-		t.Fatalf("read seed: %v", err)
-	}
-	jsonPath := filepath.Join(t.TempDir(), "save.json")
-	if err := os.WriteFile(jsonPath, seed, 0o600); err != nil {
-		t.Fatalf("write temporary primary seed: %v", err)
-	}
-	storage, err := newCNSaveDatabase(
-		jsonPath,
-		seedPath,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
+func TestServingRestartInvalidatesSessionsNotAccounts(t *testing.T) {
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	const uuid = "00000000-0000-0000-0000-000000000001"
+	identity, err := accounts.ResolveLogin(uuid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.loadOrImport(); err != nil {
-		t.Fatalf("import primary account: %v", err)
-	}
-	accounts, err := newCNAccountStore(storage)
+	binding, err := accounts.BindAccount(uuid, "restart_test", "test-password")
 	if err != nil {
-		t.Fatalf("initialize account store: %v", err)
+		t.Fatal(err)
 	}
-	return accounts
+	document, err := accounts.Database().WriteDocument("test/restart-policy", 0, map[string]int{"reward": 37}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := accounts.LoadState(identity.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := accounts.ResolveSession(identity.SessionKey); err != nil || id != identity.UserID {
+		t.Fatalf("initial session: %d %v", id, err)
+	}
+	if err := accounts.InvalidateSessions(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.ResolveSession(identity.SessionKey); !errors.Is(err, accountstore.ErrInvalidSession) {
+		t.Fatalf("old session survived restart: %v", err)
+	}
+	after, err := accounts.LoadState(identity.UserID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("restart changed account save: %v", err)
+	}
+	retainedBinding, err := accounts.LoginAccount("restart_test", "test-password")
+	if err != nil || retainedBinding.UserID != binding.UserID {
+		t.Fatalf("account binding changed: %v", err)
+	}
+	retainedDocument, err := accounts.Database().ReadDocument("test/restart-policy")
+	if err != nil || !reflect.DeepEqual(document, retainedDocument) {
+		t.Fatalf("operator configuration changed: %v", err)
+	}
+	loggedIn, err := accounts.ResolveLogin(uuid)
+	if err != nil || loggedIn.UserID != identity.UserID || loggedIn.SessionKey == identity.SessionKey {
+		t.Fatalf("relogin did not retain identity and rotate session: %v", err)
+	}
+	if id, err := accounts.ResolveSession(loggedIn.SessionKey); err != nil || id != identity.UserID {
+		t.Fatalf("new session invalid: %d %v", id, err)
+	}
 }
 
 func TestActiveBattleUsesRuntimeMemoryAcrossAccountReload(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	state, err := accounts.loadState(cnPrimaryUserID)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	state, err := accounts.LoadState(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// First normal quest: its final body drops gold and a stack material.
-	state.Navigation = release.NavigationState{MainStoryID: 1001, MainStoryCN: true, StageAreaID: 100001}
+	state.Navigation = gamestate.NavigationState{MainStoryID: 1001, MainStoryCN: true, StageAreaID: 100001}
 	state.BurstProgress = [4]uint8{2}
-	state.StoryTeamBattleSession = release.StoryTeamBattleSession{StoryID: 45001020}
-	state.ActiveTeamBattle = &release.TeamBattleActiveState{
+	state.StoryTeamBattleSession = gamestate.StoryTeamBattleSession{StoryID: 45001020}
+	state.ActiveTeamBattle = &gamestate.TeamBattleActiveState{
 		Seed:   478,
 		BossID: 10000101, BattleEnemyTypes: []int8{1, 1, 1, 1},
 		StageQuestAreaID: 100001, StageQuestStageID: 10000101,
 		BPUse: 7, ConsumesBattlePoints: true, FameSeed: "normal-quest-start",
-		FameSources: []release.TeamBattleFameSourceState{{ArthurType: 1, LeaderFame: 100}},
+		FameSources: []gamestate.TeamBattleFameSourceState{{ArthurType: 1, LeaderFame: 100}},
 		DropPlanSet: true,
-		DropPlan: []release.TeamBattleEnemyDrop{
-			{BattleIndex: 3, Reward: release.Reward{Type: 4, Num: 100, CardSkillLevels: []int16{}}},
-			{BattleIndex: 3, Reward: release.Reward{Type: 13, Num: 1, RewardTypeID: 20000001, CardSkillLevels: []int16{}}},
+		DropPlan: []gamestate.TeamBattleEnemyDrop{
+			{BattleIndex: 3, Reward: gamestate.Reward{Type: 4, Num: 100, CardSkillLevels: []int16{}}},
+			{BattleIndex: 3, Reward: gamestate.Reward{Type: 13, Num: 1, RewardTypeID: 20000001, CardSkillLevels: []int16{}}},
 		},
 	}
-	if err := accounts.persistState(cnPrimaryUserID, state); err != nil {
+	if err := accounts.PersistState(accountstore.PrimaryUserID, state); err != nil {
 		t.Fatalf("persist normal quest start: %v", err)
 	}
-	reloaded, err := accounts.loadState(cnPrimaryUserID)
+	reloaded, err := accounts.LoadState(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,66 +113,49 @@ func TestActiveBattleUsesRuntimeMemoryAcrossAccountReload(t *testing.T) {
 			t.Fatal("empty reward skill array became null on reload")
 		}
 	}
-	if err := accounts.persistState(cnPrimaryUserID, reloaded); err != nil {
+	if err := accounts.PersistState(accountstore.PrimaryUserID, reloaded); err != nil {
 		t.Fatalf("persist resumed battle: %v", err)
 	}
-	encoded, err := encodeCNAccountMetadata(reloaded)
+	encoded, err := accountstore.EncodeAccountMetadata(reloaded)
 	if err != nil || bytes.Contains(encoded, []byte(`"active_team_battle"`)) {
 		t.Fatal("ongoing battle was written to the durable account", err)
 	}
 	// A new repository instance is a new server lifetime, even with the same DB.
-	restarted := &cnAccountStore{storage: accounts.storage}
-	withoutBattle, err := restarted.loadState(cnPrimaryUserID)
+	restarted := testfixture.TestAccountRepository(t, accounts.Database())
+	withoutBattle, err := restarted.LoadState(accountstore.PrimaryUserID)
 	if err != nil || withoutBattle.ActiveTeamBattle != nil || withoutBattle.Navigation != state.Navigation {
 		t.Fatal("restart restored a battle lock or lost persistent account data", err)
 	}
 	if withoutBattle.StoryTeamBattleSession.StoryID != 0 || withoutBattle.BurstProgress != state.BurstProgress {
 		t.Fatal("learning battle survived restart or completed chapters were lost")
 	}
-	accounts.rememberBattle(cnPrimaryUserID, nil, release.StoryTeamBattleSession{})
-}
-
-func createNamedFriendCapacityAccount(t *testing.T, accounts *cnAccountStore, number int) int {
-	t.Helper()
-	identity, err := accounts.resolveLogin(fmt.Sprintf("00000000-0000-4000-8000-%012x", number))
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := accounts.loadState(identity.UserID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state.User.Name = fmt.Sprintf("FriendEdge%02d", number)
-	if err := accounts.persistState(identity.UserID, state); err != nil {
-		t.Fatal(err)
-	}
-	return identity.UserID
+	accounts.RememberBattle(accountstore.PrimaryUserID, nil, gamestate.StoryTeamBattleSession{})
 }
 
 func requireFollowAddError(t *testing.T, err error, resultCode int) {
 	t.Helper()
-	var followErr *httpapi.FollowAddError
+	var followErr *game.FollowAddError
 	if !errors.As(err, &followErr) || followErr.ResultCode != resultCode || followErr.ResultString == "" {
 		t.Fatalf("follow error = %v, want result code %d", err, resultCode)
 	}
 }
 
 func TestFollowCapacityPreservesOriginalClientResultCodes(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	requester := createNamedFriendCapacityAccount(t, accounts, 0x101)
-	targetA := createNamedFriendCapacityAccount(t, accounts, 0x102)
-	targetB := createNamedFriendCapacityAccount(t, accounts, 0x103)
-	targetC := createNamedFriendCapacityAccount(t, accounts, 0x104)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	requester := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x101)
+	targetA := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x102)
+	targetB := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x103)
+	targetC := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x104)
 	if _, err := accounts.FollowFriendPointAccounts(requester, []int{targetA, targetB}, 2, 20); err != nil {
 		t.Fatal(err)
 	}
 	_, err := accounts.FollowFriendPointAccounts(requester, []int{targetC}, 2, 20)
 	requireFollowAddError(t, err, -3410)
 
-	followerA := createNamedFriendCapacityAccount(t, accounts, 0x105)
-	followerB := createNamedFriendCapacityAccount(t, accounts, 0x106)
-	followerC := createNamedFriendCapacityAccount(t, accounts, 0x107)
-	fullTarget := createNamedFriendCapacityAccount(t, accounts, 0x108)
+	followerA := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x105)
+	followerB := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x106)
+	followerC := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x107)
+	fullTarget := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x108)
 	if _, err := accounts.FollowFriendPointAccounts(followerA, []int{fullTarget}, 2, 20); err != nil {
 		t.Fatal(err)
 	}
@@ -159,9 +165,9 @@ func TestFollowCapacityPreservesOriginalClientResultCodes(t *testing.T) {
 	_, err = accounts.FollowFriendPointAccounts(followerC, []int{fullTarget}, 2, 20)
 	requireFollowAddError(t, err, -3412)
 
-	mutualOwner := createNamedFriendCapacityAccount(t, accounts, 0x109)
-	mutualA := createNamedFriendCapacityAccount(t, accounts, 0x10a)
-	mutualB := createNamedFriendCapacityAccount(t, accounts, 0x10b)
+	mutualOwner := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x109)
+	mutualA := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x10a)
+	mutualB := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x10b)
 	if _, err := accounts.FollowFriendPointAccounts(mutualA, []int{mutualOwner}, 10, 20); err != nil {
 		t.Fatal(err)
 	}
@@ -175,15 +181,15 @@ func TestFollowCapacityPreservesOriginalClientResultCodes(t *testing.T) {
 	_, err = accounts.FollowFriendPointAccounts(mutualOwner, []int{mutualB}, 10, 1)
 	requireFollowAddError(t, err, -3410)
 
-	otherFull := createNamedFriendCapacityAccount(t, accounts, 0x10c)
-	otherFriend := createNamedFriendCapacityAccount(t, accounts, 0x10d)
-	otherRequester := createNamedFriendCapacityAccount(t, accounts, 0x10e)
-	otherFullState, err := accounts.loadState(otherFull)
+	otherFull := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x10c)
+	otherFriend := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x10d)
+	otherRequester := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x10e)
+	otherFullState, err := accounts.LoadState(otherFull)
 	if err != nil {
 		t.Fatal(err)
 	}
 	otherFullState.User.FriendMax = 1
-	if err := accounts.persistState(otherFull, otherFullState); err != nil {
+	if err := accounts.PersistState(otherFull, otherFullState); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := accounts.FollowFriendPointAccounts(otherFriend, []int{otherFull}, 10, 20); err != nil {
@@ -200,12 +206,12 @@ func TestFollowCapacityPreservesOriginalClientResultCodes(t *testing.T) {
 }
 
 func TestFriendPointAccountStatesReadsTargetedRelationshipStates(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	requester := createNamedFriendCapacityAccount(t, accounts, 0x201)
-	outbound := createNamedFriendCapacityAccount(t, accounts, 0x202)
-	inbound := createNamedFriendCapacityAccount(t, accounts, 0x203)
-	mutual := createNamedFriendCapacityAccount(t, accounts, 0x204)
-	unrelated := createNamedFriendCapacityAccount(t, accounts, 0x205)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	requester := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x201)
+	outbound := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x202)
+	inbound := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x203)
+	mutual := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x204)
+	unrelated := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x205)
 	if _, err := accounts.FollowFriendPointAccounts(requester, []int{outbound, mutual}, 10, 20); err != nil {
 		t.Fatal(err)
 	}
@@ -230,10 +236,10 @@ func TestFriendPointAccountStatesReadsTargetedRelationshipStates(t *testing.T) {
 }
 
 func TestPartnerDiscoveryReadsProjectionInsteadOfFullSnapshots(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	requester := createNamedFriendCapacityAccount(t, accounts, 0x301)
-	target := createNamedFriendCapacityAccount(t, accounts, 0x302)
-	database, err := accounts.storage.open()
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	requester := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x301)
+	target := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x302)
+	database, err := accounts.Database().Open()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,10 +248,6 @@ func TestPartnerDiscoveryReadsProjectionInsteadOfFullSnapshots(t *testing.T) {
 		[]byte("not-json"),
 		target,
 	); err != nil {
-		_ = database.Close()
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,20 +268,20 @@ func TestPartnerDiscoveryReadsProjectionInsteadOfFullSnapshots(t *testing.T) {
 }
 
 func TestAccountProjectionBoundsInventoryAndKeepsDeckReferences(t *testing.T) {
-	state := release.State{User: release.User{UserID: cnPrimaryUserID},
-		Cards:       make([]release.Card, 10000),
-		Decks:       []release.Deck{{CardUniqueIDs: []int64{1}, SupportCardUniqueIDs: []int64{2}}},
-		PVP:         release.PVPPlayerState{DefenseDecks: []release.PVPDeckSelection{{CardUniqueIDs: []int64{10000}}}},
-		SupportDeck: release.SupportDeckState{CardCollectionIDs: []int{101}, CardCollectionLoveMaxIDs: []int{101}, UnlockSlotNums: []int8{1, 0, 0, 0}},
+	state := gamestate.State{User: gamestate.User{UserID: accountstore.PrimaryUserID},
+		Cards:       make([]gamestate.Card, 10000),
+		Decks:       []gamestate.Deck{{CardUniqueIDs: []int64{1}, SupportCardUniqueIDs: []int64{2}}},
+		PVP:         gamestate.PVPPlayerState{DefenseDecks: []gamestate.PVPDeckSelection{{CardUniqueIDs: []int64{10000}}}},
+		SupportDeck: gamestate.SupportDeckState{CardCollectionIDs: []int{101}, CardCollectionLoveMaxIDs: []int{101}, UnlockSlotNums: []int8{1, 0, 0, 0}},
 	}
 	for i := range state.Cards {
-		state.Cards[i] = release.Card{UniqueID: int64(i + 1), CardID: 101 + i, Level: 50, HP: 1234, Love: 5000, LoveMax: 10000, SkillLevels: []int16{3, 4}}
+		state.Cards[i] = gamestate.Card{UniqueID: int64(i + 1), CardID: 101 + i, Level: 50, HP: 1234, Love: 5000, LoveMax: 10000, SkillLevels: []int16{3, 4}}
 	}
-	content, digest, err := encodeCNAccountProjection(state)
+	content, digest, err := accountstore.EncodeAccountProjection(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := decodeCNAccountProjection(content, digest)
+	loaded, err := accountstore.DecodeAccountProjection(content, digest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +302,7 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 	if err := os.WriteFile(jsonPath, seed, 0o600); err != nil {
 		t.Fatalf("write temporary primary seed: %v", err)
 	}
-	storage, err := newCNSaveDatabase(
+	storage, err := accountstore.OpenDatabase(
 		jsonPath,
 		seedPath,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -308,33 +310,38 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.loadOrImport(); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := storage.LoadOrImport(); err != nil {
 		t.Fatalf("import primary account: %v", err)
 	}
-	seedState, err := loadCNSaveState(seedPath)
+	seedState, err := accountstore.LoadSaveState(seedPath)
 	if err != nil {
 		t.Fatalf("load system-partner seed: %v", err)
 	}
-	expectedPopulationCards, expectedPopulationDecks, _, err := cnSystemPartnerPopulationFromSeed(seedState)
+	expectedPopulationCards, expectedPopulationDecks, _, err := accountstore.SystemPartnerPopulationFromSeed(seedState)
 	if err != nil {
 		t.Fatalf("load expected system-partner population: %v", err)
 	}
-	accounts, err := newCNAccountStore(storage)
+	accounts, err := accountstore.NewAccounts(storage)
 	if err != nil {
 		t.Fatalf("initialize account store: %v", err)
 	}
 
 	for arthurType := int8(1); arthurType <= 4; arthurType++ {
-		_, expectedDeck, expectedLeader, err := cnSystemPartnerLoadoutFromSeed(seedState, arthurType)
+		_, expectedDeck, expectedLeader, err := accountstore.SystemPartnerLoadoutFromSeed(seedState, arthurType)
 		if err != nil {
 			t.Fatalf("load expected system partner %d: %v", arthurType, err)
 		}
-		userID := cnSystemPartnerUserID(arthurType)
-		state, err := accounts.loadState(userID)
+		userID := accountstore.SystemPartnerUserID(arthurType)
+		state, err := accounts.LoadState(userID)
 		if err != nil {
 			t.Fatalf("load system partner %d: %v", arthurType, err)
 		}
-		if state.User.Name != cnSystemPartnerNameByArthur[arthurType] ||
+		if state.User.Name != accountstore.SystemPartnerNameByArthur[arthurType] ||
 			state.User.ActiveArthurType != int(arthurType) || len(state.Cards) != len(expectedPopulationCards) {
 			t.Fatalf("system partner %d identity = %+v, cards = %d", arthurType, state.User, len(state.Cards))
 		}
@@ -344,7 +351,7 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 			actualCardIDs[index] = card.CardID
 			expectedCardIDs[index] = expectedPopulationCards[index].CardID
 		}
-		var activeDeck *release.Deck
+		var activeDeck *gamestate.Deck
 		for index := range state.Decks {
 			if state.Decks[index].ArthurType == arthurType && state.Decks[index].Index == 0 {
 				activeDeck = &state.Decks[index]
@@ -380,7 +387,7 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 		}
 		if state.User.LeaderCardID != expectedLeader.CardID ||
 			state.User.LeaderCardUniqueID != expectedLeader.UniqueID ||
-			state.Onboarding.Step != cnOnboardingStepCount {
+			state.Onboarding.Step != masterdata.OnboardingStepCount {
 			t.Fatalf(
 				"system partner %d leader/tutorial = (%d, %d, %+v)",
 				arthurType,
@@ -391,21 +398,21 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 		}
 	}
 
-	primaryIdentity, err := accounts.resolveLogin("00000000-0000-4000-8000-000000000001")
+	primaryIdentity, err := accounts.ResolveLogin("00000000-0000-4000-8000-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if primaryIdentity.UserID != cnPrimaryUserID {
-		t.Fatalf("primary player user ID = %d, want %d", primaryIdentity.UserID, cnPrimaryUserID)
+	if primaryIdentity.UserID != accountstore.PrimaryUserID {
+		t.Fatalf("primary player user ID = %d, want %d", primaryIdentity.UserID, accountstore.PrimaryUserID)
 	}
-	identity, err := accounts.resolveLogin("00000000-0000-4000-8000-000000000002")
+	identity, err := accounts.ResolveLogin("00000000-0000-4000-8000-000000000002")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity.UserID != cnPrimaryUserID+1 {
-		t.Fatalf("first new player user ID = %d, want %d", identity.UserID, cnPrimaryUserID+1)
+	if identity.UserID != accountstore.PrimaryUserID+1 {
+		t.Fatalf("first new player user ID = %d, want %d", identity.UserID, accountstore.PrimaryUserID+1)
 	}
-	pvpOpponents, err := accounts.ListPVPOpponents(cnPrimaryUserID)
+	pvpOpponents, err := accounts.ListPVPOpponents(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,15 +420,15 @@ func TestSystemPartnerAccountsArePersistentFriendTargetsAndDoNotConsumePlayerIDs
 		t.Fatalf("PVP opponents included system partners: %+v", pvpOpponents)
 	}
 
-	targetID := cnSystemPartnerUserID(2)
-	added, err := accounts.FollowFriendPointAccounts(cnPrimaryUserID, []int{targetID}, 100, 100)
+	targetID := accountstore.SystemPartnerUserID(2)
+	added, err := accounts.FollowFriendPointAccounts(accountstore.PrimaryUserID, []int{targetID}, 100, 100)
 	if err != nil {
 		t.Fatalf("follow system partner: %v", err)
 	}
 	if !slices.Equal(added.RequestUserIDs, []int{targetID}) || added.IsFriendFull {
 		t.Fatalf("follow response = %v", added)
 	}
-	relations, err := accounts.ListFriendPointAccountRelations(cnPrimaryUserID)
+	relations, err := accounts.ListFriendPointAccountRelations(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +455,7 @@ func TestPlayerAccountLoadsSharedItemShopWithoutResettingOwnedItems(t *testing.T
 	if err := os.WriteFile(jsonPath, seed, 0o600); err != nil {
 		t.Fatalf("write temporary primary seed: %v", err)
 	}
-	storage, err := newCNSaveDatabase(
+	storage, err := accountstore.OpenDatabase(
 		jsonPath,
 		seedPath,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -456,30 +463,35 @@ func TestPlayerAccountLoadsSharedItemShopWithoutResettingOwnedItems(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.loadOrImport(); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := storage.LoadOrImport(); err != nil {
 		t.Fatalf("import primary account: %v", err)
 	}
-	accounts, err := newCNAccountStore(storage)
+	accounts, err := accountstore.NewAccounts(storage)
 	if err != nil {
 		t.Fatalf("initialize account store: %v", err)
 	}
-	identity, err := accounts.resolveLogin("00000000-0000-4000-8000-000000000099")
+	identity, err := accounts.ResolveLogin("00000000-0000-4000-8000-000000000099")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := accounts.loadState(identity.UserID)
+	state, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Items = append(state.Items, release.Item{ItemID: 9010, Num: 7})
-	state.ItemShopConfigVersion = cnItemShopConfigVersion - 1
+	state.Items = append(state.Items, gamestate.Item{ItemID: 9010, Num: 7})
+	state.ItemShopConfigVersion = accountstore.ItemShopConfigVersion - 1
 	state.ItemShopTabs = state.ItemShopTabs[:1]
 	state.ItemShopTabs[0].Lineup = nil
-	if err := accounts.persistState(identity.UserID, state); err != nil {
+	if err := accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
 
-	migrated, err := accounts.loadState(identity.UserID)
+	migrated, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +504,7 @@ func TestPlayerAccountLoadsSharedItemShopWithoutResettingOwnedItems(t *testing.T
 			}
 		}
 	}
-	if migrated.ItemShopConfigVersion != cnItemShopConfigVersion || !hasQuickBuy {
+	if migrated.ItemShopConfigVersion != accountstore.ItemShopConfigVersion || !hasQuickBuy {
 		t.Fatalf("player item shop config was not migrated: %+v", migrated.ItemShopTabs)
 	}
 	for _, item := range migrated.Items {
@@ -508,23 +520,23 @@ func TestPlayerAccountLoadsSharedItemShopWithoutResettingOwnedItems(t *testing.T
 
 func TestAccountSnapshotExcludesDerivedFriendProfiles(t *testing.T) {
 	started := time.Now().Unix()
-	accounts := newFriendCapacityTestAccounts(t)
-	primary, err := accounts.resolveLogin("00000000-0000-4000-8000-000000000001")
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	primary, err := accounts.ResolveLogin("00000000-0000-4000-8000-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if primary.UserID != cnPrimaryUserID {
-		t.Fatalf("primary user ID = %d, want %d", primary.UserID, cnPrimaryUserID)
+	if primary.UserID != accountstore.PrimaryUserID {
+		t.Fatalf("primary user ID = %d, want %d", primary.UserID, accountstore.PrimaryUserID)
 	}
-	identity, err := accounts.resolveLogin("00000000-0000-4000-8000-000000000199")
+	identity, err := accounts.ResolveLogin("00000000-0000-4000-8000-000000000199")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := accounts.loadState(identity.UserID)
+	state, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Friends.Users = []release.Friend{{UserID: 1000002, Name: "legacy fake"}}
+	state.Friends.Users = []gamestate.Friend{{UserID: 1000002, Name: "legacy fake"}}
 	if state.User.Comment != "请多关照！" || len(state.User.InviteID) != 9 {
 		t.Fatal("new profile contains local diagnostic placeholders")
 	}
@@ -532,11 +544,11 @@ func TestAccountSnapshotExcludesDerivedFriendProfiles(t *testing.T) {
 		t.Fatal("friend-search ID is not numeric", err)
 	}
 	state.User.Comment = "一起打冰龙吧"
-	if err := accounts.persistState(identity.UserID, state); err != nil {
+	if err := accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
 
-	migrated, err := accounts.loadState(identity.UserID)
+	migrated, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +558,7 @@ func TestAccountSnapshotExcludesDerivedFriendProfiles(t *testing.T) {
 	if migrated.User.Comment != state.User.Comment {
 		t.Fatal("saved custom profile comment was replaced")
 	}
-	projections, err := accounts.listLocalAccountStates(primary.UserID, true)
+	projections, err := accounts.ListLocalAccountStates(primary.UserID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,11 +568,10 @@ func TestAccountSnapshotExcludesDerivedFriendProfiles(t *testing.T) {
 		}
 	}
 
-	database, err := accounts.storage.open()
+	database, err := accounts.Database().Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
 	var content []byte
 	if err := database.QueryRow(
 		`SELECT payload_json FROM cn_account_snapshot WHERE user_id = ?`,
@@ -568,7 +579,7 @@ func TestAccountSnapshotExcludesDerivedFriendProfiles(t *testing.T) {
 	).Scan(&content); err != nil {
 		t.Fatal(err)
 	}
-	persisted, err := decodeCNAccountSnapshot(content)
+	persisted, err := accountstore.DecodeAccountSnapshot(content)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,8 @@ import (
 	"errors"
 	"sort"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 type friendPointPartnerView struct {
@@ -17,48 +18,27 @@ type friendPointPartnerView struct {
 	Level           int
 	PVPPoint        int
 	ArthurType      int8
-	Cards           map[int64]cardInfo
+	Cards           map[int64]game.CardInfo
 	CardAttributes  map[int]uint8
 	CardKinds       map[int]int
-	Decks           []deckInfo
-	Avatar          release.Avatar
-	Spheres         map[int64]release.Sphere
-	Buddies         map[int64]release.Buddy
+	Decks           []game.DeckInfo
+	Avatar          gamestate.Avatar
+	Spheres         map[int64]gamestate.Sphere
+	Buddies         map[int64]gamestate.Buddy
 	SupportUnlocked int8
-	Jobs            []release.JobParameter
+	Jobs            []gamestate.JobParameter
 	HonorIDs        []int
 	FriendState     int8
 	System          bool
 }
 
-func deckInfosFromRelease(source []release.Deck) []deckInfo {
-	decks := make([]deckInfo, len(source))
-	for index, deck := range source {
-		decks[index] = deckInfo{
-			ArthurType:           deck.ArthurType,
-			Index:                deck.Index,
-			JobType:              deck.JobType,
-			LeaderCardIndex:      deck.LeaderCardIndex,
-			CardUniqueIDs:        append([]int64(nil), deck.CardUniqueIDs...),
-			SupportCardUniqueIDs: append([]int64(nil), deck.SupportCardUniqueIDs...),
-			SphereUniqueIDs:      fixedInt64Slots(deck.SphereUniqueIDs, deckSphereSlots),
-			BuddyUniqueIDs:       fixedInt64Slots(deck.BuddyUniqueIDs, deckBuddySlots),
-			Name:                 deck.Name,
-			IsActive:             deck.IsActive,
-			IsRental:             deck.IsRental,
-			DeckRank:             deck.DeckRank,
-		}
-	}
-	return decks
-}
-
-func friendPointPartnerViewFromState(state release.State) (friendPointPartnerView, bool) {
+func friendPointPartnerViewFromState(state gamestate.State) (friendPointPartnerView, bool) {
 	return partnerViewFromState(state, 0)
 }
 
 // An explicit profession is a player's own selected deck. Zero selects the
 // public rental profession, which may differ from the owner's active one.
-func partnerViewFromState(state release.State, arthurType int8) (friendPointPartnerView, bool) {
+func partnerViewFromState(state gamestate.State, arthurType int8) (friendPointPartnerView, bool) {
 	useRental := arthurType == 0
 	if useRental {
 		arthurType = int8(state.User.ActiveArthurType)
@@ -71,12 +51,12 @@ func partnerViewFromState(state release.State, arthurType int8) (friendPointPart
 	for _, card := range state.Cards {
 		attributes[card.CardID] = card.FusionAttributes
 	}
-	cards := cardInfosFromRelease(state.Cards, 0)
-	cardByUniqueID := make(map[int64]cardInfo, len(cards))
+	cards := game.CardsFromState(state.Cards, 0)
+	cardByUniqueID := make(map[int64]game.CardInfo, len(cards))
 	for _, card := range cards {
 		cardByUniqueID[card.UniqueID] = card
 	}
-	decks := deckInfosFromRelease(state.Decks)
+	decks := game.DecksFromState(state.Decks)
 	if useRental {
 		rentalDeck, found := selectRentalPartnerDeck(decks, arthurType, cardByUniqueID)
 		if !found {
@@ -84,18 +64,18 @@ func partnerViewFromState(state release.State, arthurType int8) (friendPointPart
 		}
 		arthurType = rentalDeck.ArthurType
 	}
-	buddies := make(map[int64]release.Buddy, len(state.Buddies))
+	buddies := make(map[int64]gamestate.Buddy, len(state.Buddies))
 	for _, buddy := range state.Buddies {
 		buddies[buddy.UniqueID] = buddy
 	}
-	spheres := make(map[int64]release.Sphere, len(state.Spheres))
+	spheres := make(map[int64]gamestate.Sphere, len(state.Spheres))
 	for _, sphere := range state.Spheres {
 		spheres[sphere.UniqueID] = sphere
 	}
 	honorIDs := make([]int, 4)
 	copy(honorIDs, state.Honors.DeckHonorIDs)
 	return friendPointPartnerView{
-		IsBurst:         release.ArthurBurstUnlocked(state.User.UnlockedFeatureIDs, arthurType),
+		IsBurst:         gamestate.ArthurBurstUnlocked(state.User.UnlockedFeatureIDs, arthurType),
 		InviteID:        state.User.InviteID,
 		LastLoginUnix:   state.LastLoginUnix,
 		UserID:          state.User.UserID,
@@ -111,39 +91,39 @@ func partnerViewFromState(state release.State, arthurType int8) (friendPointPart
 		Spheres:         spheres,
 		Buddies:         buddies,
 		SupportUnlocked: state.SupportDeck.UnlockSlotNums[int(arthurType)-1],
-		Jobs:            append([]release.JobParameter(nil), state.User.Jobs...),
+		Jobs:            append([]gamestate.JobParameter(nil), state.User.Jobs...),
 		HonorIDs:        honorIDs,
 	}, true
 }
 
-func (view friendPointPartnerView) job(jobType int8) release.JobParameter {
+func (view friendPointPartnerView) job(jobType int8) gamestate.JobParameter {
 	index := int(jobType)
 	if index < 0 || index >= len(view.Jobs) {
-		return release.JobParameter{}
+		return gamestate.JobParameter{}
 	}
 	return view.Jobs[index]
 }
 
-func (view friendPointPartnerView) activeDeck() (deckInfo, bool) {
+func (view friendPointPartnerView) activeDeck() (game.DeckInfo, bool) {
 	return selectRentalPartnerDeck(view.Decks, view.ArthurType, view.Cards)
 }
 
 // The native deck editor marks the public rental decks independently of the
 // Arthur currently used by the owner. Never substitute an active battle deck
 // when the owner has explicitly selected rental decks.
-func selectRentalPartnerDeck(decks []deckInfo, fallbackArthur int8, cards map[int64]cardInfo) (deckInfo, bool) {
+func selectRentalPartnerDeck(decks []game.DeckInfo, fallbackArthur int8, cards map[int64]game.CardInfo) (game.DeckInfo, bool) {
 	hasRental := false
 	for _, deck := range decks {
 		if deck.IsRental == 0 {
 			continue
 		}
 		hasRental = true
-		if complete, ok := selectCompletePartnerDeck([]deckInfo{deck}, deck.ArthurType, cards); ok {
+		if complete, ok := selectCompletePartnerDeck([]game.DeckInfo{deck}, deck.ArthurType, cards); ok {
 			return complete, true
 		}
 	}
 	if hasRental {
-		return deckInfo{}, false
+		return game.DeckInfo{}, false
 	}
 	return selectCompletePartnerDeck(decks, fallbackArthur, cards)
 }
@@ -153,11 +133,11 @@ func (view friendPointPartnerView) listWire(friendPoint int, friendState int8) (
 	if !found {
 		return nil, errors.New("friend-point partner active deck is unavailable")
 	}
-	leader, found := partnerLeaderCard(deck, view.Cards)
+	leader, found := game.PartnerLeaderCard(deck, view.Cards)
 	if !found {
 		return nil, errors.New("friend-point partner leader is unavailable")
 	}
-	hp, attack, magic, mind := partnerDeckStats(deck, view.Cards, view.job(deck.JobType))
+	hp, attack, magic, mind := game.PartnerDeckStats(deck, view.Cards, view.job(deck.JobType))
 	return map[string]any{
 		"userid":        view.UserID,
 		"name":          view.Name,
@@ -185,7 +165,7 @@ func (view friendPointPartnerView) listWire(friendPoint int, friendState int8) (
 }
 
 func (view friendPointPartnerView) deckWire(deckIndex int8) (map[string]any, error) {
-	deck, found := exactDeck(view.Decks, view.ArthurType, deckIndex)
+	deck, found := game.ExactDeck(view.Decks, view.ArthurType, deckIndex)
 	if !found {
 		return nil, errors.New("friend-point partner deck is unavailable")
 	}
@@ -204,7 +184,7 @@ func (view friendPointPartnerView) deckWire(deckIndex int8) (map[string]any, err
 }
 
 func (view friendPointPartnerView) rentalDeckWires() ([]any, error) {
-	selected := make([]deckInfo, 0)
+	selected := make([]game.DeckInfo, 0)
 	hasRental := false
 	for _, deck := range view.Decks {
 		hasRental = hasRental || deck.IsRental != 0
@@ -213,7 +193,7 @@ func (view friendPointPartnerView) rentalDeckWires() ([]any, error) {
 		if deck.ArthurType != view.ArthurType || (hasRental && deck.IsRental == 0) {
 			continue
 		}
-		if _, complete := selectCompletePartnerDeck([]deckInfo{deck}, view.ArthurType, view.Cards); complete {
+		if _, complete := selectCompletePartnerDeck([]game.DeckInfo{deck}, view.ArthurType, view.Cards); complete {
 			selected = append(selected, deck)
 		}
 	}
@@ -238,7 +218,7 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 	if a.friendPointAccounts == nil {
 		return nil, nil
 	}
-	relations, err := a.friendPointAccounts.ListFriendPointAccountRelations(a.release.State.User.UserID)
+	relations, err := a.friendPointAccounts.ListFriendPointAccountRelations(a.initialState.User.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -247,13 +227,7 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 		if view, ok := friendPointPartnerViewFromState(relation.State); ok {
 			// Public account projections omit master fields; resolve attributes from
 			// the shared catalog rather than enlarging persisted account summaries.
-			a.store.mu.RLock()
-			for _, card := range view.Cards {
-				if definition, ok := a.store.cardDefinitions[card.CardID]; ok {
-					view.CardAttributes[card.CardID] = definition.FusionAttributes
-				}
-			}
-			a.store.mu.RUnlock()
+			view.CardAttributes = a.account.ResolveCardAttributes(view.Cards, view.CardAttributes)
 			cardIDs := make([]int, 0, len(view.Cards))
 			for _, card := range view.Cards {
 				cardIDs = append(cardIDs, card.CardID)
@@ -270,7 +244,7 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 	return views, nil
 }
 
-func (view friendPointPartnerView) deckKindCounts(deck deckInfo) []int {
+func (view friendPointPartnerView) deckKindCounts(deck game.DeckInfo) []int {
 	counts := make([]int, 8)
 	for _, id := range deck.CardUniqueIDs {
 		card, ok := view.Cards[id]
@@ -284,21 +258,21 @@ func (view friendPointPartnerView) deckKindCounts(deck deckInfo) []int {
 	return counts
 }
 
-func friendPointAccountFriend(relation FriendPointAccountRelation) (release.Friend, bool) {
+func friendPointAccountFriend(relation game.FriendPointAccountRelation) (gamestate.Friend, bool) {
 	view, ok := friendPointPartnerViewFromState(relation.State)
 	if !ok {
-		return release.Friend{}, false
+		return gamestate.Friend{}, false
 	}
 	deck, ok := view.activeDeck()
 	if !ok {
-		return release.Friend{}, false
+		return gamestate.Friend{}, false
 	}
-	leader, ok := partnerLeaderCard(deck, view.Cards)
+	leader, ok := game.PartnerLeaderCard(deck, view.Cards)
 	if !ok {
-		return release.Friend{}, false
+		return gamestate.Friend{}, false
 	}
-	hp, attack, magic, mind := partnerDeckStats(deck, view.Cards, view.job(deck.JobType))
-	return release.Friend{
+	hp, attack, magic, mind := game.PartnerDeckStats(deck, view.Cards, view.job(deck.JobType))
+	return gamestate.Friend{
 		InviteID:        view.InviteID,
 		UserID:          view.UserID,
 		Name:            view.Name,
@@ -322,11 +296,11 @@ func friendPointAccountFriend(relation FriendPointAccountRelation) (release.Frie
 	}, true
 }
 
-func (a *API) localAccountFriendRelations() ([]FriendPointAccountRelation, error) {
+func (a *API) localAccountFriendRelations() ([]game.FriendPointAccountRelation, error) {
 	if a.friendPointAccounts == nil {
 		return nil, errors.New("local-account friend repository is unavailable")
 	}
-	return a.friendPointAccounts.ListFriendPointAccountRelations(a.release.State.User.UserID)
+	return a.friendPointAccounts.ListFriendPointAccountRelations(a.initialState.User.UserID)
 }
 
 func (a *API) friendPointAccountStates(targetUserIDs []int) (map[int]int8, error) {
@@ -335,7 +309,7 @@ func (a *API) friendPointAccountStates(targetUserIDs []int) (map[int]int8, error
 		return states, nil
 	}
 	return a.friendPointAccounts.FriendPointAccountStates(
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 		targetUserIDs,
 	)
 }
@@ -352,7 +326,7 @@ func findFriendPointPartnerView(views []friendPointPartnerView, userID int) (fri
 // Native ATTR indexes: NULL=0, FIRE=1, ICE=2, WIND=3, LIGHT=4, DARK=5.
 // Multi-attribute cards count once in each of their attributes; support cards
 // and the leader's duplicate display are not additional main-deck slots.
-func (view friendPointPartnerView) deckAttributeCounts(deck deckInfo) []int {
+func (view friendPointPartnerView) deckAttributeCounts(deck game.DeckInfo) []int {
 	counts := make([]int, 6)
 	for _, id := range deck.CardUniqueIDs {
 		card, ok := view.Cards[id]

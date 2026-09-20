@@ -1,6 +1,8 @@
 package cnbootstrap
 
-import "net/http"
+import (
+	"net/http"
+)
 
 func cnBootstrapSessionOnlyBusiness(
 	businessHandler http.Handler,

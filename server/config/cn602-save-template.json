@@ -1315,8 +1315,7 @@
               "buy_typeid": 3999,
               "num": 1
             }
-          ],
-          "evidence": "CONFIRMED_CN_ITEM_3999_LOCAL_POLICY_PRICE_10000_GOLD"
+          ]
         },
         {
           "item_shop_lineupid": 602003,
@@ -1360,8 +1359,7 @@
               "num": 1
             }
           ],
-          "hidden": true,
-          "evidence": "CONFIRMED_MANAGED_QUICK_BUY_ID_LOCAL_POLICY_OFFICIAL_CN_ITEM_9010"
+          "hidden": true
         }
       ]
     },
@@ -1484,8 +1482,6 @@
         3819,
         3819
       ],
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "banner_key": "local_new_year"
     },
     {
@@ -1588,8 +1584,6 @@
         3819,
         3819
       ],
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "banner_key": "local_new_year"
     },
     {
@@ -1692,8 +1686,6 @@
         3819,
         3819
       ],
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "banner_key": "local_new_year"
     },
     {
@@ -1713,7 +1705,6 @@
       "card_num": 1,
       "card_num_max": 10,
       "daily_first_free": true,
-      "daily_first_free_source_state": "INFERRED",
       "end_time": 2147483647,
       "play_count": 0,
       "cardids": [
@@ -1744,8 +1735,6 @@
         2,
         2
       ],
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_CARD_IDENTITIES_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY",
       "banner_key": "local_friend"
     },
     {
@@ -1768,8 +1757,6 @@
       "play_count": 0,
       "banner_key": "local_standard",
       "publication_key": "",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "cardids": [
         10000050,
         10000052,
@@ -3221,8 +3208,6 @@
       "play_count": 0,
       "banner_key": "local_standard",
       "publication_key": "",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "cardids": [
         10000050,
         10000052,
@@ -4674,8 +4659,6 @@
       "play_count": 0,
       "banner_key": "local_standard",
       "publication_key": "",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_ACQUISITION_IDENTITY_CONFIRMED_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_ARCHIVED_CN_40_57_3_BUCKETS_LOCAL_POLICY",
       "cardids": [
         10000050,
         10000052,
@@ -6127,8 +6110,6 @@
       "play_count": 0,
       "banner_key": "five_star_ticket",
       "publication_key": "water_coin",
-      "pool_source_state": "CONFIRMED_LOCAL_POLICY_OFFICIAL_CN_RARITY5_GACHA_ROOT_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10000052,
         10000056,
@@ -7334,8 +7315,6 @@
       "play_count": 0,
       "banner_key": "five_star_ticket",
       "publication_key": "water_coin",
-      "pool_source_state": "CONFIRMED_LOCAL_POLICY_OFFICIAL_CN_RARITY5_GACHA_ROOT_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10000052,
         10000056,
@@ -8541,8 +8520,6 @@
       "play_count": 0,
       "banner_key": "element_fire",
       "publication_key": "element_fire",
-      "pool_source_state": "CONFIRMED_OFFICIAL_CN_CACHED_BANNER_FEATURED_CARD_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10137017,
         10148025,
@@ -8576,8 +8553,6 @@
       "play_count": 0,
       "banner_key": "element_ice",
       "publication_key": "element_ice",
-      "pool_source_state": "CONFIRMED_OFFICIAL_CN_CACHED_BANNER_FEATURED_CARD_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10143027,
         10143035,
@@ -8611,8 +8586,6 @@
       "play_count": 0,
       "banner_key": "element_wind",
       "publication_key": "element_wind",
-      "pool_source_state": "CONFIRMED_OFFICIAL_CN_CACHED_BANNER_FEATURED_CARD_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10126051,
         10139017,
@@ -8646,8 +8619,6 @@
       "play_count": 0,
       "banner_key": "element_light",
       "publication_key": "element_light",
-      "pool_source_state": "CONFIRMED_OFFICIAL_CN_CACHED_BANNER_FEATURED_CARD_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10126017,
         10147042,
@@ -8681,8 +8652,6 @@
       "play_count": 0,
       "banner_key": "element_dark",
       "publication_key": "element_dark",
-      "pool_source_state": "CONFIRMED_OFFICIAL_CN_CACHED_BANNER_FEATURED_CARD_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10121022,
         10142039,
@@ -8716,8 +8685,6 @@
       "play_count": 0,
       "banner_key": "rare_ticket_201805",
       "publication_key": "rare_ticket_201805",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_STAR6_LOCAL_GACHA_ROOT_IDENTITIES_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_EQUAL_WEIGHTS",
       "cardids": [
         10150021,
         10150026,
@@ -9031,8 +8998,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_opera",
       "publication_key": "lucky_bag_opera",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -10246,8 +10211,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_skuld",
       "publication_key": "lucky_bag_skuld",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -11461,8 +11424,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_constantine",
       "publication_key": "lucky_bag_constantine",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -12676,8 +12637,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_merchant",
       "publication_key": "lucky_bag_merchant",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -13891,8 +13850,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_summer_duo",
       "publication_key": "lucky_bag_summer_duo",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -15106,8 +15063,6 @@
       "play_count": 0,
       "banner_key": "lucky_bag_yalin",
       "publication_key": "lucky_bag_yalin",
-      "pool_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_IDENTITIES_LOCAL_RARITY5_REMAINDER_CHR10_CHR20_CLOSED",
-      "weight_source_state": "INFERRED_OFFICIAL_CN_CACHED_BANNER_FEATURED_3_PERCENT_LOCAL_EQUAL_REMAINDER",
       "cardids": [
         10000052,
         10000056,
@@ -16321,8 +16276,6 @@
       "play_count": 0,
       "banner_key": "unowned_ticket_201805",
       "publication_key": "unowned_ticket_201805",
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_RARITY6_GACHA_ROOTS_CHR10_CHR20_CLOSED",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_UNCOLLECTED_FAMILY_EQUAL_WEIGHTS",
       "cardids": [
         10150021,
         10150026,
@@ -16749,8 +16702,6 @@
       "play_count": 0,
       "banner_key": "historical_duozi",
       "publication_key": "historical_duozi",
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_IDENTITIES",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_CACHED_BANNER_RATES",
       "cardids": [],
       "card_weights": [],
       "steps": [
@@ -52321,8 +52272,6 @@
       "play_count": 0,
       "banner_key": "historical_tianke",
       "publication_key": "historical_tianke",
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_IDENTITIES",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_CACHED_BANNER_RATES",
       "cardids": [],
       "card_weights": [],
       "steps": [
@@ -87910,8 +87859,6 @@
       "play_count": 0,
       "banner_key": "historical_youmo",
       "publication_key": "historical_youmo",
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_IDENTITIES",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_CACHED_BANNER_RATES",
       "cardids": [],
       "card_weights": [],
       "reward_pool": [
@@ -88165,8 +88112,6 @@
       "play_count": 0,
       "banner_key": "historical_youmo10",
       "publication_key": "historical_youmo",
-      "pool_source_state": "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_IDENTITIES",
-      "weight_source_state": "PLACEHOLDER_LOCAL_POLICY_CACHED_BANNER_RATES",
       "cardids": [],
       "card_weights": [],
       "reward_pool": [

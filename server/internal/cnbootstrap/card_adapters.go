@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+
+	"kairisei.local/server/internal/accounthttp"
+	"kairisei.local/server/internal/accountstore"
 )
 
 type bufferedResponseWriter struct {
@@ -542,10 +545,10 @@ func readCNSessionPayload(request *http.Request, operation string) ([]byte, erro
 		return nil, errors.New("invalid CN " + operation + " session")
 	}
 	userID, ok := request.Context().Value(cnAuthenticatedUserKey{}).(int)
-	if !ok || userID < cnPrimaryUserID {
+	if !ok || userID < accountstore.PrimaryUserID {
 		return nil, errors.New("unauthenticated CN " + operation + " session")
 	}
-	request.Header.Set(cnAccountUserHeader, strconv.Itoa(userID))
+	request.Header.Set(accounthttp.AccountUserHeader, strconv.Itoa(userID))
 	return payload, nil
 }
 

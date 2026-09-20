@@ -4,12 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/multiplayer"
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/testfixture"
 )
 
 func TestRoomSequenceReservesUnfinishedRooms(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
 	first, err := accounts.NextRoomID(1000000)
 	if err != nil {
 		t.Fatal(err)
@@ -25,14 +26,14 @@ func TestRoomSequenceReservesUnfinishedRooms(t *testing.T) {
 }
 
 func TestMultiWaveCompletionPersistsAcrossDatabaseConnections(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
 	now := time.Now()
 	completed := multiplayer.CompletedBattle{RoomID: 123, BossID: 1, OwnerMemberType: 1, Members: make([]multiplayer.Member, 4), OnlineUserIDs: []int{1001}, CompletedAtUnix: now.Unix(), DropLedgerVersion: 1, BattleIndex: 5, Progress: 5, HostCostPaid: true}
 	for i := range completed.Members {
 		completed.Members[i] = multiplayer.Member{MemberType: i + 1, UserID: 1001 + i}
 	}
 	for i := 0; i <= completed.BattleIndex; i++ {
-		completed.ReleasedDrops = append(completed.ReleasedDrops, release.TeamBattleEnemyDrop{BattleIndex: i, Reward: release.Reward{Type: 4, Num: i + 1, CardSkillLevels: []int16{}}})
+		completed.ReleasedDrops = append(completed.ReleasedDrops, gamestate.TeamBattleEnemyDrop{BattleIndex: i, Reward: gamestate.Reward{Type: 4, Num: i + 1, CardSkillLevels: []int16{}}})
 	}
 	if err := accounts.SaveCompleted(completed, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)

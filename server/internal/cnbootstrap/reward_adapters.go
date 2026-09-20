@@ -1,6 +1,8 @@
 package cnbootstrap
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 // The original ProtoGen reward receivers use named fields, including nested
 // CardInfo and CardStackInfo. CardShow2 and GachaPlay2 use numeric keys instead;

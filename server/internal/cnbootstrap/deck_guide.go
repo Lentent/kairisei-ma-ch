@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-//go:embed deck_guide.html
+//go:embed web/deck_guide.html
 var cnDeckGuide []byte
 
 func cnBootstrapDeckGuide(writer http.ResponseWriter, _ *http.Request) {

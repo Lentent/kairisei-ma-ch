@@ -3,11 +3,12 @@ package httpapi
 import (
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestTeamBattlePartnerDeckWireKeepsLockedSupportSlotsNonEmpty(t *testing.T) {
-	deck := deckInfo{
+	deck := game.DeckInfo{
 		ArthurType:           1,
 		Index:                0,
 		JobType:              1,
@@ -17,7 +18,7 @@ func TestTeamBattlePartnerDeckWireKeepsLockedSupportSlotsNonEmpty(t *testing.T) 
 		BuddyUniqueIDs:       []int64{0, 0, 0, 0, 0},
 		Name:                 "test",
 	}
-	cards := map[int64]cardInfo{
+	cards := map[int64]game.CardInfo{
 		1: {
 			UniqueID:    1,
 			CardID:      10000001,
@@ -32,10 +33,10 @@ func TestTeamBattlePartnerDeckWireKeepsLockedSupportSlotsNonEmpty(t *testing.T) 
 		1,
 		deck,
 		cards,
-		release.JobParameter{},
-		release.Avatar{AvatarPartIDs: []int{0, 0, 0, 0, 0, 0, 0}},
-		map[int64]release.Sphere{},
-		map[int64]release.Buddy{},
+		gamestate.JobParameter{},
+		gamestate.Avatar{AvatarPartIDs: []int{0, 0, 0, 0, 0, 0, 0}},
+		map[int64]gamestate.Sphere{},
+		map[int64]gamestate.Buddy{},
 		0,
 		0,
 	)

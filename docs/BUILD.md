@@ -47,7 +47,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -trimpath '-ldfla
 
 **RAR 解压出来的整个文件夹就是运行目录，里面的 `resource-set/` 就是游戏资源。源码目录只用于编译。**
 
-1. 将完整服务端包的所有 RAR 分卷放在一起，从 `part1.rar` 解压。
+1. 选择与源码版本配套的完整服务端资源包，将所有 RAR 分卷放在一起，从 `part1.rar` 解压。
 2. 保留解压出来的整个 `kairisei-ma-cn602-server/` 文件夹，放在哪里都可以，例如 Windows 的 `D:\Games\kairisei-ma-cn602-server\`。
 3. 正常停止服务，将源码编译得到的 `_local/bin/` 中对应程序复制到这个文件夹，替换同名程序，再从这个文件夹启动。
 
@@ -73,11 +73,9 @@ kairisei-ma-cn602-server/       ← 运行目录，也是 -PackageRoot 指向的
 
 例如，Windows 将 **源码目录的 `_local/bin/kairi-server.exe`** 复制到 **`D:\Games\kairisei-ma-cn602-server\kairi-server.exe`**，然后双击同目录的 `Kairisei-Launcher.exe` 即可。
 
-**`resource-set/` 与 `deployment.json`、服务端程序放在同一层。** 不需要把资源复制进源码的 `server/` 或 `_local/bin/`，也不需要单独拆开资源目录。仅修改服务端代码时，保留原资源和配置，不需要重新下载资源或上传 CDN。
+**`resource-set/` 与 `deployment.json`、服务端程序放在同一层。** 不需要把资源复制进源码的 `server/` 或 `_local/bin/`，也不需要单独拆开资源目录。发布版本升级时一起更新配套服务端、资源包和客户端，保留 `_local/data/` 中的数据库与自己的部署配置。
 
-新启动脚本不再要求 `deployment.json` 中的 `resource_set_sha256`；已有配置中的旧字段会被忽略。资源集自身的文件清单仍保留。
-
-Linux 同样替换自己系统对应的程序，再使用包内对应的 Linux 启动脚本。启动不要求校验文件；保留配套的 `Start-Server-linux.sh` 与 `server-arguments.sh` 即可。
+Linux 同样替换自己系统对应的程序，再使用包内对应的 Linux 启动脚本；保留配套的 `Start-Server-linux.sh` 与 `server-arguments.sh`。
 
 ### 可选：从源码目录调用 Windows 启停脚本
 

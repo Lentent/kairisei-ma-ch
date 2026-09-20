@@ -5,8 +5,10 @@ import (
 	"slices"
 	"testing"
 
-	"kairisei.local/server/internal/httpapi"
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Reload real SQLite snapshots against an unmodified catalog, using new
@@ -14,8 +16,8 @@ import (
 func TestBattleProgressSurvivesAccountAndServerReload(t *testing.T) {
 	for _, category := range []string{"9", "10", "11", "12"} {
 		t.Run(category, func(t *testing.T) {
-			accounts := newFriendCapacityTestAccounts(t)
-			catalog, err := accounts.storage.catalogState()
+			accounts := testfixture.NewFriendCapacityTestAccounts(t)
+			catalog, err := accounts.Database().CatalogState()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -32,11 +34,11 @@ func TestBattleProgressSurvivesAccountAndServerReload(t *testing.T) {
 			}
 			top[category], _ = json.Marshal(groups[:1])
 			catalog.TeamBattleSolo, _ = json.Marshal(top)
-			accounts.storage.catalog = &catalog
-			createNamedFriendCapacityAccount(t, accounts, 0x490)
-			other := createNamedFriendCapacityAccount(t, accounts, 0x491)
-			for _, userID := range []int{cnPrimaryUserID, other} {
-				state, err := accounts.loadPersistentState(userID)
+			accounts.Database().SetCatalog(catalog)
+			testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x490)
+			other := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x491)
+			for _, userID := range []int{accountstore.PrimaryUserID, other} {
+				state, err := accounts.LoadPersistentState(userID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -55,16 +57,16 @@ func TestBattleProgressSurvivesAccountAndServerReload(t *testing.T) {
 				state.TeamBattleSolo, _ = json.Marshal(data)
 				state.User.CoinFree += 50
 				for reload := 0; reload < 2; reload++ {
-					if err := accounts.persistState(userID, state); err != nil {
+					if err := accounts.PersistState(userID, state); err != nil {
 						t.Fatal(err)
 					}
-					storage := *accounts.storage
-					fresh := &cnAccountStore{storage: &storage}
-					reloaded, err := fresh.loadPersistentState(userID)
+					storage := *accounts.Database()
+					fresh := testfixture.TestAccountRepository(t, &storage)
+					reloaded, err := fresh.LoadPersistentState(userID)
 					if err != nil {
 						t.Fatal(err)
 					}
-					reloaded = httpapi.ApplyContentState(reloaded, httpapi.ContentConfiguration{Revision: 1, State: catalog})
+					reloaded = game.ApplyContentState(reloaded, game.ContentConfiguration{Revision: 1, State: catalog})
 					_ = json.Unmarshal(reloaded.TeamBattleSolo, &data)
 					_ = json.Unmarshal(data[category], &entries)
 					_ = json.Unmarshal(entries[0]["10"], &bosses)
@@ -79,23 +81,23 @@ func TestBattleProgressSurvivesAccountAndServerReload(t *testing.T) {
 }
 
 func TestCollectionUnlocksSurviveAccountReload(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	state, err := accounts.loadPersistentState(cnPrimaryUserID)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	state, err := accounts.LoadPersistentState(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state.Costume = json.RawMessage(`{"costumeids":[1,2]}`)
-	state.InventorySequence = release.InventorySequenceState{Card: 900001, Sphere: 900002, Buddy: 900003}
+	state.InventorySequence = gamestate.InventorySequenceState{Card: 900001, Sphere: 900002, Buddy: 900003}
 	state.Stamps.StampIDs = append(state.Stamps.StampIDs, 900001)
 	state.Honors.HonorIDs = append(state.Honors.HonorIDs, 900002)
 	// Existing schema stores an ID list independently of the legacy 63-bit mask.
 	state.User.SelectableNaviIDs = append(state.User.SelectableNaviIDs, 63, 64, 70)
 	state.User.NaviID = 70
-	if err = accounts.persistState(cnPrimaryUserID, state); err != nil {
+	if err = accounts.PersistState(accountstore.PrimaryUserID, state); err != nil {
 		t.Fatal(err)
 	}
-	fresh := &cnAccountStore{storage: accounts.storage}
-	reloaded, err := fresh.loadPersistentState(cnPrimaryUserID)
+	fresh := testfixture.TestAccountRepository(t, accounts.Database())
+	reloaded, err := fresh.LoadPersistentState(accountstore.PrimaryUserID)
 	if err != nil {
 		t.Fatal(err)
 	}

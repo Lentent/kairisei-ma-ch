@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func nextBattleFixture(t *testing.T) (*BattleEngine, []Member) {
@@ -40,11 +40,11 @@ func nextBattleFixture(t *testing.T) (*BattleEngine, []Member) {
 
 func TestAwakeInheritsUnreleasedBodyDrops(t *testing.T) {
 	engine, _ := nextBattleFixture(t)
-	waves := []release.TeamBattleReplayBattle{{EnemyPartyID: 1, EnemyType: 1}, {EnemyPartyID: 1, EnemyType: 4}, {EnemyPartyID: 1, EnemyType: 4}}
-	plan := []release.TeamBattleEnemyDrop{
-		{Reward: release.Reward{Type: 4, Num: 900}},
-		{Reward: release.Reward{Type: 8, RewardTypeID: 4000, Num: 600}},
-		{EnemyIndex: 1, Reward: release.Reward{Type: 13, RewardTypeID: 20000003, Num: 1}},
+	waves := []gamestate.TeamBattleReplayBattle{{EnemyPartyID: 1, EnemyType: 1}, {EnemyPartyID: 1, EnemyType: 4}, {EnemyPartyID: 1, EnemyType: 4}}
+	plan := []gamestate.TeamBattleEnemyDrop{
+		{Reward: gamestate.Reward{Type: 4, Num: 900}},
+		{Reward: gamestate.Reward{Type: 8, RewardTypeID: 4000, Num: 600}},
+		{EnemyIndex: 1, Reward: gamestate.Reward{Type: 13, RewardTypeID: 20000003, Num: 1}},
 	}
 	current := &room{engine: engine, battles: waves, dropPlan: plan}
 	engine.phase, engine.endType = battlePhaseEnded, 4
@@ -128,8 +128,8 @@ func TestMultiplayerWavesFinishOnceAndShareAllDrops(t *testing.T) {
 	}
 	hub.rooms[123] = current
 	for i := 0; i < 6; i++ {
-		current.battles = append(current.battles, release.TeamBattleReplayBattle{EnemyPartyID: 1, EnemyType: 0})
-		current.dropPlan = append(current.dropPlan, release.TeamBattleEnemyDrop{BattleIndex: i, EnemyIndex: 0, Reward: release.Reward{Type: 4, Num: i + 1, CardSkillLevels: []int16{}}})
+		current.battles = append(current.battles, gamestate.TeamBattleReplayBattle{EnemyPartyID: 1, EnemyType: 0})
+		current.dropPlan = append(current.dropPlan, gamestate.TeamBattleEnemyDrop{BattleIndex: i, EnemyIndex: 0, Reward: gamestate.Reward{Type: 4, Num: i + 1, CardSkillLevels: []int16{}}})
 	}
 	if fields := splitCSV(roomCountdownPayload(current)); len(fields) != 37 || fields[0] != "6" {
 		t.Fatal("countdown truncated multi-wave enemies")
@@ -219,7 +219,7 @@ func TestMultiplayerWavesFinishOnceAndShareAllDrops(t *testing.T) {
 }
 
 func TestOptionalAwakeWaveSelection(t *testing.T) {
-	current := &room{battles: []release.TeamBattleReplayBattle{{EnemyType: 1}, {EnemyType: 4}, {EnemyType: 0}}, engineBattleEnd: 1}
+	current := &room{battles: []gamestate.TeamBattleReplayBattle{{EnemyType: 1}, {EnemyType: 4}, {EnemyType: 0}}, engineBattleEnd: 1}
 	if index, ok := roomNextBattle(current); !ok || index != 2 || roomBattleProgress(current, index) != 1 {
 		t.Fatal("ordinary win must skip optional awake wave")
 	}
@@ -250,7 +250,7 @@ func TestComebackBetweenWavesUsesActualIndexAndWaitsForScene(t *testing.T) {
 		comebackTokens: map[int]string{1: "resume-token"}, gameNextFinished: map[int]bool{},
 	}
 	for i := 0; i < 6; i++ {
-		current.battles = append(current.battles, release.TeamBattleReplayBattle{EnemyPartyID: 1})
+		current.battles = append(current.battles, gamestate.TeamBattleReplayBattle{EnemyPartyID: 1})
 	}
 	hub.rooms[123] = current
 	if err := client.handleComeback("1001,123,resume-token,0"); err != nil {

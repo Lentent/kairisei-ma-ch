@@ -130,10 +130,14 @@ func syncObject(ctx context.Context, client *s3.Client, c config, object cnboots
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return false, err
 	}
+	contentType := "application/octet-stream"
+	if strings.HasPrefix(object.Key, "image/") {
+		contentType = "image/png"
+	}
 	_, err = client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: &c.Bucket, Key: &key, Body: f, ContentLength: &object.Bytes,
 		ContentMD5:  aws.String(base64.StdEncoding.EncodeToString(md.Sum(nil))),
-		ContentType: aws.String("application/octet-stream"), CacheControl: aws.String("public, max-age=31536000, immutable"),
+		ContentType: &contentType, CacheControl: aws.String("public, max-age=31536000, immutable"),
 		Metadata: map[string]string{"sha256": object.SHA256}, IfNoneMatch: aws.String("*"),
 	})
 	// A concurrent uploader may have won; accept only the identical object.

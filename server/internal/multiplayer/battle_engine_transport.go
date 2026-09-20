@@ -163,10 +163,20 @@ func encodeBattleResults(results []BattleResult) (string, error) {
 		return "", errors.New("battle result group is empty")
 	}
 	rows := make([]string, 0, len(results))
-	for _, result := range results {
+	for index, result := range results {
 		row, err := result.CSV()
 		if err != nil {
 			return "", err
+		}
+		// The CN parser applies every row in a presentation group before
+		// playing its animation. 82 calls notifyGameOver immediately and is
+		// not a native partition. Keep local no-continue retirement outside
+		// the preceding damage group, like the separate native GameOver API.
+		// 502 is the native no-effect presentation separator; engine results,
+		// HP, RNG and resume (107) are deliberately unchanged.
+		if result.Command == resultGameOver && index > 0 &&
+			results[index-1].Command != resultGameOver && results[index-1].Command != resultAttackPartition {
+			rows = append(rows, "502")
 		}
 		rows = append(rows, row)
 	}

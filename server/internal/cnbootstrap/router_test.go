@@ -7,6 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,32 +19,41 @@ import (
 	"strings"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accounthttp"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/multiplayer"
+	"kairisei.local/server/internal/testfixture"
 )
 
 func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 	t.Helper()
-	savePath := writeTestSave(t, root)
+	savePath := testfixture.WriteTestSave(t, root)
 	// These transport fixtures model an established QA account. Seed SQLite
 	// explicitly; JSON is configuration, no longer an account-import path.
-	storage, err := newCNSaveDatabase(savePath, savePath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, savePath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := storage.loadOrImport(); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, err := storage.LoadOrImport(); err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := loadCNSaveState(savePath)
+	fixture, err := accountstore.LoadSaveState(savePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.persist(fixture); err != nil {
+	if err := storage.Persist(fixture); err != nil {
 		t.Fatal(err)
 	}
 	cpkRoot := filepath.Join(root, "CPK")
 	if err := os.Mkdir(cpkRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	testfixture.WriteCPKVersions(t, cpkRoot)
 	if err := os.WriteFile(filepath.Join(cpkRoot, "alpha.cpk"), []byte("cpk!"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -70,40 +81,51 @@ func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 			t.Fatal(err)
 		}
 	}
-	cardMasterPath := writeTestCardMaster(t, root)
-	handler, err := New(
-		logPath,
-		savePath,
-		savePath,
-		assetMapPath,
-		cardMasterPath,
-		writeTestExploreMaster(t, root),
-		writeTestStoryMaster(t, root),
-		"",
-		writeTestNaviMaster(t, root),
-		writeTestItemMaster(t, root),
-		writeTestAvatarMaster(t, root),
-		assetMapPath,
-		assetMapPath,
-		assetMapPath,
-		writeTestStampMaster(t, root),
-		writeTestHonorMaster(t, root),
-		filepath.Join("..", "..", "config", "cn602-player-progression-runtime.json"),
-		filepath.Join("..", "..", "config", "cn602-login-bonus-runtime.json"),
-		"10.0.2.2",
-		18081,
-		cpkRoot,
-		writeTestCPKAliases(t, root),
-		[]string{patchRoot},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
+	cardMasterPath := testfixture.WriteTestCardMaster(t, root)
+	handler, err := newProtocolTestHandler(t, Config{
+		Persistence: PersistenceConfig{
+			RequestLog: logPath,
+			SavePath:   savePath,
+			SeedPath:   savePath,
+		},
+		Resources: ResourcesConfig{
+			AssetMap:            assetMapPath,
+			GachaBanner:         assetMapPath,
+			FiveStarGachaBanner: assetMapPath,
+			HomeBanner:          assetMapPath,
+			CPKRoot:             cpkRoot,
+			ImageRoot:           writeTestCardImages(t, root),
+			CPKAliases:          writeTestCPKAliases(t, root),
+			PatchRoots:          []string{patchRoot},
+		},
+		Masters: MastersConfig{
+			Cards:             cardMasterPath,
+			Explore:           testfixture.WriteTestExploreMaster(t, root),
+			Story:             testfixture.WriteTestStoryMaster(t, root),
+			Battle:            "",
+			Navi:              testfixture.WriteTestNaviMaster(t, root),
+			Items:             testfixture.WriteTestItemMaster(t, root),
+			Avatar:            testfixture.WriteTestAvatarMaster(t, root),
+			Stamps:            testfixture.WriteTestStampMaster(t, root),
+			Honors:            testfixture.WriteTestHonorMaster(t, root),
+			PlayerProgression: filepath.Join("..", "..", "config", "cn602-player-progression-runtime.json"),
+			LoginBonus:        filepath.Join("..", "..", "config", "cn602-login-bonus-runtime.json"),
+		},
+		Network: NetworkConfig{
+			AdvertiseHost: "10.0.2.2",
+			HTTPPort:      18081,
+			BattleSV:      multiplayer.Endpoint{Host: "10.0.2.2", Port: uint16(18081 + 1)},
+		},
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Multiplayer: multiplayer.NewHub(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	loginRequest := httptest.NewRequest(
 		http.MethodPost,
 		"http://local/loginSDK.php",
-		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.4"}`),
+		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"`+cnMinimumClientVersion+`"}`),
 	)
 	loginResponse := httptest.NewRecorder()
 	handler.ServeHTTP(loginResponse, loginRequest)
@@ -222,811 +244,14 @@ func testAsset(directory string, name string, extension string, bundle string) m
 	}
 }
 
-func writeTestCardMaster(t *testing.T, root string) string {
-	t.Helper()
-	cardTemplate := func(cardID int, name string) map[string]any {
-		return map[string]any{
-			"unique_id": 0, "card_id": cardID, "name": name,
-			"same_card_id": cardID, "same_support_card_id": cardID,
-			"rarity_rank": 1, "skill_level_max": 1,
-			"level": 1, "level_max": 60, "experience_table_id": 1,
-			"experience": 0, "now_level_experience": 0, "love": 0,
-			"love_max": 10000, "premium_rarity": false,
-			"skill_levels": []int{1}, "hp": 103, "attack": 12,
-			"magic": 2, "mind": 1, "next_level_experience": 10,
-			"parameter_initial":            map[string]any{"hp": 100, "attack": 10, "magic": 0, "mind": 0},
-			"parameter_maximum":            map[string]any{"hp": 200, "attack": 20, "magic": 0, "mind": 0},
-			"parameter_love_maximum_bonus": map[string]any{"hp": 0, "attack": 0, "magic": 0, "mind": 0},
-			"add_experience":               10, "base_add_price": 100, "sell_gold": 500, "fame": 1,
-			"fame_max": 100, "development_type": 1, "decompose_radix": 20,
-			"develop_radix": 0, "acquisition_text": "Test source",
-		}
-	}
-	stackTemplate := func(cardID int) map[string]any {
-		return map[string]any{
-			"cardid": cardID, "num": 0, "hp": 5, "atkp": 5,
-			"intp": 5, "mndp": 5, "add_exp": 10, "base_add_price": 500,
-		}
-	}
-	buddyStackTemplate := func(cardID int, materialType int, addExperience int) map[string]any {
-		return map[string]any{
-			"cardid": cardID, "num": 0, "hp": 0, "atkp": 0, "intp": 0, "mndp": 0,
-			"add_exp": addExperience, "base_add_price": 100, "material_type": materialType,
-		}
-	}
-	sphereDefinition := func(sphereID int) map[string]any {
-		return map[string]any{
-			"sphrid": sphereID, "same_sphrid": sphereID, "name": "Test sphere",
-			"text": "", "type": "NORMAL", "rarity": "NORMAL", "evo_count": 0,
-			"max_level": 1, "exp_table_id": 0, "equip_allowed": []bool{true, true, true, true},
-			"skill_id": sphereID, "passive_skill_id": 0, "call_skill_id": 0,
-			"pict_id": sphereID, "count": 1, "play_condition": "TURN_AFTER",
-			"play_condition_param": 1, "way_to_use_text": "", "sell_gold": 100,
-			"evolution_id": 0, "material_add_experience": 10, "fusion_base_add_price": 10,
-		}
-	}
-	sphereSeed := func(uniqueID int64, sphereID int) map[string]any {
-		return map[string]any{
-			"unique_id": uniqueID, "sphere_id": sphereID, "level": 1, "experience": 0,
-			"next_level_experience": 0, "now_level_experience": 0,
-			"add_experience": 10, "base_add_price": 10, "is_lock": 0, "create_time": 0,
-		}
-	}
-	buddyDefinition := map[string]any{
-		"buddyid": 1000010, "same_buddyid": 1000010, "name": "Test buddy", "rarity": "LEGEND",
-		"evolution_count": 0, "max_level": 1, "pict_id": 10000010, "experience_table_id": 401,
-		"sell_gold": 100000, "evolution_id": 0, "overlimit_item_id": 6191, "overlimit_item_num": 1,
-		"material_add_experience": 100, "fusion_base_add_price": 500,
-	}
-	buddySeed := map[string]any{
-		"unique_id": 1, "buddy_id": 1000010, "level": 1, "experience": 0,
-		"next_level_experience": 0, "now_level_experience": 0,
-		"add_experience": 100, "base_add_price": 500, "is_lock": 0, "create_time": 0,
-	}
-	cardTemplates := []map[string]any{
-		cardTemplate(10000010, "Test source"),
-		cardTemplate(10000011, "Test target"),
-		cardTemplate(10000018, "Test friend gacha two"),
-		cardTemplate(10000022, "Test friend gacha three"),
-		cardTemplate(10000026, "Test friend gacha four"),
-		cardTemplate(10000030, "Test friend gacha five"),
-		cardTemplate(10000034, "Test friend gacha six"),
-		cardTemplate(10000038, "Test friend gacha seven"),
-		cardTemplate(10000050, "Test friend gacha eight"),
-		cardTemplate(10000054, "Test friend gacha nine"),
-		cardTemplate(10000061, "Test friend gacha ten"),
-		cardTemplate(10000123, "Test friend gacha eleven"),
-		cardTemplate(10000304, "Test friend gacha twelve"),
-		cardTemplate(10105002, "Test gacha one"),
-		cardTemplate(10105009, "Test gacha two"),
-		cardTemplate(10105012, "Test gacha three"),
-		cardTemplate(10105016, "Test gacha four"),
-	}
-	for index := 1; index <= 49; index++ {
-		cardTemplates = append(cardTemplates, cardTemplate(11000000+index, fmt.Sprintf("Test trade card %d", index)))
-	}
-	seenCardIDs := make(map[int]struct{}, len(cardTemplates))
-	for _, template := range cardTemplates {
-		seenCardIDs[template["card_id"].(int)] = struct{}{}
-	}
-	var seed struct {
-		Cards []struct {
-			CardID int    `json:"card_id"`
-			Name   string `json:"name"`
-		} `json:"cards"`
-		ContainerCards []struct {
-			CardID int    `json:"card_id"`
-			Name   string `json:"name"`
-		} `json:"container_cards"`
-		Gachas []struct {
-			CardIDs    []int                    `json:"cardids"`
-			RewardPool []release.WeightedReward `json:"reward_pool"`
-		} `json:"gachas"`
-	}
-	seedContent, err := os.ReadFile(filepath.Join("..", "..", "config", "cn602-save-template.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(seedContent, &seed); err != nil {
-		t.Fatal(err)
-	}
-	appendSeedTemplate := func(cardID int, name string) {
-		if _, exists := seenCardIDs[cardID]; exists {
-			return
-		}
-		seenCardIDs[cardID] = struct{}{}
-		cardTemplates = append(cardTemplates, cardTemplate(cardID, name))
-	}
-	for _, card := range seed.Cards {
-		appendSeedTemplate(card.CardID, card.Name)
-	}
-	for _, card := range seed.ContainerCards {
-		appendSeedTemplate(card.CardID, card.Name)
-	}
-	for _, gacha := range seed.Gachas {
-		for _, cardID := range gacha.CardIDs {
-			appendSeedTemplate(cardID, fmt.Sprintf("Test gacha card %d", cardID))
-		}
-		for _, entry := range gacha.RewardPool {
-			if entry.Reward.Type == 6 {
-				appendSeedTemplate(entry.Reward.RewardTypeID, "Test mixed gacha card")
-			}
-		}
-	}
-	master := map[string]any{
-		"schema_version":                  15,
-		"card_collection_pages":           [][]int{{10000010, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
-		"client_profile":                  "cn602-bootstrap",
-		"card_progression_config_version": 4,
-		"card_progression_policy": map[string]any{
-			"config_version": 4, "fusion_gold_per_material_per_base_level": 100,
-			"maximum_card_material_count": 100,
-			"fusion_success_types": []map[string]any{
-				{"success_type": 0, "weight": 90, "experience_permille": 1000},
-				{"success_type": 1, "weight": 9, "experience_permille": 1500},
-				{"success_type": 2, "weight": 1, "experience_permille": 2500},
-			},
-			"fame_normal":  map[string]any{"hp": 300, "attack": 200, "magic": 200, "mind": 100},
-			"fame_premium": map[string]any{"hp": 600, "attack": 400, "magic": 400, "mind": 200},
-			"source_state": map[string]any{
-				"experience_tables": "CONFIRMED: test", "parameter_formula": "CONFIRMED: test",
-				"fusion_material_experience": "INFERRED: test", "fusion_gold": "INFERRED: test",
-				"fusion_gold_consumption": "CONFIRMED: test", "sell_gold_consumption": "CONFIRMED: test",
-				"ordinary_card_material_experience": "PLACEHOLDER: test",
-				"material_selection":                "CONFIRMED: test", "skill_level_maximum": "CONFIRMED: test",
-				"fame_inheritance": "CONFIRMED: test", "success_multipliers": "INFERRED: test",
-				"success_weights": "PLACEHOLDER: test",
-			},
-		},
-		"card_experience_tables": map[string]any{"1": func() []int {
-			values := make([]int, 59)
-			for index := range values {
-				values[index] = 10
-			}
-			return values
-		}()},
-		"sphere_config_version": 3,
-		"sphere_progression_policy": map[string]any{
-			"config_version": 3, "material_level_bonus_permille_per_level": 100,
-			"source_state": map[string]any{
-				"experience_tables": "CONFIRMED: test", "material_base_experience": "INFERRED: test",
-				"material_level_bonus": "INFERRED: test", "fusion_gold": "PLACEHOLDER: test",
-				"evolution_material_selection": "CONFIRMED: test", "evolution_level_requirement": "CONFIRMED: test",
-				"evolution_progression_preservation": "INFERRED: test", "account_seed": "PLACEHOLDER: test",
-			},
-		},
-		"buddy_config_version": 2,
-		"buddy_progression_policy": map[string]any{
-			"config_version": 2, "maximum_material_count": 100,
-			"source_state": map[string]any{
-				"experience_tables": "CONFIRMED: test", "material_experience_consumption": "CONFIRMED: test",
-				"fusion_gold_consumption": "CONFIRMED: test", "ordinary_buddy_material_experience": "PLACEHOLDER: test",
-				"ancient_melody_experience": "INFERRED: test", "success_multipliers": "INFERRED: test",
-				"success_weights": "PLACEHOLDER: test", "evolution_material_selection": "CONFIRMED: test",
-				"evolution_level_requirement": "CONFIRMED: test", "evolution_progression_preservation": "INFERRED: test",
-				"account_seed": "PLACEHOLDER: test",
-			},
-		},
-		"support_deck_config_version": 1,
-		"support_deck_set_card_num":   3,
-		"source":                      map[string]any{"test": true},
-		"card_templates":              cardTemplates,
-		"card_category_profiles": []map[string]any{{
-			"categoryid": 60200001, "name": "Test card series", "order": 2,
-			"view_type": 0, "evidence": "PLACEHOLDER: test",
-		}},
-		"card_group_profiles": []map[string]any{
-			{"groupid": 20020001, "categoryid": 60200001, "name": "Test 1", "order": 10, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-			{"groupid": 30020001, "categoryid": 60200001, "name": "Test 2", "order": 11, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-			{"groupid": 30020002, "categoryid": 60200001, "name": "Test 3", "order": 12, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-			{"groupid": 30020003, "categoryid": 60200001, "name": "Test 4", "order": 13, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-			{"groupid": 30020005, "categoryid": 60200001, "name": "Test 5", "order": 14, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-			{"groupid": 90020001, "categoryid": 60200001, "name": "Test 6", "order": 15, "deck_limit_bossid": 0, "member_cardids": []int{10000010}, "name_evidence": "INFERRED: test"},
-		},
-		"card_group_policy": map[string]any{
-			"config_version": 2, "client_contract": "CONFIRMED: test",
-			"group_membership": "CONFIRMED: test", "display_names": "INFERRED: test",
-			"category_projection": "PLACEHOLDER: test", "deck_limit_bossid": "CONFIRMED: test",
-			"claims_original_service_topology": false,
-		},
-		"stack_card_templates": []map[string]any{
-			stackTemplate(20000006),
-			stackTemplate(20000011),
-			stackTemplate(20000016),
-			buddyStackTemplate(20005001, 10, 10),
-			buddyStackTemplate(20005002, 9, 7200),
-		},
-		"evolution_transitions": []map[string]any{{
-			"from_cardid":    10000010,
-			"to_cardid":      10000011,
-			"evolution_type": 0,
-			"gold":           100,
-			"materials": []map[string]any{{
-				"cardid": 20000006,
-				"num":    1,
-			}},
-		}},
-		"card_development_policy": map[string]any{
-			"time_every_fame_seconds": 3600,
-			"coin_every_hour":         1,
-			"help_path":               "/disabled/web",
-			"evidence":                "PLACEHOLDER",
-		},
-		"skipped_incomplete_evolution_source_cardids": []int{},
-		"sphere_definitions": []map[string]any{
-			sphereDefinition(15000010), sphereDefinition(15000020), sphereDefinition(15000030),
-		},
-		"sphere_experience_tables": map[string]any{"1": []int{1}},
-		"sphere_evolution_prices": map[string]any{
-			"NORMAL": []int{1, 2, 3, 4}, "RARE": []int{1, 2, 3, 4}, "MILLIONRARE": []int{1, 2, 3, 4},
-		},
-		"sphere_seed_templates": []map[string]any{
-			sphereSeed(603000001, 15000010), sphereSeed(603000002, 15000020), sphereSeed(603000003, 15000030),
-		},
-		"sphere_seed_decks": map[string]any{
-			"1": []int64{603000001, 603000002, 603000003},
-			"2": []int64{603000001, 603000002, 603000003},
-			"3": []int64{603000001, 603000002, 603000003},
-			"4": []int64{603000001, 603000002, 603000003},
-		},
-		"buddy_definitions":       []map[string]any{buddyDefinition},
-		"buddy_experience_tables": map[string]any{"401": []int{1}},
-		"buddy_evolution_prices": map[string]any{
-			"NORMAL": []int{1, 2, 3, 4, 5}, "RARE": []int{1, 2, 3, 4, 5},
-			"MILLIONRARE": []int{1, 2, 3, 4, 5}, "EXRARE": []int{1, 2, 3, 4, 5},
-			"LEGEND": []int{1, 2, 3, 4, 5},
-		},
-		"buddy_seed_templates": []map[string]any{buddySeed},
-		"buddy_seed_decks": map[string]any{
-			"1": []int64{1, 0, 0, 0, 0}, "2": []int64{1, 0, 0, 0, 0},
-			"3": []int64{1, 0, 0, 0, 0}, "4": []int64{1, 0, 0, 0, 0},
-		},
-		"buddy_seed_stack_cards": []map[string]any{
-			{"cardid": 20005001, "num": 1, "hp": 0, "atkp": 0, "intp": 0, "mndp": 0, "add_exp": 10, "base_add_price": 100, "material_type": 10},
-			{"cardid": 20005002, "num": 100, "hp": 0, "atkp": 0, "intp": 0, "mndp": 0, "add_exp": 7200, "base_add_price": 100, "material_type": 9},
-		},
-		"support_deck_slot_unlock_rules": []map[string]any{
-			{"slot_index": 1, "level": 70, "card_collection_num": 300, "gold": 500000},
-			{"slot_index": 2, "level": 100, "card_collection_num": 400, "gold": 1000000},
-			{"slot_index": 3, "level": 130, "card_collection_num": 500, "gold": 1000000},
-		},
-	}
-	// Bootstrap fixtures resolve the newly configured reward identities using
-	// their existing minimal definitions; production closure is checked separately.
-	for _, spec := range []struct {
-		key, idKey string
-		kind       int
-	}{
-		{"buddy_definitions", "buddyid", 19}, {"sphere_definitions", "sphrid", 15}, {"stack_card_templates", "cardid", 13},
-	} {
-		rows := master[spec.key].([]map[string]any)
-		seen := map[int]bool{}
-		for _, row := range rows {
-			seen[row[spec.idKey].(int)] = true
-		}
-		for _, gacha := range seed.Gachas {
-			for _, entry := range gacha.RewardPool {
-				id := entry.Reward.RewardTypeID
-				if entry.Reward.Type != spec.kind || seen[id] {
-					continue
-				}
-				seen[id] = true
-				copy := map[string]any{}
-				for k, v := range rows[0] {
-					copy[k] = v
-				}
-				copy[spec.idKey] = id
-				if spec.kind == 19 {
-					copy["same_buddyid"] = id
-				}
-				if spec.kind == 15 {
-					copy["same_sphrid"] = id
-				}
-				rows = append(rows, copy)
-			}
-		}
-		master[spec.key] = rows
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cardMasterPath := filepath.Join(root, "cn602-card-runtime-master.json")
-	if err := os.WriteFile(cardMasterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return cardMasterPath
-}
-
-func writeTestExploreMaster(t *testing.T, root string) string {
-	t.Helper()
-	reward := map[string]any{
-		"type": 4, "num": 10, "reward_typeid": 0,
-		"card_lv": 0, "card_fame": 0, "card_love": 0,
-		"card_skill_lv": []int{},
-	}
-	master := map[string]any{
-		"schema_version": 1,
-		"client_profile": "cn602-bootstrap",
-		"source":         map[string]any{"test": true},
-		"maps": []map[string]any{{
-			"id": 1000, "map_type": "GRASS", "map_ids": []int{1000, 1000}, "bgm_id": 10020,
-		}},
-		"stage": map[string]any{
-			"explore_stageid": 1000, "stage_name": "Test Explore",
-			"stage_mapid": 1000, "stage_type": 0, "state_flag": 0,
-			"limit_sec": 60,
-			"floors":    []map[string]any{{"explore_floorid": 1000, "floor_name": "Test Floor"}},
-		},
-		"floor_rarity": 0,
-		"events": []map[string]any{{
-			"treasureboxes": []map[string]any{{
-				"reward": []map[string]any{reward}, "bonus": []any{}, "talk_cardid": 10000010, "is_rare": 0,
-			}},
-			"symbols": []any{},
-		}},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-explore-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestStoryMaster(t *testing.T, root string) string {
-	t.Helper()
-	story := func(id int) map[string]any {
-		return map[string]any{
-			"story_mainid": id, "state_flag": 0, "title": "第1话",
-			"unlock_text": "", "reward_type_flag": 0, "script_segment_count": 1,
-		}
-	}
-	part := func(id int, name string, storyID int) []map[string]any {
-		return []map[string]any{{
-			"story_main_partid": id,
-			"name":              name,
-			"sections": []map[string]any{{
-				"story_main_sectionid": id * 100,
-				"section_title":        "序章",
-				"stories":              []map[string]any{story(storyID)},
-			}},
-		}}
-	}
-	master := map[string]any{
-		"schema_version": 5, "client_profile": "cn602-bootstrap",
-		"source":       map[string]any{"kind": "test"},
-		"normal_parts": part(1, "第一部", 10001),
-		"cn_parts":     part(1, "国服专属剧情", 100001),
-		"sub_characters": []map[string]any{{
-			"story_main_charaid": 1, "name": "角色剧情", "pictid": 0,
-			"sections": []map[string]any{{
-				"story_sub_sectionid": 10000010, "story_sub_section_type": 0,
-				"section_title": "Test Card", "pictid": 10000010,
-				"stories": []map[string]any{{
-					"story_subid": 20010110, "state_flag": 0, "title": "Test Sub Story",
-					"unlock_text": "获得对应卡牌后解锁", "script_segment_count": 1,
-					"feature_reward": map[string]any{
-						"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0,
-						"card_fame": 0, "card_love": 0, "card_skill_lv": []int{},
-					},
-				}},
-			}},
-		}},
-		"sub_character_container_contract": map[string]any{
-			"evidence": "PLACEHOLDER", "reason": "NO_OFFICIAL_OUTER_GROUPING_FIELDS",
-			"official_row_count": 1, "observed_row_widths": []int{3},
-			"meaningful_column_indexes": []int{0, 1}, "nonempty_additional_value_count": 0,
-			"managed_consumed_fields":   []string{"name", "pictid", "sections"},
-			"managed_unused_fields":     []string{"story_main_charaid"},
-			"published_container_count": 1,
-			"published_container": map[string]any{
-				"story_main_charaid": 1, "name": "角色剧情", "pictid": 0,
-			},
-		},
-		"sub_section_mappings": []map[string]any{{
-			"story_sub_sectionid": 10000010, "card_name": "Test Card",
-			"script_chapter": "Test Card", "story_ids": []int{20010110},
-			"evidence": "CONFIRMED",
-		}},
-		"events": []map[string]any{{
-			"story_eventid": 100964, "name": "Test Event", "pictid": 10000010,
-			"stories": []map[string]any{{
-				"sub": map[string]any{
-					"story_subid": 10096410, "state_flag": 8, "title": "Test Event Story",
-					"unlock_text": "", "script_segment_count": 1,
-					"feature_reward": map[string]any{
-						"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0,
-						"card_fame": 0, "card_love": 0, "card_skill_lv": []int{},
-					},
-				},
-				"materials": []any{},
-			}},
-		}},
-		"event_mappings": []map[string]any{{
-			"story_eventid": 100964, "script_chapter_labels": []string{"Test Event"},
-			"story_ids": []int{10096410}, "pictid": 10000010,
-			"pict_candidates":   []int{10000010},
-			"topology_evidence": "CONFIRMED_STORY_ID_PREFIX",
-			"pictid_evidence":   "INFERRED_FIRST_SCRIPT_CARD_PICT",
-		}},
-		"reward_policy": map[string]any{
-			"config_version": 1, "state": "PASS",
-			"main_first_clear": map[string]any{
-				"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0,
-				"card_fame": 0, "card_love": 0, "card_skill_lv": []int{},
-			},
-			"sub_first_clear": map[string]any{
-				"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0,
-				"card_fame": 0, "card_love": 0, "card_skill_lv": []int{},
-			},
-			"event_first_clear": map[string]any{
-				"type": 10, "num": 1, "reward_typeid": 0, "card_lv": 0,
-				"card_fame": 0, "card_love": 0, "card_skill_lv": []int{},
-			},
-			"source_state": map[string]any{
-				"client_contract": "CONFIRMED", "reward_schedule": "PLACEHOLDER",
-			},
-		},
-		"story_battles": map[string]any{
-			"official_ids":     []int{60004110},
-			"referenced_ids":   []int{60004110},
-			"unreferenced_ids": []int{},
-			"references": []map[string]any{{
-				"story_kind": "sub", "story_id": 10096410,
-				"story_battle_ids": []int{60004110},
-			}},
-		},
-		"event_page_profile": map[string]any{
-			"eventid": 0, "bg_pictid": 0, "home_button_pictid": 0,
-			"end_time": 2147483647, "info_url": "",
-			"update_info": "本地活动中心", "itemid": []int{},
-			"buttons": []any{}, "is_new_solo": 0, "is_new_multi": 0,
-			"evidence": "PLACEHOLDER_GENERIC_OFFICIAL_EVENTPAGE_ASSETS",
-		},
-		"popup_profile": map[string]any{
-			"popupid": 602000001, "popup_type": 7, "priority": 100,
-			"is_spview": 0, "banner_url": "", "open_url": "",
-			"title_text": "本地服务公告", "body_text": "本地服务已连接。",
-			"button_text": "确定", "destination": "", "is_system": 1,
-			"item_lineup": []any{}, "gacha": []any{}, "mission": []any{},
-			"item_icon": []any{}, "evidence": "PLACEHOLDER_LOCAL_INFORMATION",
-		},
-		"normal_story_count": 1, "cn_story_count": 1,
-		"sub_story_count": 1, "event_story_count": 1,
-		"normal_missing_talk_ids": []int{}, "cn_missing_talk_ids": []int{},
-		"normal_orphan_script_ids": []int{}, "cn_orphan_script_ids": []int{},
-		"sub_orphan_script_ids": []int{}, "sub_missing_talk_ids": []int{},
-		"excluded_test_script_ids": []int{}, "script_label_fallback_ids": []int{},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-story-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestNaviMaster(t *testing.T, root string) string {
-	t.Helper()
-	navigators := make([]map[string]any, 0, 49)
-	for naviID := 0; naviID < 49; naviID++ {
-		voiceID := naviID
-		if naviID == 41 {
-			voiceID = 18
-		}
-		folder := fmt.Sprintf("navi_%d", naviID)
-		navigators = append(navigators, map[string]any{
-			"navi_id":             naviID,
-			"name":                fmt.Sprintf("Test Navi %d", naviID),
-			"pict_id":             50000000 + naviID*1000,
-			"item_pict_id":        30000 + naviID,
-			"live2d_folder":       folder,
-			"live2d_bundle":       "live2d/live2d_" + folder + ".dat",
-			"live2d_source_state": "PRESENT_IN_CN_OFFICIAL_ASSET_MAP",
-			"voice_id":            voiceID,
-			"client_published":    true,
-		})
-	}
-	master := map[string]any{
-		"schema_version": 3,
-		"client_profile": "cn602-bootstrap",
-		"source":         map[string]any{"test": true},
-		"publication_policy": map[string]any{
-			"evidence":               "CONFIRMED_CN_OFFICIAL_ASSET_MAP",
-			"live2d_bundle_required": true,
-			"voice_source_required":  false,
-			"voice_fallback":         "OPTIONAL_SILENT_FALLBACK",
-		},
-		"local_purchase": map[string]any{
-			"evidence": "PLACEHOLDER_LOCAL_PROFILE",
-			"currency": "CRYSTAL",
-			"price":    50,
-		},
-		"summary": map[string]any{
-			"official_navigator_rows":     len(navigators),
-			"client_published":            len(navigators),
-			"excluded_missing_live2d":     0,
-			"excluded_missing_live2d_ids": []int{},
-		},
-		"navigators": navigators,
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-navi-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
 func writeTestCPKAliases(t *testing.T, root string) string {
 	t.Helper()
-	content := []byte(`{"schema_version":1,"client_profile":"cn602-bootstrap","generated_utc":"test","evidence":"test","source_inventory":"test","aliases":[]}`)
+	content := []byte(`{"schema_version":2,"client_profile":"cn602-bootstrap","aliases":[]}`)
 	manifestPath := filepath.Join(root, "cn602-cpk-aliases.json")
 	if err := os.WriteFile(manifestPath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return manifestPath
-}
-
-func writeTestItemMaster(t *testing.T, root string) string {
-	t.Helper()
-	item := func(itemID int, name string, pictID int, itemType string) map[string]any {
-		return map[string]any{
-			"item_id": itemID, "name": name, "pict_id": pictID,
-			"item_type": itemType, "function": "", "function_value": 0,
-			"love_up_price": 0,
-			"max_owned":     9999, "daily_limited": 0, "description": name,
-		}
-	}
-	userBuffProfiles := make([]map[string]any, 527)
-	for index := range userBuffProfiles {
-		userBuffProfiles[index] = map[string]any{
-			"user_buff_id": index + 1, "item_id": 1000, "required_num": 1,
-			"not_enough_error_text": "test", "duration_seconds": 1800,
-		}
-	}
-	tradeShopLineups := make([]map[string]any, 49)
-	for index := range tradeShopLineups {
-		tradeShopLineups[index] = map[string]any{
-			"lineupid": 60290002 + index, "lineup_name": fmt.Sprintf("Test trade card %d", index+1),
-			"stock_num": 1, "is_lineup_new": 0, "is_lineup_old": 0, "pictid": 0,
-			"prices": []map[string]any{{"type": 4, "id": 4000, "num": 1000, "point_card_condition": []map[string]any{}}},
-			"rewards": []map[string]any{{
-				"type": 6, "num": 1, "reward_typeid": 11000001 + index,
-				"card_lv": 1, "card_fame": 1, "card_love": 0, "card_skill_lv": []int{1},
-			}},
-			"evidence": "INFERRED_OFFICIAL_CN_BOSS_COIN_EXCHANGE_ACQUISITION",
-		}
-	}
-	exchangeItemIDs := []int{
-		6046, 6049, 6060, 6099,
-		8829, 8830, 8831, 8832, 8833, 8834, 8835,
-		8919, 8920, 8921, 8922, 8923, 8991,
-	}
-	exchangeProfiles := make([]map[string]any, len(exchangeItemIDs))
-	crystalGachaItem := item(9010, "水晶扭蛋币", 90010, "GACHA_TICKET")
-	crystalGachaItem["description"] = "可在水晶扭蛋币商店中兑换获得"
-	testItems := []map[string]any{
-		item(1000, "Test BP Heal", 10080, "BP_HEAL"),
-		item(1200, "Test AP Heal", 10010, "AP_HEAL"),
-		item(2000, "Test Gacha Ticket", 10060, "GACHA_TICKET"),
-		item(2001, "Test First Gacha Ticket", 10060, "GACHA_TICKET"),
-		item(2002, "Test Attribute Gacha Ticket", 10062, "GACHA_TICKET"),
-		item(3999, "骑士徽章", 19001, "EVENT_POINT"),
-		item(4000, "大硬币", 20010, "EVENT_POINT"),
-		item(6201, "Test Medal", 16201, "GACHA_TICKET"),
-		item(7025, "Test Fragment", 17025, "EVENT_POINT"),
-		item(6202, "Test Rare Gacha Ticket", 16202, "GACHA_TICKET"),
-		item(6203, "Test Unowned Gacha Ticket", 16203, "GACHA_TICKET"),
-		crystalGachaItem,
-	}
-	for index, itemID := range exchangeItemIDs {
-		testItems = append(testItems, item(itemID, fmt.Sprintf("Test exchange %d", itemID), 60000+index, "EVENT_POINT"))
-		exchangeProfiles[index] = map[string]any{
-			"item_id": itemID, "is_appear_event": 0, "eventid": 60280000 + itemID,
-			"need_num": 1,
-			"reward": map[string]any{
-				"type": 6, "num": 1, "reward_typeid": 11000001 + index,
-				"card_lv": 1, "card_fame": 1, "card_love": 0, "card_skill_lv": []int{1},
-			},
-			"evidence": "INFERRED_OFFICIAL_CN_ITEM_NAME_EXACT_CARD_FAMILY_LOCAL_POLICY",
-		}
-	}
-	master := map[string]any{
-		"schema_version": 9,
-		"client_profile": "cn602-bootstrap",
-		"source": map[string]any{
-			"test": true,
-			"user_buff": map[string]any{
-				"container_path":  "assets/resources/container/user/user_buff.csv.txt",
-				"container_bytes": 1, "container_sha256": strings.Repeat("0", 64),
-				"textasset_bytes": 1, "textasset_sha256": strings.Repeat("0", 64),
-			},
-		},
-		"user_buff_profiles":          userBuffProfiles,
-		"items":                       testItems,
-		"item_gacha_profiles":         []map[string]any{},
-		"item_gacha_source_gap_ids":   []int{},
-		"item_exchange_profiles":      exchangeProfiles,
-		"item_exchange_source_status": "PUBLISHED_LOCAL_POLICY_FROM_OFFICIAL_CN_ITEM_AND_CARD_IDENTITIES",
-		"item_exchange_policy": map[string]any{
-			"config_version": 1, "need_num": 1, "event_id_offset": 60280000,
-			"selection": "exact_card_name_else_unique_same_card_family_substring",
-			"source_state": map[string]any{
-				"client_contract": "CONFIRMED", "item_identity": "CONFIRMED",
-				"card_family_identity": "INFERRED", "explicit_fame": "CONFIRMED",
-				"default_fame": "PLACEHOLDER", "need_num": "PLACEHOLDER", "event_id": "PLACEHOLDER",
-			},
-			"official_service_values_claimed": false,
-		},
-		"item_lack_tip_profiles": []map[string]any{
-			{"idx": 1, "title": "徽章不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 2, "title": "水晶不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 3, "title": "金币不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 4, "title": "强化素材不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 5, "title": "体力不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 6, "title": "钥匙不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 7, "title": "扭蛋券不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-			{"idx": 8, "title": "水晶扭蛋币不足", "desc": "test", "way": "test", "txt_url_info": []map[string]any{{"txt": "暂不前往", "url": ""}}, "evidence": "LOCAL_POLICY_OVER_CONFIRMED_CN_ITEM_LACK_ENUM"},
-		},
-		"item_lack_tip_source_status": "PUBLISHED_LOCAL_TEXT_POLICY_FROM_MANAGED_ENUM_AND_OFFICIAL_CN_IDENTITIES",
-		"item_lack_tip_policy": map[string]any{
-			"config_version": 2, "reachable_indices": []int{2, 8},
-			"navigation_publication": "NON_NAVIGATING_LOCAL_CLIENT_CONTRACT_ROW",
-			"source_state": map[string]any{
-				"client_contract": "CONFIRMED", "enum_identity": "CONFIRMED",
-				"item_9010_identity": "CONFIRMED", "display_text": "PLACEHOLDER",
-			},
-			"official_service_text_claimed": false,
-		},
-		"event_shop_profiles":      []map[string]any{},
-		"event_shop_source_status": "ABSENT_FROM_CN_OFFICIAL_CONTAINER_AND_PACKAGED_EVENT_SHOP_WEB_FILES",
-		"event_shop_source_audit": map[string]any{
-			"container_sha256":               strings.Repeat("0", 64),
-			"textasset_count":                135,
-			"candidate_paths":                []string{},
-			"packaged_web_files":             []string{"assets/a.js", "assets/b.js", "assets/c.html"},
-			"packaged_event_shop_candidates": []string{},
-		},
-		"trade_shop_profiles": []map[string]any{{
-			"trade_shopid": 60290001, "name": "BOSS币交换所", "text": "Test trade shop",
-			"shop_type": 1, "tab_type": 0, "end_time": 2147483647, "is_new": 0, "pictid": 0,
-			"lineups": tradeShopLineups, "evidence": "LOCAL_POLICY_OVER_OFFICIAL_CN_ITEM_AND_CARD_IDENTITIES",
-		}},
-		"trade_shop_policy": map[string]any{
-			"config_version": 1, "currency_item_id": 4000, "price_per_card": 1000,
-			"stock_per_card": 1, "card_acquisition_text": "BOSS币交换所",
-			"selection": "lowest_rarity_then_card_id_per_official_same_card_family",
-			"source_state": map[string]any{
-				"client_contract": "CONFIRMED", "currency_identity": "CONFIRMED",
-				"card_identity": "INFERRED", "price": "PLACEHOLDER", "stock": "PLACEHOLDER",
-			},
-			"official_service_values_claimed": false,
-		},
-		"trade_shop_source_status":  "PUBLISHED_LOCAL_POLICY_FROM_OFFICIAL_CN_IDENTITIES",
-		"skipped_inactive_item_ids": []int{},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-item-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestAvatarMaster(t *testing.T, root string) string {
-	t.Helper()
-	part := func(partID int, arthurMask int, slotMask int) map[string]any {
-		return map[string]any{
-			"part_id": partID, "name": fmt.Sprintf("Test Avatar part %d", partID),
-			"arthur_mask": arthurMask, "slot_mask": slotMask, "icon_pict_id": partID,
-			"is_new_list": 0, "series_id": 0,
-		}
-	}
-	master := map[string]any{
-		"schema_version": 1, "client_profile": "cn602-bootstrap",
-		"source": map[string]any{"test": true}, "local_account_config_version": 1,
-		"initial_owned_part_ids": []int{1, 2, 3, 4, 11, 12, 13, 14},
-		"default_decks": map[string]any{
-			"1": []int{0, 1, 1, 0, 0, 0, 0}, "2": []int{11, 2, 2, 0, 11, 0, 0},
-			"3": []int{0, 3, 3, 3, 0, 0, 14}, "4": []int{12, 4, 4, 0, 12, 0, 13},
-		},
-		"shop_policy": map[string]any{
-			"pay_type": 1, "pay_typeid": 0, "price": 1000,
-			"appear_end": 0, "new_appear_end": 0,
-			"evidence": "PLACEHOLDER_LOCAL_GOLD_PRICE",
-		},
-		"part_definitions": []map[string]any{
-			part(1, 2, 6), part(2, 4, 6), part(3, 8, 14), part(4, 16, 6),
-			part(11, 4, 17), part(12, 16, 17), part(13, 16, 64), part(14, 8, 64),
-		},
-		"series": []map[string]any{{"series_id": 0, "name": "Test"}},
-		"series_completions": []map[string]any{{
-			"completion_id": 1, "name": "Test completion", "part_ids": []int{1},
-			"rewards": []map[string]any{{"type": "SPHR", "num": 1, "reward_id": 15000010}},
-		}},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-avatar-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestStampMaster(t *testing.T, root string) string {
-	t.Helper()
-	master := map[string]any{
-		"schema_version": 1,
-		"client_profile": "cn602-bootstrap",
-		"source":         map[string]any{"test": true},
-		"category_order": []int{1, 7, 2, 3, 4, 5, 6},
-		"stamps": []map[string]any{{
-			"stamp_id": 100001, "category": 1, "label": "Test Stamp",
-			"display_text": "Test Stamp", "default_owned": true,
-		}},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-stamp-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestHonorMaster(t *testing.T, root string) string {
-	t.Helper()
-	master := map[string]any{
-		"schema_version": 1,
-		"client_profile": "cn602-bootstrap",
-		"source":         map[string]any{"test": true},
-		"honors": []map[string]any{{
-			"honor_id": 10100001, "name": "Test Honor", "slot_mask": 5,
-			"same_card_id": 0, "get_type": 0, "default_owned": true,
-		}},
-	}
-	content, err := json.Marshal(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	masterPath := filepath.Join(root, "cn602-honor-runtime-master.json")
-	if err := os.WriteFile(masterPath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return masterPath
-}
-
-func writeTestSave(t *testing.T, root string) string {
-	t.Helper()
-	templatePath := filepath.Join("..", "..", "config", "cn602-save-template.json")
-	content, err := os.ReadFile(templatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	savePath := filepath.Join(root, "cn602-save.json")
-	if err := os.WriteFile(savePath, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return savePath
 }
 
 func TestCaptureUnknownCNRequest(t *testing.T) {
@@ -1085,7 +310,7 @@ func TestCN602ServerList(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}
-	want := "ALL,0,本地服务器,10.0.2.2,18081,0,,6.0.4,,,\nALL,0,请更新客户端,10.0.2.2,18081,0,,ALL," + cnClientReleaseURL + "," + cnClientUpdateTips() + ",\n"
+	want := "ALL,0,本地服务器,10.0.2.2,18081,0,," + cnMinimumClientVersion + ",,,\nALL,0,请更新客户端,10.0.2.2,18081,0,,ALL," + cnClientReleaseURL + "," + cnClientUpdateTips() + ",\n"
 	if response.Body.String() != want {
 		t.Fatalf("body = %q, want %q", response.Body.String(), want)
 	}
@@ -1174,7 +399,7 @@ func TestCN602LocalSDKLoginContract(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"http://local//loginSDK.php",
-		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"6.0.4"}`),
+		strings.NewReader(`{"uuid":"00000000-0000-0000-0000-000000000001","clver":"`+cnMinimumClientVersion+`"}`),
 	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -1201,7 +426,7 @@ func TestCN602LocalSDKLoginContract(t *testing.T) {
 		t.Fatalf("unexpected local login identity or API boundary: %+v", payload)
 	}
 	sessionKey, ok := payload["sess_key"].(string)
-	if !ok || !strings.HasPrefix(sessionKey, "local-cn-") || sessionKey == cnSessionForUserID(cnPrimaryUserID) {
+	if !ok || !strings.HasPrefix(sessionKey, "local-cn-") || sessionKey == cn602LocalSession {
 		t.Fatalf("login returned a predictable or malformed account session: %q", sessionKey)
 	}
 	if pictures, ok := payload["display_pictures"].(map[string]any); !ok || len(pictures) != 0 {
@@ -1237,9 +462,11 @@ func TestCN602BusinessRoutesRequirePersistedRandomSession(t *testing.T) {
 		"http://local/Connect",
 		strings.NewReader("local-cn-0000000000000000000000000000000000000000000000000000000000000000{}"),
 	)
-	forgedRequest.Header.Set(cnAccountUserHeader, strconv.Itoa(cnPrimaryUserID))
+	forgedRequest.Header.Set(accounthttp.AccountUserHeader, strconv.Itoa(accountstore.PrimaryUserID))
 	testHandler.Handler.ServeHTTP(forged, forgedRequest)
-	if forged.Code != http.StatusUnauthorized {
+	var rejected map[string]any
+	if forged.Code != http.StatusOK || json.Unmarshal(bytes.Split(forged.Body.Bytes(), []byte{'\n'})[0], &rejected) != nil ||
+		rejected["res_code"] != float64(-3208) || rejected["res_err_action"] != float64(1) || rejected["res_is_del_savedata"] != float64(0) {
 		t.Fatalf("forged session status=%d body=%q", forged.Code, forged.Body.String())
 	}
 }
@@ -1573,6 +800,7 @@ func TestCN602OfficialPatchOverlayAndNimueDelivery(t *testing.T) {
 	if err := os.Mkdir(cpkRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	testfixture.WriteCPKVersions(t, cpkRoot)
 	if err := os.WriteFile(filepath.Join(cpkRoot, "alpha.cpk"), []byte("cpk!"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1642,33 +870,44 @@ func TestCN602OfficialPatchOverlayAndNimueDelivery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cardMasterPath := writeTestCardMaster(t, root)
-	handler, err := New(
-		logPath,
-		writeTestSave(t, root),
-		filepath.Join("..", "..", "config", "cn602-save-template.json"),
-		assetMapPath,
-		cardMasterPath,
-		writeTestExploreMaster(t, root),
-		writeTestStoryMaster(t, root),
-		"",
-		writeTestNaviMaster(t, root),
-		writeTestItemMaster(t, root),
-		writeTestAvatarMaster(t, root),
-		assetMapPath,
-		assetMapPath,
-		assetMapPath,
-		writeTestStampMaster(t, root),
-		writeTestHonorMaster(t, root),
-		filepath.Join("..", "..", "config", "cn602-player-progression-runtime.json"),
-		filepath.Join("..", "..", "config", "cn602-login-bonus-runtime.json"),
-		"10.0.2.2",
-		18081,
-		cpkRoot,
-		writeTestCPKAliases(t, root),
-		[]string{primary, supplement},
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-	)
+	cardMasterPath := testfixture.WriteTestCardMaster(t, root)
+	handler, err := newProtocolTestHandler(t, Config{
+		Persistence: PersistenceConfig{
+			RequestLog: logPath,
+			SavePath:   testfixture.WriteTestSave(t, root),
+			SeedPath:   filepath.Join("..", "..", "config", "cn602-save-template.json"),
+		},
+		Resources: ResourcesConfig{
+			AssetMap:            assetMapPath,
+			GachaBanner:         assetMapPath,
+			FiveStarGachaBanner: assetMapPath,
+			HomeBanner:          assetMapPath,
+			CPKRoot:             cpkRoot,
+			ImageRoot:           writeTestCardImages(t, root),
+			CPKAliases:          writeTestCPKAliases(t, root),
+			PatchRoots:          []string{primary, supplement},
+		},
+		Masters: MastersConfig{
+			Cards:             cardMasterPath,
+			Explore:           testfixture.WriteTestExploreMaster(t, root),
+			Story:             testfixture.WriteTestStoryMaster(t, root),
+			Battle:            "",
+			Navi:              testfixture.WriteTestNaviMaster(t, root),
+			Items:             testfixture.WriteTestItemMaster(t, root),
+			Avatar:            testfixture.WriteTestAvatarMaster(t, root),
+			Stamps:            testfixture.WriteTestStampMaster(t, root),
+			Honors:            testfixture.WriteTestHonorMaster(t, root),
+			PlayerProgression: filepath.Join("..", "..", "config", "cn602-player-progression-runtime.json"),
+			LoginBonus:        filepath.Join("..", "..", "config", "cn602-login-bonus-runtime.json"),
+		},
+		Network: NetworkConfig{
+			AdvertiseHost: "10.0.2.2",
+			HTTPPort:      18081,
+			BattleSV:      multiplayer.Endpoint{Host: "10.0.2.2", Port: uint16(18081 + 1)},
+		},
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Multiplayer: multiplayer.NewHub(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1781,4 +1020,42 @@ func TestCN602PushNoOpAndPreloadedCPKList(t *testing.T) {
 	if patchState.Code != http.StatusOK || patchState.Body.String() != "alpha.cpk,1\n" {
 		t.Fatalf("CPK patch state: status=%d body=%q", patchState.Code, patchState.Body.String())
 	}
+}
+
+func newProtocolTestHandler(t *testing.T, config Config) (http.Handler, error) {
+	t.Helper()
+	app, err := assembleApplication(config)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() {
+		if err := app.accounts.Database().Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return app.router(), nil
+}
+
+func writeTestCardImages(t *testing.T, root string) string {
+	t.Helper()
+	root = filepath.Join(root, "image")
+	if err := os.MkdirAll(filepath.Join(root, "chr51"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	file := cardImage{Path: "chr51/chr51_10000010.png", Bytes: int64(buffer.Len()), SHA256: fmt.Sprintf("%x", sha256.Sum256(buffer.Bytes()))}
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(file.Path)), buffer.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(map[string]any{"schema_version": 1, "files": []cardImage{file}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), manifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

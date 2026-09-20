@@ -1,11 +1,10 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
-	"sort"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func (a *API) towerQuestShow(writer http.ResponseWriter, request *http.Request) {
@@ -16,7 +15,7 @@ func (a *API) towerQuestShow(writer http.ResponseWriter, request *http.Request) 
 		a.writeStoreError(writer, err)
 		return
 	}
-	profile, progress, consumed, err := a.store.towerQuestShowState(payload.TowerID)
+	profile, progress, consumed, err := a.account.TowerQuestShowState(payload.TowerID)
 	if err != nil {
 		a.writeStoreError(writer, err)
 		return
@@ -29,7 +28,7 @@ func (a *API) towerQuestShow(writer http.ResponseWriter, request *http.Request) 
 	loses := []any{}
 	if progress.LastResult == "win" {
 		wins = append(wins, map[string]any{
-			"0": boolInt(progress.LastRankUp),
+			"0": game.BoolInt(progress.LastRankUp),
 			"1": progress.LastResultLoseCount,
 		})
 	} else if progress.LastResult == "lose" {
@@ -75,7 +74,7 @@ func (a *API) towerRankingShow(writer http.ResponseWriter, request *http.Request
 		a.writeStoreError(writer, err)
 		return
 	}
-	profile, progress, err := a.store.towerQuestRankingState(payload.TowerID)
+	profile, progress, err := a.account.TowerQuestRankingState(payload.TowerID)
 	if err != nil {
 		a.writeStoreError(writer, err)
 		return
@@ -92,8 +91,8 @@ func (a *API) towerRankingShow(writer http.ResponseWriter, request *http.Request
 	leaderLevel := 1
 	leaderLove := 0
 	leaderFame := int16(1)
-	for _, card := range a.store.showCards() {
-		if card.UniqueID == a.release.State.User.LeaderCardUniqueID {
+	for _, card := range a.account.ShowCards() {
+		if card.UniqueID == a.initialState.User.LeaderCardUniqueID {
 			leaderLevel = card.Level
 			leaderLove = card.Love
 			leaderFame = int16(card.Fame)
@@ -103,14 +102,14 @@ func (a *API) towerRankingShow(writer http.ResponseWriter, request *http.Request
 	a.writeProtocol(writer, map[string]any{
 		"0": []any{map[string]any{
 			"0":  1,
-			"1":  a.release.State.User.UserID,
-			"2":  a.store.userLevel(),
-			"3":  a.store.userName(),
+			"1":  a.initialState.User.UserID,
+			"2":  a.account.UserLevel(),
+			"3":  a.account.UserName(),
 			"4":  rank,
 			"5":  floor,
 			"6":  int64(len(progress.ClearedFloors)) * 1000,
 			"7":  rankName,
-			"8":  a.release.State.User.LeaderCardID,
+			"8":  a.initialState.User.LeaderCardID,
 			"9":  leaderLevel,
 			"10": leaderLove,
 			"11": leaderFame,
@@ -118,70 +117,7 @@ func (a *API) towerRankingShow(writer http.ResponseWriter, request *http.Request
 	})
 }
 
-func (s *store) towerQuestShowState(
-	towerID int,
-) (release.TowerQuestProfile, release.TowerQuestProgress, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	profile, exists := s.towerQuestProfiles[towerID]
-	if !exists || !profile.ClientEntryPublished {
-		return release.TowerQuestProfile{}, release.TowerQuestProgress{}, false,
-			errors.New("tower quest is not published")
-	}
-	progress, exists := s.towerQuestProgress[towerID]
-	if !exists || !profile.ClientEntryPublished {
-		return release.TowerQuestProfile{}, release.TowerQuestProgress{}, false,
-			errors.New("tower quest progress is unavailable")
-	}
-	responseProgress := cloneTowerQuestProgress(progress)
-	consumed := progress.LastResult != ""
-	if consumed {
-		progress.LastResult = ""
-		progress.LastRankUp = false
-		progress.LastResultLoseCount = 0
-		s.towerQuestProgress[towerID] = progress
-	}
-	return cloneTowerQuestProfile(profile), responseProgress, consumed, nil
-}
-
-func (s *store) towerQuestRankingState(
-	towerID int,
-) (release.TowerQuestProfile, release.TowerQuestProgress, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	profile, exists := s.towerQuestProfiles[towerID]
-	if !exists || !profile.ClientEntryPublished {
-		return release.TowerQuestProfile{}, release.TowerQuestProgress{},
-			errors.New("tower quest is not published")
-	}
-	progress, exists := s.towerQuestProgress[towerID]
-	if !exists {
-		return release.TowerQuestProfile{}, release.TowerQuestProgress{},
-			errors.New("tower quest progress is unavailable")
-	}
-	return cloneTowerQuestProfile(profile), cloneTowerQuestProgress(progress), nil
-}
-
-func (s *store) towerQuestIDs() []int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]int, 0, len(s.towerQuestProfiles))
-	for towerID, profile := range s.towerQuestProfiles {
-		if !profile.ClientEntryPublished {
-			continue
-		}
-		result = append(result, towerID)
-	}
-	sort.Ints(result)
-	return result
-}
-
-func (s *store) showCards() []cardInfo {
-	cards, _ := s.show()
-	return cards
-}
-
-func towerRewardWire(reward release.Reward) map[string]any {
+func towerRewardWire(reward gamestate.Reward) map[string]any {
 	return map[string]any{
 		"0": reward.Type,
 		"1": reward.Num,

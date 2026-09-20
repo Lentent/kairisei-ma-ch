@@ -19,8 +19,8 @@ import (
 const gzipFrameMethod = "LocalGzip1"
 const gzipCapability = "gzip-v1"
 
-// The native Ping payload is ignored by old servers. Acknowledgement and mode
-// change share writeMu, so no compressed frame can overtake the acknowledgement.
+// Acknowledgement and mode change share writeMu, so no compressed frame can
+// overtake the acknowledgement.
 func (c *clientConn) handlePing(payload string) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()

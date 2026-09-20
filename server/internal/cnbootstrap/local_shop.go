@@ -1,9 +1,11 @@
 package cnbootstrap
 
-import "kairisei.local/server/internal/release"
+import (
+	"kairisei.local/server/internal/gamestate"
+)
 
 func cnLocalShopProducts() []map[string]any {
-	products := release.LocalShopProducts()
+	products := gamestate.LocalShopProducts()
 	result := make([]map[string]any, 0, len(products))
 	for _, product := range products {
 		result = append(result, map[string]any{

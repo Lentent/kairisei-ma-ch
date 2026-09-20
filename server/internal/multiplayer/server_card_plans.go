@@ -5,8 +5,8 @@ import (
 	"maps"
 )
 
-// CPU members select and Submit as soon as input opens. The result is final;
-// only UserAttack waits for all human members. Use the same atomic engine
+// CPU members and KO members submit as soon as input opens. The result is final;
+// only UserAttack waits for living human members. Use the same atomic engine
 // update as ordinary submission, including cost and target RNG consumption.
 func automaticRoomCardSubmissionFrames(current *room) ([]battleFrame, error) {
 	engine := roomCardPlayPreview(current.engine)
@@ -20,7 +20,7 @@ func automaticRoomCardSubmissionFrames(current *room) ([]battleFrame, error) {
 		if _, committed := engine.selectedPlays[memberType]; committed {
 			continue
 		}
-		if (!submitted && current.connections[memberType] != nil) ||
+		if (!submitted && current.connections[memberType] != nil && engine.players[memberType-1].HP > 0) ||
 			(submitted && (submission.Automatic || !submission.TimedOut || selectedActionCount(submission) != 0)) {
 			continue
 		}

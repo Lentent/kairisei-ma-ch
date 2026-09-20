@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "client_profile": "cn602-bootstrap",
-  "policy": "LOCAL_POLICY",
-  "evidence": "PLACEHOLDER",
-  "description": "按用户要求，主线、国服主线、角色与活动剧情每话首次通关奖励 50 水晶；重复通关不再发放。",
-  "first_clear_crystals": 50
-}

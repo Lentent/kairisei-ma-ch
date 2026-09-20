@@ -5,30 +5,31 @@ import (
 	"fmt"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Exercise the real repository transaction: sparse writes, inventory order,
 // warehouse/gift moves, account isolation and rollback of a failed save.
 func TestAccountRowsCommitOnlyChangesAndRollbackTogether(t *testing.T) {
-	accounts := newFriendCapacityTestAccounts(t)
-	otherID := createNamedFriendCapacityAccount(t, accounts, 0x4670)
-	userID := createNamedFriendCapacityAccount(t, accounts, 0x4671)
-	load := func(id int) release.State {
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	otherID := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x4670)
+	userID := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x4671)
+	load := func(id int) gamestate.State {
 		t.Helper()
-		state, err := accounts.loadPersistentState(id)
+		state, err := accounts.LoadPersistentState(id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return state
 	}
-	persist := func(state release.State) {
+	persist := func(state gamestate.State) {
 		t.Helper()
-		if err := accounts.persistState(userID, state); err != nil {
+		if err := accounts.PersistState(userID, state); err != nil {
 			t.Fatal(err)
 		}
 	}
-	fingerprint := func(state release.State) [32]byte {
+	fingerprint := func(state gamestate.State) [32]byte {
 		t.Helper()
 		value, err := fingerprintCNAccountState(state)
 		if err != nil {
@@ -44,14 +45,13 @@ func TestAccountRowsCommitOnlyChangesAndRollbackTogether(t *testing.T) {
 		card.UniqueID = int64(9000000000 + i)
 		state.Cards = append(state.Cards, card)
 	}
-	present := release.Present{PresentID: 9000000000, IssuedAtUnix: 1788930000, Title: "扭蛋奖励", Reward: release.Reward{Type: 1, Num: 1, RewardTypeID: state.Cards[0].CardID, CardSkillLevels: []int16{1}}}
+	present := gamestate.Present{PresentID: 9000000000, IssuedAtUnix: 1788930000, Title: "扭蛋奖励", Reward: gamestate.Reward{Type: 1, Num: 1, RewardTypeID: state.Cards[0].CardID, CardSkillLevels: []int16{1}}}
 	state.Engagement.Presents = append(state.Engagement.Presents, present)
 	persist(state)
-	db, err := accounts.storage.open()
+	db, err := accounts.Database().Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
 	exec := func(query string) {
 		t.Helper()
 		if _, err := db.Exec(query); err != nil {
@@ -100,7 +100,7 @@ func TestAccountRowsCommitOnlyChangesAndRollbackTogether(t *testing.T) {
 	state.Cards[0].Fame++
 	state.Items[0].Num++
 	state.Engagement.Histories[len(state.Engagement.Histories)-1].Title = "must roll back"
-	if err := accounts.persistState(userID, state); err == nil {
+	if err := accounts.PersistState(userID, state); err == nil {
 		t.Fatal("injected persistence failure was ignored")
 	}
 	if fingerprint(load(userID)) != expected {

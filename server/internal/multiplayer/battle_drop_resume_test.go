@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestCompletedComebackAfterFinalFrameDisconnect(t *testing.T) {
@@ -40,7 +40,7 @@ func TestCompletedComebackAfterFinalFrameDisconnect(t *testing.T) {
 				engine: engine, engineBattleEnd: endType, gameStarted: true, hostCostPaid: true, dropLedgerVersion: 1,
 				connections: map[int]*clientConn{1: old}, comebackTokens: map[int]string{1: "final-token"},
 				disconnectedUntil: map[int]time.Time{},
-				dropPlan:          []release.TeamBattleEnemyDrop{{EnemyIndex: 0, Reward: release.Reward{Type: 4, Num: 10}}},
+				dropPlan:          []gamestate.TeamBattleEnemyDrop{{EnemyIndex: 0, Reward: gamestate.Reward{Type: 4, Num: 10}}},
 			}
 			hub.rooms[123] = current
 			// Drop the peer before delivery: the actual completion dispatcher commits
@@ -157,11 +157,11 @@ func TestComebackRestoresPriorWaveRewardsWithoutDuplicatingCurrentDrops(t *testi
 			engine.phase, engine.endType, engine.turn = battlePhaseEnded, 1, 1
 			engine.enemies[0].HP, engine.enemies[0].DropReleased = 0, true
 			engine.enemies[0].Drops = []BattleDrop{{RewardType: 4, Num: 99}}
-			ledger := []release.TeamBattleEnemyDrop{
-				{BattleIndex: 0, Reward: release.Reward{Type: 6, Num: 1, RewardTypeID: 101001}},
-				{BattleIndex: 1, Reward: release.Reward{Type: 4, Num: 10}},
-				{BattleIndex: 1, Reward: release.Reward{Type: 6, Num: 1, RewardTypeID: 101001}},
-				{BattleIndex: 2, Reward: release.Reward{Type: 4, Num: 99}},
+			ledger := []gamestate.TeamBattleEnemyDrop{
+				{BattleIndex: 0, Reward: gamestate.Reward{Type: 6, Num: 1, RewardTypeID: 101001}},
+				{BattleIndex: 1, Reward: gamestate.Reward{Type: 4, Num: 10}},
+				{BattleIndex: 1, Reward: gamestate.Reward{Type: 6, Num: 1, RewardTypeID: 101001}},
+				{BattleIndex: 2, Reward: gamestate.Reward{Type: 4, Num: 99}},
 			}
 			before := cloneDropPlan(ledger)
 			rng := engine.rng

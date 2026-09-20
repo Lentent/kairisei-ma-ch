@@ -6,14 +6,14 @@ import (
 	"strconv"
 	"time"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
-func roomSpecBattles(spec RoomSpec) []release.TeamBattleReplayBattle {
+func roomSpecBattles(spec RoomSpec) []gamestate.TeamBattleReplayBattle {
 	if len(spec.Battles) != 0 {
 		return spec.Battles
 	}
-	return []release.TeamBattleReplayBattle{{EnemyPartyID: spec.EnemyPartyID, EnemyType: int8(spec.EnemyType)}}
+	return []gamestate.TeamBattleReplayBattle{{EnemyPartyID: spec.EnemyPartyID, EnemyType: int8(spec.EnemyType)}}
 }
 
 func roomSpecWaveDrops(spec RoomSpec, index int) []BattleDrop {
@@ -21,7 +21,7 @@ func roomSpecWaveDrops(spec RoomSpec, index int) []BattleDrop {
 		return spec.Drops
 	}
 	var drops []BattleDrop
-	for _, drop := range release.TeamBattleWaveDrops(spec.DropPlan, roomBattleEnemyTypes(spec.Battles), index) {
+	for _, drop := range gamestate.TeamBattleWaveDrops(spec.DropPlan, roomBattleEnemyTypes(spec.Battles), index) {
 		if drop.BattleIndex == index {
 			drops = append(drops, BattleDrop{EnemyIndex: drop.EnemyIndex, RewardType: drop.Reward.Type, RewardTypeID: drop.Reward.RewardTypeID, Num: drop.Reward.Num})
 		}
@@ -29,7 +29,7 @@ func roomSpecWaveDrops(spec RoomSpec, index int) []BattleDrop {
 	return drops
 }
 
-func roomBattleEnemyTypes(waves []release.TeamBattleReplayBattle) []int8 {
+func roomBattleEnemyTypes(waves []gamestate.TeamBattleReplayBattle) []int8 {
 	types := make([]int8, len(waves))
 	for i, wave := range waves {
 		types[i] = wave.EnemyType
@@ -38,7 +38,7 @@ func roomBattleEnemyTypes(waves []release.TeamBattleReplayBattle) []int8 {
 }
 
 func roomBodyRewardAlreadyReleased(current *room, wave int) bool {
-	source := release.TeamBattleBodyRewardWave(roomBattleEnemyTypes(current.battles), wave)
+	source := gamestate.TeamBattleBodyRewardWave(roomBattleEnemyTypes(current.battles), wave)
 	for _, drop := range current.releasedDrops {
 		if drop.EnemyIndex == 0 && drop.BattleIndex >= source && drop.BattleIndex < wave {
 			return true
@@ -49,9 +49,6 @@ func roomBodyRewardAlreadyReleased(current *room, wave int) bool {
 
 func roomCountdownPayload(current *room) string {
 	waves := current.battles
-	if len(waves) == 0 { // Legacy one-wave fixtures/rooms.
-		waves = roomSpecBattles(RoomSpec{EnemyPartyID: current.enemyPartyID, EnemyType: current.enemyType})
-	}
 	fields := []string{strconv.Itoa(len(waves))}
 	for _, wave := range waves {
 		fields = append(fields, strconv.Itoa(wave.EnemyPartyID), strconv.Itoa(int(wave.EnemyType)), "0", "", "0", "")
@@ -98,9 +95,9 @@ func recordRoomWaveDrops(current *room) {
 			if index == 0 && roomBodyRewardAlreadyReleased(current, current.battleIndex) {
 				continue
 			}
-			for _, drop := range release.TeamBattleWaveDrops(current.dropPlan, roomBattleEnemyTypes(current.battles), current.battleIndex) {
+			for _, drop := range gamestate.TeamBattleWaveDrops(current.dropPlan, roomBattleEnemyTypes(current.battles), current.battleIndex) {
 				if drop.BattleIndex == current.battleIndex && drop.EnemyIndex == index {
-					current.releasedDrops = append(current.releasedDrops, cloneDropPlan([]release.TeamBattleEnemyDrop{drop})[0])
+					current.releasedDrops = append(current.releasedDrops, cloneDropPlan([]gamestate.TeamBattleEnemyDrop{drop})[0])
 				}
 			}
 		}
@@ -111,7 +108,7 @@ func recordRoomWaveDrops(current *room) {
 // The original resume API takes prior segments' rewards as caller input.
 // A completed/pending wave may already be recorded in the settlement ledger;
 // keep that wave in 108 only, so reconnect does not also replay it as 109.
-func priorWaveResumeDrops(ledger []release.TeamBattleEnemyDrop, battleIndex int) []BattleDrop {
+func priorWaveResumeDrops(ledger []gamestate.TeamBattleEnemyDrop, battleIndex int) []BattleDrop {
 	var drops []BattleDrop
 	for _, drop := range ledger {
 		if drop.BattleIndex < battleIndex {

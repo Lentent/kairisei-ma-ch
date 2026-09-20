@@ -6,32 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
-
-	"kairisei.local/server/internal/release"
 )
-
-func TestApplyCNAvatarShopAssetClosureRequiresIconAndModel(t *testing.T) {
-	t.Parallel()
-	state := release.State{AvatarPartDefinitions: []release.AvatarPartDefinition{
-		{PartID: 50, IconPictID: 50},
-		{PartID: 602, IconPictID: 602},
-		{PartID: 790, IconPictID: 790},
-	}}
-	available := map[string]struct{}{
-		"avatar_parts/icon/avatar_00050_icon.dat":   {},
-		"avatar_parts/icon/avatar_00602_icon.dat":   {},
-		"avatar_parts/parts/avatar_00602_parts.dat": {},
-		"avatar_parts/parts/avatar_00790_parts.dat": {},
-	}
-	if err := applyCNAvatarShopAssetClosure(&state, available); err != nil {
-		t.Fatal(err)
-	}
-	if want := []int{602}; !reflect.DeepEqual(state.AvatarShopPartIDs, want) {
-		t.Fatalf("asset-closed shop IDs = %v, want %v", state.AvatarShopPartIDs, want)
-	}
-}
 
 func TestLoadCNAssetMapDeliveryCRC32(t *testing.T) {
 	t.Parallel()

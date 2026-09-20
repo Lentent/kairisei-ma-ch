@@ -7,7 +7,7 @@
 ```
 
 清空 `base_url` 即恢复本地下载。Windows 启动器、命令行和 Linux x64／ARM64 共用此配置。
-源码编译后复用完整发布包的 `cdn.json`；直接运行程序也可使用 `-cdn-config`。
+源码启动可传 `tools/powershell/Start-Server.ps1 -ResourceSet <resource-set.json> -CDNConfig _local/config/cdn.json`；直接运行程序用 `-cdn-config`。
 
 CDN 可使用任意能提供原样文件的 HTTP(S) 源站或域名，不绑定厂商。只改变登录响应中的
 `res_patch_url`、`res_cpk_url`；API、战斗、版本目录、动态 banner 和 Admin 保持原地址。
@@ -74,15 +74,20 @@ Linux 可执行 `HTTPS_PROXY=http://127.0.0.1:7890 sh Sync-CDN.sh`。`NO_PROXY` 
 - 补丁对象名是 `patch/Android/patch/<原始 bundle 路径>.v<8 位大写 CRC>`。
   `asset-map.json` 的 `delivery_crc32` 优先于官方 `version.dat` 的旧值；资源修复工具按实际交付字节生成 CRC。
   本地版本接口和 CDN 导出共同解析最终 catalog，不另建版本算法；旧版本请求不会拿到新字节。
-- 语音对象名是 `cpk/CPK/<逻辑名>.v<整数版本>`。源文件、逻辑名、大小、版本在 `cnCPKDelivery` 中一次解析，
+- 语音对象名是 `cpk/CPK/<逻辑名>.v<整数版本>`。源文件、逻辑名、大小、版本在 `resources/cpk.File` 中一次解析，
   文件列表、版本表、本地下载和 CDN 导出共用。别名必须直指物理 CPK，不允许链式别名或大小写重名。
   查找时忽略大小写，输出路径保留客户端约定的拼写，不把 Unity 内部名字、磁盘文件名和逻辑名混成一个名字。
-- CPK 使用原客户端的整数版本协议，与 bundle 的 CRC 不是同一种字段。版本策略集中在 `cnCPKVersion`：
-  当前默认 1，修复过的 UMARU 为 2；别名至少继承物理源版本。**今后修改 CPK 内容时必须同步提升对应版本**，
-  不能只换域名或目录前缀。上传冲突检查是最后一道保护，不代替版本登记。
+- CPK 使用原客户端的整数版本协议，与 bundle 的 CRC 不是同一种字段。完整资源集的CPK根目录必须提供
+  `versions.json`，并在 `resource-set.json` 登记大小／SHA。它是版本唯一来源，未登记的文件默认1；
+  别名至少继承物理源版本。格式示例：
+  `{"schema_version":1,"versions":[{"name":"cv_navi_5.cpk","version":4}]}`。
+  资源维护时应沿用已发布版本并为变更字节递增；CDN导出拒绝未登记或哈希不符的元数据，不把它上传为音频对象。
+  **今后修改CPK内容必须提升对应版本并登记新完整集**；无需修改服务端角色判断或重新编译。
+  不直接改动既有只读来源／完整集。上传冲突检查是最后一道保护，不代替版本登记。
 - SHA-256 是完整资源与上传字节的审计身份，不替代客户端 CRC／整数版本；ETag 也不当作 SHA-256。
   `resource-set.json` 的 SHA 绑定导出清单，移动完整资源目录不改变清单中的相对路径。
-  版本目录的 namespace 用于目录格式／启动策略的变化，切换 CDN 不修改它。
+  登录返回的版本目录namespace由最终catalog、CPK文件表及CPK版本表共同生成，资源变更自动刷新目录缓存；
+  原 `version.dat` 的790保持不变。切换CDN不修改namespace，旧登录URL仍可读取当前清单。
 
 公开源站应允许匿名 GET／HEAD、返回正确长度并保留 Range 206；禁用 gzip／转码／文件内容重写。
 已版本化对象使用长期不可变缓存，不缓存错误响应；不要在客户端地址中填带临时签名查询串的 URL。

@@ -8,17 +8,18 @@ import (
 	"strings"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestBusinessErrorsPreserveSessionAndProtocolErrorsRemainFailures(t *testing.T) {
-	a := &API{store: &store{}, release: &release.Release{}}
-	for _, expected := range []*businessError{errInsufficientGold, errInsufficientCrystals, errInsufficientMaterials, errCardCapacity, errSphereCapacity, errBuddyCapacity, errItemExpired, errGachaUnavailable} {
+	a := &API{account: &game.Account{}, initialState: gamestate.State{}}
+	for _, expected := range []*game.BusinessError{game.ErrInsufficientGold, game.ErrInsufficientCrystals, game.ErrInsufficientMaterials, game.ErrCardCapacity, game.ErrSphereCapacity, game.ErrBuddyCapacity, game.ErrItemExpired, game.ErrGachaUnavailable} {
 		response := httptest.NewRecorder()
 		a.writeStoreError(response, fmt.Errorf("operation: %w", expected))
 		lines := strings.Split(strings.TrimSpace(response.Body.String()), "\n")
 		var common commonResponse
-		if response.Code != 200 || len(lines) != 3 || json.Unmarshal([]byte(lines[0]), &common) != nil || common.ResultCode != expected.code || common.ResultString != expected.message || common.ResultErrorAction != 2 || common.ResultDeleteSaveData != 0 {
+		if response.Code != 200 || len(lines) != 3 || json.Unmarshal([]byte(lines[0]), &common) != nil || common.ResultCode != expected.Code || common.ResultString != expected.Message || common.ResultErrorAction != 2 || common.ResultDeleteSaveData != 0 {
 			t.Fatalf("business failure lost native envelope: %s", response.Body.String())
 		}
 	}
@@ -33,7 +34,7 @@ func TestBusinessErrorsPreserveSessionAndProtocolErrorsRemainFailures(t *testing
 }
 
 func TestClosedGachaRejectsStalePlayWithoutDisconnection(t *testing.T) {
-	a := &API{store: &store{}, release: &release.Release{}}
+	a := &API{account: &game.Account{}, initialState: gamestate.State{}}
 	r := httptest.NewRequest("POST", "/GachaPlay2", strings.NewReader(`{"gachaid":60200011,"pay_type":3,"gacha_hash":"stale","select_lineup_list":[],"popupid":0}`))
 	r = WithGachaPublication(r, func(int) bool { return false })
 	w := httptest.NewRecorder()

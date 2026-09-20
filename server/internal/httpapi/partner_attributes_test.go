@@ -4,25 +4,26 @@ import (
 	"reflect"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestPartnerDeckAttributes(t *testing.T) {
-	view := friendPointPartnerView{Cards: map[int64]cardInfo{1: {CardID: 100}, 2: {CardID: 200}, 3: {CardID: 300}}, CardAttributes: map[int]uint8{100: 1, 200: 1 | 16, 300: 2}}
-	deck := deckInfo{CardUniqueIDs: []int64{1, 2, 0}, SupportCardUniqueIDs: []int64{3}}
+	view := friendPointPartnerView{Cards: map[int64]game.CardInfo{1: {CardID: 100}, 2: {CardID: 200}, 3: {CardID: 300}}, CardAttributes: map[int]uint8{100: 1, 200: 1 | 16, 300: 2}}
+	deck := game.DeckInfo{CardUniqueIDs: []int64{1, 2, 0}, SupportCardUniqueIDs: []int64{3}}
 	if got := view.deckAttributeCounts(deck); !reflect.DeepEqual(got, []int{0, 2, 0, 0, 0, 1}) {
 		t.Fatalf("main deck attributes %v", got)
 	}
 }
 
 func TestRentalProfessionAndKindCounts(t *testing.T) {
-	state := release.State{User: release.User{UserID: 1000001, Name: "player", ActiveArthurType: 1}, Avatars: make([]release.Avatar, 4), SupportDeck: release.SupportDeckState{UnlockSlotNums: make([]int8, 4)}}
+	state := gamestate.State{User: gamestate.User{UserID: 1000001, Name: "player", ActiveArthurType: 1}, Avatars: make([]gamestate.Avatar, 4), SupportDeck: gamestate.SupportDeckState{UnlockSlotNums: make([]int8, 4)}}
 	ids := make([]int64, 10)
 	for i := range ids {
 		ids[i] = int64(i + 1)
-		state.Cards = append(state.Cards, release.Card{UniqueID: ids[i], CardID: 100 + i})
+		state.Cards = append(state.Cards, gamestate.Card{UniqueID: ids[i], CardID: 100 + i})
 	}
-	state.Decks = []release.Deck{{ArthurType: 1, IsActive: 1, CardUniqueIDs: ids}, {ArthurType: 3, IsRental: 1, CardUniqueIDs: ids}}
+	state.Decks = []gamestate.Deck{{ArthurType: 1, IsActive: 1, CardUniqueIDs: ids}, {ArthurType: 3, IsRental: 1, CardUniqueIDs: ids}}
 	view, ok := friendPointPartnerViewFromState(state)
 	if !ok || view.ArthurType != 3 {
 		t.Fatalf("rental profession: %+v, %v", view, ok)
@@ -45,7 +46,7 @@ func TestRentalProfessionAndKindCounts(t *testing.T) {
 	if !ok || own.ArthurType != 1 || own.Avatar.CostumeID != 24 || own.SupportUnlocked != 2 {
 		t.Fatalf("own selected profession replaced by public rental: %+v, %v", own, ok)
 	}
-	if _, found := exactDeck(own.Decks, own.ArthurType, 0); !found {
+	if _, found := game.ExactDeck(own.Decks, own.ArthurType, 0); !found {
 		t.Fatal("own selected deck disappeared")
 	}
 	public, ok := friendPointPartnerViewFromState(state)

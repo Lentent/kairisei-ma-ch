@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/multiplayer"
-	"kairisei.local/server/internal/release"
 )
 
 func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
@@ -23,11 +24,11 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 		completed.Members = append(completed.Members, multiplayer.Member{MemberType: i, ArthurType: i, UserID: 1000 + i,
 			LeaderFame: 1, DeckHonorIDs: make([]int, 4)})
 	}
-	replay := release.TeamBattleReplay{BossID: boss, EnemyPartyID: 1}
-	profile := release.TeamBattleRewardProfile{BossID: boss}
+	replay := gamestate.TeamBattleReplay{BossID: boss, EnemyPartyID: 1}
+	profile := gamestate.TeamBattleRewardProfile{BossID: boss}
 	for i := 0; i < 6; i++ {
-		replay.Battles = append(replay.Battles, release.TeamBattleReplayBattle{EnemyPartyID: i + 1})
-		drop := release.TeamBattleEnemyDrop{BattleIndex: i, Reward: release.Reward{Type: 4, Num: i + 1}}
+		replay.Battles = append(replay.Battles, gamestate.TeamBattleReplayBattle{EnemyPartyID: i + 1})
+		drop := gamestate.TeamBattleEnemyDrop{BattleIndex: i, Reward: gamestate.Reward{Type: 4, Num: i + 1}}
 		profile.EnemyDrops = append(profile.EnemyDrops, drop)
 		completed.ReleasedDrops = append(completed.ReleasedDrops, drop)
 	}
@@ -35,19 +36,20 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 	if err := hub.AttachCompletionRepository(resultCompletionRepository{completed: completed}); err != nil {
 		t.Fatal(err)
 	}
-	s := &store{bpMax: 20, bpRecoveryInterval: 3 * time.Minute,
-		teamBattleSolo:          json.RawMessage(`{"9":[],"10":[{"0":300101,"9":0,"10":[{"0":30010102,"5":15,"10":0}]}],"11":[],"12":[]}`),
-		teamBattleStartReceipts: []release.TeamBattleStartReceipt{{RoomID: 123, BossID: boss, BPUse: 15}},
-		teamBattleReceipts:      make(map[int64]release.TeamBattleResultReceipt),
-	}
-	helper := &s.playerProgression.Friends.HelperReward
-	helper.SourceState, helper.OtherPerPartner, helper.FriendPerPartner, helper.MaximumPartners = "PLACEHOLDER", 5, 10, 3
-	runtime := &release.Release{State: release.State{TeamBattleReplays: []release.TeamBattleReplay{replay}, TeamBattleRewards: []release.TeamBattleRewardProfile{profile}}}
-	runtime.State.User.UserID = 1001
+	s := testAccount(t, func(state *gamestate.State) {
+		state.User.Gold, state.User.BP, state.User.BPMax = 0, 0, 20
+		state.BattlePoint.RecoverySeconds = 180
+		state.TeamBattleSolo = json.RawMessage(`{"9":[],"10":[{"0":300101,"9":0,"10":[{"0":30010102,"5":15,"10":0}]}],"11":[],"12":[]}`)
+		state.TeamBattleStartReceipts = []gamestate.TeamBattleStartReceipt{{RoomID: 123, BossID: boss, BPUse: 15}}
+		helper := &state.PlayerProgressionPolicy.Friends.HelperReward
+		helper.OtherPerPartner, helper.FriendPerPartner, helper.MaximumPartners = 5, 10, 3
+	})
+	runtime := gamestate.State{TeamBattleReplays: []gamestate.TeamBattleReplay{replay}, TeamBattleRewards: []gamestate.TeamBattleRewardProfile{profile}}
+	runtime.User.UserID = 1001
 	writes := 0
-	var saved release.State
-	a := &API{release: runtime, store: s, multiplayer: hub, logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		persistState: func(state release.State) error { saved = state; writes++; return nil }}
+	var saved gamestate.State
+	a := &API{initialState: runtime, account: s, multiplayer: hub, logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		persistState: func(state gamestate.State) error { saved = state; writes++; return nil }}
 	request := func() *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		a.teamBattleResult(w, httptest.NewRequest(http.MethodPost, "/result", strings.NewReader(`{"roomid":123}`)))
@@ -57,14 +59,14 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Fatalf("multi-wave result rejected: %d %s", first.Code, first.Body.String())
 	}
-	if writes != 1 || s.gold != 21 || s.bp != 0 || saved.User.Gold != 21 || len(saved.TeamBattleResultReceipts) != 1 {
-		t.Fatalf("incorrect wave rewards or debit: writes=%d gold=%d BP=%d", writes, s.gold, s.bp)
+	if writes != 1 || s.Snapshot(gamestate.State{}).User.Gold != 21 || s.Snapshot(gamestate.State{}).User.BP != 0 || saved.User.Gold != 21 || len(saved.TeamBattleResultReceipts) != 1 {
+		t.Fatalf("incorrect wave rewards or debit: writes=%d gold=%d BP=%d", writes, s.Snapshot(gamestate.State{}).User.Gold, s.Snapshot(gamestate.State{}).User.BP)
 	}
 	// Once saved, a retry is independent of the expired room and must return
 	// the exact original response without rerolling rewards or charging again.
 	a.multiplayer = multiplayer.NewHub()
 	second := request()
-	if second.Code != http.StatusOK || second.Body.String() != first.Body.String() || writes != 1 || s.gold != 21 {
+	if second.Code != http.StatusOK || second.Body.String() != first.Body.String() || writes != 1 || s.Snapshot(gamestate.State{}).User.Gold != 21 {
 		t.Fatal("result retry changed the receipt or granted rewards twice")
 	}
 }
@@ -83,10 +85,10 @@ func TestLostMultiplayerResultDoesNotBlockLogin(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		s := &store{gold: 123}
-		runtime := &release.Release{}
-		runtime.State.User.UserID = 1001
-		a := &API{release: runtime, store: s, multiplayer: hub}
+		s := testAccount(t, func(state *gamestate.State) { state.User.Gold = 123 })
+		runtime := gamestate.State{}
+		runtime.User.UserID = 1001
+		a := &API{initialState: runtime, account: s, multiplayer: hub}
 		for i := 0; i < 2; i++ {
 			w := httptest.NewRecorder()
 			a.teamBattleResult(w, httptest.NewRequest(http.MethodPost, "/TeamBattleResult", strings.NewReader(`{"roomid":123}`)))
@@ -96,7 +98,7 @@ func TestLostMultiplayerResultDoesNotBlockLogin(t *testing.T) {
 				t.Fatalf("lost result still blocks native recovery: %d %s", w.Code, w.Body.String())
 			}
 		}
-		if s.gold != 123 || len(s.teamBattleReceipts) != 0 {
+		if s.Snapshot(gamestate.State{}).User.Gold != 123 || len(s.Snapshot(gamestate.State{}).TeamBattleResultReceipts) != 0 {
 			t.Fatal("lost result mutated rewards")
 		}
 	}
@@ -113,9 +115,9 @@ func TestMultiplayerResultStorageFailureRemainsRetryable(t *testing.T) {
 	if err := hub.AttachCompletionRepository(resultCompletionRepository{err: errors.New("temporary storage failure")}); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &release.Release{}
-	runtime.State.User.UserID = 1001
-	a := &API{release: runtime, store: &store{}, multiplayer: hub}
+	runtime := gamestate.State{}
+	runtime.User.UserID = 1001
+	a := &API{initialState: runtime, account: &game.Account{}, multiplayer: hub}
 	w := httptest.NewRecorder()
 	a.teamBattleResult(w, httptest.NewRequest(http.MethodPost, "/TeamBattleResult", strings.NewReader(`{"roomid":123}`)))
 	if w.Code != http.StatusConflict {

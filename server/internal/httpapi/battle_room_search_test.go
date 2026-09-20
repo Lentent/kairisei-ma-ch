@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/multiplayer"
-	"kairisei.local/server/internal/release"
 )
 
 func TestTeamBattleMultiRoomSearchDoesNotSynthesizeRoom(t *testing.T) {
@@ -29,9 +30,9 @@ func TestTeamBattleMultiRoomSearchDoesNotSynthesizeRoom(t *testing.T) {
 }
 
 func TestExpiredMultiplayerRoomReturnsProtocol(t *testing.T) {
-	api := &API{multiplayer: multiplayer.NewHub(), store: &store{}, release: &release.Release{},
+	api := &API{multiplayer: multiplayer.NewHub(), account: &game.Account{}, initialState: gamestate.State{},
 		battleSV: multiplayer.Endpoint{Host: "127.0.0.1", Port: 26021}}
-	api.release.State.User.UserID = 1001
+	api.initialState.User.UserID = 1001
 	for _, tc := range []struct {
 		name    string
 		handler http.HandlerFunc
@@ -85,21 +86,23 @@ func TestExpiredMultiplayerRoomReturnsProtocol(t *testing.T) {
 func TestMultiplayerFriendRoomUsesOwnerRelationship(t *testing.T) {
 	room := multiplayer.RoomSnapshot{BossID: 42, RoomType: 1, OwnerMemberType: 2,
 		Members: []multiplayer.Member{{MemberType: 1, UserID: 303}, {MemberType: 2, UserID: 202}}}
-	relations := &roomFriendAccounts{}
-	api := &API{release: &release.Release{}, friendPointAccounts: relations}
-	api.store = &store{teamBattleSolo: json.RawMessage(`{"9":[{"0":1,"1":0,"10":[{"0":42,"1":0,"24":0}]}]}`)}
-	api.release.State.User.UserID = 101
+	relations := &RoomFriendAccounts{}
+	api := &API{initialState: gamestate.State{}, friendPointAccounts: relations}
+	api.account = testAccount(t, func(state *gamestate.State) {
+		state.TeamBattleSolo = json.RawMessage(`{"9":[{"0":1,"1":0,"10":[{"0":42,"1":0,"24":0}]}]}`)
+	})
+	api.initialState.User.UserID = 101
 	for _, tc := range []struct {
 		name    string
 		state   int8
 		loadErr error
 		want    bool
 	}{
-		{"stranger", friendStateOther, nil, false},
-		{"friend", friendStateFriend, nil, true},
-		{"friend removed", friendStateOther, nil, false},
-		{"following only", friendStateFollow, nil, false},
-		{"relationship unavailable", friendStateFriend, errors.New("read failed"), false},
+		{"stranger", game.FriendStateOther, nil, false},
+		{"friend", game.FriendStateFriend, nil, true},
+		{"friend removed", game.FriendStateOther, nil, false},
+		{"following only", game.FriendStateFollow, nil, false},
+		{"relationship unavailable", game.FriendStateFriend, errors.New("read failed"), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			relations.state, relations.err = tc.state, tc.loadErr
@@ -119,19 +122,6 @@ func TestMultiplayerFriendRoomUsesOwnerRelationship(t *testing.T) {
 	}
 }
 
-type roomFriendAccounts struct {
-	FriendPointAccountRepository
-	state     int8
-	err       error
-	requester int
-	targets   []int
-}
-
-func (r *roomFriendAccounts) FriendPointAccountStates(userID int, targets []int) (map[int]int8, error) {
-	r.requester, r.targets = userID, append([]int(nil), targets...)
-	return map[int]int8{202: r.state}, r.err
-}
-
 func TestTeamBattleMultiRoomSearchEmptyLiveHubStaysEmpty(t *testing.T) {
 	api := &API{multiplayer: multiplayer.NewHub()}
 	for _, bossID := range []int{0, 10000101, 30010102, 0, 10000101} {
@@ -140,9 +130,11 @@ func TestTeamBattleMultiRoomSearchEmptyLiveHubStaysEmpty(t *testing.T) {
 			t.Fatalf("boss=%d rooms=%v err=%v; want nonnil empty list", bossID, rooms, err)
 		}
 	}
-	api.store = &store{teamBattleSolo: json.RawMessage(`{"9":[],"10":[],"11":[],"12":[]}`)}
-	api.release = &release.Release{}
-	api.release.State.User.UserID = 1001
+	api.account = testAccount(t, func(state *gamestate.State) {
+		state.TeamBattleSolo = json.RawMessage(`{"9":[],"10":[],"11":[],"12":[]}`)
+	})
+	api.initialState = gamestate.State{}
+	api.initialState.User.UserID = 1001
 	w := httptest.NewRecorder()
 	api.teamBattleMultiRoomSearch(w, httptest.NewRequest(http.MethodPost, "/search", strings.NewReader(
 		`{"deck_arthur_type":1,"deck_arthur_type_idx":0,"pass":"","is_rookie":0,"bossid":0,"boss_groupid":0,"rookie_type":-1,"searchid":0,"quest_get_time":0,"is_auto":0,"empty_time":0}`)))

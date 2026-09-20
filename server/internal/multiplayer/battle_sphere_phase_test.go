@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestEnemyAnimationChaliceReservationBroadcast(t *testing.T) {
@@ -69,7 +69,7 @@ func TestChaliceEnemyVictoryAdvancesWaveAfterAnimation(t *testing.T) {
 	current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle, Members: members},
 		engine: engine, engineBattleEnd: 1, chaliceEnemyStarted: true,
 		connections: map[int]*clientConn{1: client}, chaliceEnemyFinished: map[int]bool{},
-		battles: []release.TeamBattleReplayBattle{{EnemyPartyID: 1}, {EnemyPartyID: 1}}}
+		battles: []gamestate.TeamBattleReplayBattle{{EnemyPartyID: 1}, {EnemyPartyID: 1}}}
 	hub.rooms[1] = current
 	if err := s.tryAdvanceChaliceEnemy(1); err != nil || current.nextBattlePending {
 		t.Fatal("victory advanced before the animation finished", err)

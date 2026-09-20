@@ -6,12 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"kairisei.local/server/internal/clientcsv"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"kairisei.local/server/internal/protocol"
 )
 
 const maxCombatMasterBytes = 16 * 1024 * 1024
@@ -1029,7 +1030,7 @@ func readCombatCardCSV(path string, consume func([]string) error) error {
 	lines.Buffer(make([]byte, 4096), maxCombatMasterBytes)
 	rows := 0
 	for lines.Scan() {
-		row := clientcsv.SplitLine(lines.Text())
+		row := protocol.SplitCSVLine(lines.Text())
 		row[0] = strings.TrimPrefix(row[0], "\ufeff")
 		if !isDecimalCombatID(row[0]) {
 			continue

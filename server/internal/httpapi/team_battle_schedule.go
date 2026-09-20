@@ -38,13 +38,13 @@ func (a *API) teamBattleScheduleUpdate(writer http.ResponseWriter, request *http
 		return
 	}
 	if (payload.IsSolo != 0 && payload.IsSolo != 1) ||
-		!teamBattleScheduleContains(a.release.State.TeamBattleScheduleGroupIDs, payload.BossGroupID) {
+		!teamBattleScheduleContains(a.initialState.TeamBattleScheduleGroupIDs, payload.BossGroupID) {
 		writeError(writer, http.StatusBadRequest, "unknown team battle schedule group")
 		return
 	}
-	enabled := a.store.toggleTeamBattleSchedulePush(payload.IsSolo, payload.BossGroupID)
+	enabled := a.account.ToggleTeamBattleSchedulePush(payload.IsSolo, payload.BossGroupID)
 	if !a.persistOrError(writer) {
-		a.store.toggleTeamBattleSchedulePush(payload.IsSolo, payload.BossGroupID)
+		a.account.ToggleTeamBattleSchedulePush(payload.IsSolo, payload.BossGroupID)
 		return
 	}
 	entry, err := a.teamBattleScheduleEntry(
@@ -60,11 +60,11 @@ func (a *API) teamBattleScheduleUpdate(writer http.ResponseWriter, request *http
 }
 
 func (a *API) teamBattleScheduleEntries(isSolo int) ([]any, error) {
-	groupIDs := a.release.State.TeamBattleScheduleGroupIDs
+	groupIDs := a.initialState.TeamBattleScheduleGroupIDs
 	if len(groupIDs) == 0 || len(groupIDs) > 50 {
 		return nil, errors.New("team battle schedule profile is unavailable")
 	}
-	enabledIDs := a.store.teamBattleSchedulePushState(isSolo)
+	enabledIDs := a.account.TeamBattleSchedulePushState(isSolo)
 	enabled := make(map[int]struct{}, len(enabledIDs))
 	for _, groupID := range enabledIDs {
 		enabled[groupID] = struct{}{}
@@ -83,7 +83,7 @@ func (a *API) teamBattleScheduleEntries(isSolo int) ([]any, error) {
 }
 
 func (a *API) teamBattleScheduleEntry(groupID int, anchor int64, enabled bool) (map[string]any, error) {
-	group, found := teamBattleGroupForID(a.store.teamBattleSoloState(), groupID)
+	group, found := teamBattleGroupForID(a.account.TeamBattleSoloState(), groupID)
 	if !found {
 		return nil, errors.New("team battle schedule group is absent from the active catalog")
 	}

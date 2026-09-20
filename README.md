@@ -163,11 +163,6 @@ Windows 命令行启动后，用 `Stop-Server.cmd` 停止。不同平台的程�
 
 这是限制商业用途的源码可用项目，不属于 OSI 定义的开源软件。第三方依赖遵循各自的许可证；本许可不授予原游戏 APK、角色、美术、音频、商标等第三方内容的权利。
 
-## 从源码构建
+## 开发资料
 
-源码包含 Go 服务端、运营后台、Windows C# 启动器和默认配置，不含 APK、游戏资源、账号数据或密钥。
-这是非官方的独立服务端实现，并非官方服务端源码。
-
-需要 Go 1.25 或更高版本。在仓库根运行 `tools/powershell/Build-Server.ps1`（Windows），或
-`sh tools/sh/Build-Server.sh`（Linux），会检查源码并构建 Windows x64、Linux x64、Linux ARM64 三端程序。
-完整命令、启动器编译及运行资源准备见[构建说明](docs/BUILD.md)。
+普通游玩按以上步骤即可。参与开发请从 [工程规则](AGENTS.md)、[当前状态](docs/STATUS.md) 和 [文档索引](docs/INDEX.md) 开始；构建与资源准备见 [运行资源集](docs/resources/RUNTIME_RESOURCE_SETS.md)，后台操作见 [操作说明](docs/OPERATIONS.md)。源码仓库不包含原 APK、游戏资源或玩家存档。

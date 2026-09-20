@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
@@ -20,6 +20,10 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 		members[i].PartsIDs, members[i].DeckHonorIDs = make([]int, 7), make([]int, 4)
 	}
 	h := NewHub()
+	speed := 150
+	if err := h.AttachGameSpeed(func() int { return speed }); err != nil {
+		t.Fatal(err)
+	}
 	s := &Server{hub: h, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	left, peer := net.Pipe()
 	defer left.Close()
@@ -56,6 +60,10 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 		}
 	}
 	check(1)
+	speed = 200
+	if snapshot := h.ActivitySnapshot(); len(snapshot) != 1 || snapshot[0].GameSpeed != 150 || len(snapshot[0].Players) != 1 || snapshot[0].AI != 0 {
+		t.Fatalf("existing lobby changed speed or counted empty seats as players: %+v", snapshot)
+	}
 	thief := members[2]
 	if _, err := h.Reserve(owner.roomID, thief.UserID, 3); err != nil {
 		t.Fatal(err)
@@ -69,6 +77,9 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(2)
+	if snapshot := h.ActivitySnapshot(); len(snapshot[0].Players) != 2 || snapshot[0].GameSpeed != 150 {
+		t.Fatal("guest changed room speed or activity", snapshot)
+	}
 	if err := guest.close(true); err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +472,7 @@ func TestCompletedRoomFreezesReleasedDropsForAllClaimants(t *testing.T) {
 	}
 	for index := 0; index < 3; index++ {
 		current.engine.enemies[index] = battleEnemy{HP: 0, DropReleased: index != 2}
-		current.dropPlan = append(current.dropPlan, release.TeamBattleEnemyDrop{EnemyIndex: index, Reward: release.Reward{Type: 4, Num: index + 1}})
+		current.dropPlan = append(current.dropPlan, gamestate.TeamBattleEnemyDrop{EnemyIndex: index, Reward: gamestate.Reward{Type: 4, Num: index + 1}})
 	}
 	h.rooms[1] = current
 	if err := completeBattleLocked(h, current, time.Now()); err != nil {

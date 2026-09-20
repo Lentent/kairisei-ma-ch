@@ -500,9 +500,7 @@ func releasedEffectsContainKind(effects []battleEffect, kind int, wantedKind int
 
 func battleDebuffFailedResult(memberType int, roleIndex int, code int) BattleResult {
 	// FUN_0007adb0 emits member, role index, BATTLE_BUFF and the native
-	// BATTLE_BUFF_KIND classification. CN 6.0.2's managed consumer reads the
-	// first three fields, but retaining the fourth keeps the wire row identical
-	// to the native producer and leaves later clients forward-compatible.
+	// BATTLE_BUFF_KIND classification.
 	return BattleResult{Command: resultDebuffFailed, Args: []int64{
 		int64(memberType), int64(roleIndex), int64(code), int64(battleBuffKind(code)),
 	}}

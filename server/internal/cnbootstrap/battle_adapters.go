@@ -6,10 +6,11 @@ import (
 	"errors"
 	"net/http"
 
-	"kairisei.local/server/internal/release"
+	adminapi "kairisei.local/server/internal/admin"
+	"kairisei.local/server/internal/gamestate"
 )
 
-func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "TeamBattleSoloShow")
 		if err != nil {
@@ -35,7 +36,7 @@ func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *cnO
 			http.Error(writer, "encode TeamBattleSoloShow adapter", http.StatusInternalServerError)
 			return
 		}
-		allowed, err := operations.teamBattleGroupAllowlist()
+		allowed, err := operations.TeamBattleGroupAllowlist()
 		if err != nil {
 			http.Error(writer, "read local team battle publication", http.StatusInternalServerError)
 			return
@@ -51,13 +52,13 @@ func cnBootstrapTeamBattleSoloShow(businessHandler http.Handler, operations *cnO
 	}
 }
 
-func cnBootstrapPastBossShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapPastBossShow(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := requireCNSessionOnly(r, "TeamBattlePastBossShow"); err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
-		allowed, err := operations.battleGroupAllowlist(cnPastBattlePublicationKey)
+		allowed, err := operations.BattleGroupAllowlist(adminapi.PastBattlePublicationKey)
 		if err != nil {
 			http.Error(w, "read local past boss publication", http.StatusInternalServerError)
 			return
@@ -137,10 +138,6 @@ func adaptCNTeamBattleResultResponse(content []byte) ([]byte, error) {
 	})
 }
 
-func adaptCNTeamBattleSoloShowResponse(content []byte) ([]byte, error) {
-	return adaptCNTeamBattleSoloShowPublicationResponse(content, nil)
-}
-
 func adaptCNTeamBattleSoloShowPublicationResponse(content []byte, allowed map[int]struct{}) ([]byte, error) {
 	return adaptCNProtocolMethod(content, func(method map[string]json.RawMessage) (any, error) {
 		normalRaw, normalExists := method["9"]
@@ -196,7 +193,7 @@ func filterCNTeamBattleGroups(content json.RawMessage, allowed map[int]struct{})
 		if err := json.Unmarshal(group, &identity); err != nil {
 			return nil, err
 		}
-		if _, exists := allowed[identity.GroupID]; exists || release.IsBurstQuestGroup(identity.GroupID) {
+		if _, exists := allowed[identity.GroupID]; exists || gamestate.IsBurstQuestGroup(identity.GroupID) {
 			filtered = append(filtered, group)
 		}
 	}

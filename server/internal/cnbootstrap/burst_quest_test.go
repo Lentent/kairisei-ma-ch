@@ -13,12 +13,15 @@ import (
 	"strings"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Extends the existing optional production-data gate; no synthetic resource
 // catalog, player database, device or network listener is involved.
-func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, seedPath string, cards cnCardRuntimeMaster, output string) {
+func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, seedPath string, cards masterdata.CardRuntimeMaster, output string) {
 	t.Helper()
 	if !filepath.IsAbs(output) {
 		t.Fatal("absolute probe output required")
@@ -26,28 +29,33 @@ func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, see
 	if err := os.Mkdir(output, 0700); err != nil {
 		t.Fatal(err)
 	}
-	storage, err := newCNSaveDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	accounts := &cnAccountStore{storage: storage}
-	attachProbeCardCatalog(t, storage, cards)
-	if _, err := accounts.resolveLogin("00000000-0000-0000-0002-000000000000"); err != nil {
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	accounts := testfixture.TestAccountRepository(t, storage)
+	testfixture.AttachProbeCardCatalog(t, storage, cards)
+	if _, err := accounts.ResolveLogin("00000000-0000-0000-0002-000000000000"); err != nil {
 		t.Fatal(err)
 	}
-	identity, err := accounts.resolveLogin("00000000-0000-0000-0002-000000000001")
+	identity, err := accounts.ResolveLogin("00000000-0000-0000-0002-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := accounts.loadState(identity.UserID)
+	state, err := accounts.LoadState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state.Onboarding.Step = cnOnboardingStepCount
+	state.Onboarding.Step = masterdata.OnboardingStepCount
 	state.User.UnlockedFeatureIDs = append(state.User.UnlockedFeatureIDs, 0, 1, 2, 3)
 	state.User.Gold = 2000000
-	state.Items = append(state.Items, release.Item{ItemID: 1305, Num: 20})
-	if err := accounts.persistState(identity.UserID, state); err != nil {
+	state.Items = append(state.Items, gamestate.Item{ItemID: 1305, Num: 20})
+	if err := accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
 	call := func(route, payload, name string, expected int) map[string]json.RawMessage {
@@ -68,12 +76,12 @@ func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, see
 		return method
 	}
 	collection := call("/CardCollectionShow", "", "collection", 0)
-	auto, err := accounts.loadState(identity.UserID)
+	auto, err := accounts.LoadState(identity.UserID)
 	if err != nil || len(auto.Buddies) != len(state.Buddies)+4 || auto.BurstProgress != [4]uint8{} {
 		t.Fatal("completed training did not grant the four initial Buddies independently of learning progress")
 	}
-	for _, quest := range release.BurstQuests() {
-		if release.ArthurBurstUnlocked(auto.User.UnlockedFeatureIDs, quest.ArthurType) != 1 {
+	for _, quest := range gamestate.BurstQuests() {
+		if gamestate.ArthurBurstUnlocked(auto.User.UnlockedFeatureIDs, quest.ArthurType) != 1 {
 			t.Fatal("training did not unlock a sword")
 		}
 		var id int64
@@ -122,7 +130,7 @@ func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, see
 		t.Fatalf("original calcAddLove value*quantity: %s", love["base_card"])
 	}
 	call("/StoryTeamBattleEnd", "", "no-active-story", -6800)
-	for _, quest := range release.BurstQuests() {
+	for _, quest := range gamestate.BurstQuests() {
 		label := fmt.Sprint(quest.ArthurType)
 		shown := call("/TeamBattleSoloShow", fmt.Sprintf(`{"0":%d}`, quest.ArthurType), label+"-show", 0)
 		var groups []map[string]json.RawMessage
@@ -160,7 +168,7 @@ func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, see
 		call("/StoryTeamBattleEnd", "", label+"-rewatch-end", 0)
 	}
 	// Inspect committed state through an independent repository lifetime.
-	final, err := accounts.loadPersistentState(identity.UserID)
+	final, err := accounts.LoadPersistentState(identity.UserID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,8 +182,8 @@ func probeCompleteRuntimeBurst(t *testing.T, handler http.Handler, savePath, see
 	if len(final.SupportDeck.CardCollectionLoveMaxIDs) != 1 || final.SupportDeck.CardCollectionLoveMaxIDs[0] != state.Cards[0].CardID || final.Cards[0].Love != 10000 || final.User.Gold != 1000000 {
 		t.Fatal("loyalty value, item cost or full-love collection history was not committed")
 	}
-	for _, quest := range release.BurstQuests() {
-		if release.ArthurBurstUnlocked(final.User.UnlockedFeatureIDs, quest.ArthurType) != 1 {
+	for _, quest := range gamestate.BurstQuests() {
+		if gamestate.ArthurBurstUnlocked(final.User.UnlockedFeatureIDs, quest.ArthurType) != 1 {
 			t.Fatal("feature not committed")
 		}
 	}

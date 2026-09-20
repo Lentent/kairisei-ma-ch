@@ -1,8 +1,9 @@
 package httpapi
 
 import (
-	"kairisei.local/server/internal/release"
 	"net/http"
+
+	"kairisei.local/server/internal/gamestate"
 )
 
 // The CN archive's information button still sends this legacy GM request.
@@ -18,6 +19,6 @@ func (a *API) mobileServiceCompatibility(w http.ResponseWriter, r *http.Request)
 		a.writeStoreError(w, err)
 		return
 	}
-	a.writeProtocolResponse(w, map[string]any{"url": ""}, []release.PopupProfile{}, -1,
+	a.writeProtocolResponse(w, map[string]any{"url": ""}, []gamestate.PopupProfile{}, -1,
 		"暂无额外乖离信息，可在卡牌详情中查看进化条件。", 2)
 }

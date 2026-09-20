@@ -3,14 +3,14 @@ package cnbootstrap
 import (
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestNormalizeCNLegacyStaticFriends(t *testing.T) {
-	state := release.State{
-		Friends: release.FriendCollectionState{
+	state := gamestate.State{
+		Friends: gamestate.FriendCollectionState{
 			FollowMax: 50,
-			Users:     []release.Friend{{UserID: 1000002, Name: "legacy fake"}},
+			Users:     []gamestate.Friend{{UserID: 1000002, Name: "legacy fake"}},
 		},
 	}
 	if !normalizeCNLegacyStaticFriends(&state) {

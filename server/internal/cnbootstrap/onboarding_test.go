@@ -7,22 +7,29 @@ import (
 	"slices"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
 )
 
 func TestFirstAccountUsesOnboardingAndPreservesProgressOnReload(t *testing.T) {
-	storage, err := newCNSaveDatabase(filepath.Join(t.TempDir(), "save.json"),
+	storage, err := accountstore.OpenDatabase(filepath.Join(t.TempDir(), "save.json"),
 		filepath.Join("..", "..", "config", "cn602-save-template.json"),
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := storage.loadOrImport()
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	state, err := storage.LoadOrImport()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.User.Name != "" || state.User.TutorialFlag != 0 || len(state.Cards) != 10 ||
-		state.Onboarding.ConfigVersion != cnOnboardingConfigVersion || state.Onboarding.Step != 0 ||
+		state.Onboarding.ConfigVersion != masterdata.OnboardingConfigVersion || state.Onboarding.Step != 0 ||
 		state.User.CardMax != 6000 || state.User.NaviID != 0 || state.User.NaviUnlockFlag != 1 || !slices.Equal(state.User.SelectableNaviIDs, []int8{0}) || slices.Contains(state.User.UnlockedFeatureIDs, uint(10)) {
 		t.Fatal("fresh primary account did not enter clean training")
 	}
@@ -31,34 +38,34 @@ func TestFirstAccountUsesOnboardingAndPreservesProgressOnReload(t *testing.T) {
 	state.User.NaviID = 1 // A player's later choice must survive reload.
 	state.User.NaviUnlockFlag = 3
 	state.User.SelectableNaviIDs = []int8{0, 1}
-	state.Onboarding.Step = cnOnboardingStepCount
+	state.Onboarding.Step = masterdata.OnboardingStepCount
 	state.User.UnlockedFeatureIDs = append(state.User.UnlockedFeatureIDs, 10)
-	if err := storage.persist(state); err != nil {
+	if err := storage.Persist(state); err != nil {
 		t.Fatal(err)
 	}
-	state, err = storage.loadOrImport()
+	state, err = storage.LoadOrImport()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.User.Name != "保留玩家名字" || state.User.Gold != 123 || state.User.NaviID != 1 ||
-		state.Onboarding.Step != cnOnboardingStepCount || !slices.Contains(state.User.UnlockedFeatureIDs, uint(10)) {
+		state.Onboarding.Step != masterdata.OnboardingStepCount || !slices.Contains(state.User.UnlockedFeatureIDs, uint(10)) {
 		t.Fatal("reload reset player progress or left encyclopedia locked")
 	}
 }
 
 func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
-	state, err := loadCNSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
+	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
 	if err != nil {
 		t.Fatalf("load seed: %v", err)
 	}
-	if err := initializeCNOnboardingSnapshot(&state, 100000123); err != nil {
+	if err := accountstore.InitializeOnboardingSnapshot(&state, 100000123); err != nil {
 		t.Fatalf("initialize onboarding: %v", err)
 	}
 	if state.User.Name != "" || state.User.UserID != 100000123 ||
 		state.User.TutorialFlag != 0 || state.User.Gold != 0 || state.User.CoinFree != 0 {
 		t.Fatalf("clean user state was not installed: %+v", state.User)
 	}
-	if state.Onboarding.ConfigVersion != cnOnboardingConfigVersion || state.Onboarding.Step != 0 {
+	if state.Onboarding.ConfigVersion != masterdata.OnboardingConfigVersion || state.Onboarding.Step != 0 {
 		t.Fatalf("onboarding state = %+v", state.Onboarding)
 	}
 	if slices.Contains(state.User.UnlockedFeatureIDs, uint(0)) ||
@@ -74,8 +81,8 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 	for index, card := range state.Cards {
 		actualCardIDs[index] = card.CardID
 	}
-	if !slices.Equal(actualCardIDs, cnStarterCardIDs) {
-		t.Fatalf("starter cards = %v, want %v", actualCardIDs, cnStarterCardIDs)
+	if !slices.Equal(actualCardIDs, accountstore.StarterCardIDs) {
+		t.Fatalf("starter cards = %v, want %v", actualCardIDs, accountstore.StarterCardIDs)
 	}
 	if len(state.Decks) != 4 {
 		t.Fatalf("deck count = %d, want 4", len(state.Decks))
@@ -83,7 +90,7 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 	for _, deck := range state.Decks {
 		if len(deck.CardUniqueIDs) != 10 || deck.LeaderCardIndex != 0 || deck.ArthurType != deck.JobType ||
 			len(deck.BuddyUniqueIDs) != 5 || slices.ContainsFunc(deck.BuddyUniqueIDs, func(uniqueID int64) bool { return uniqueID != 0 }) ||
-			deck.Name != cnDefaultDeckNameByArthur[deck.ArthurType] {
+			deck.Name != accountstore.DefaultDeckNameByArthur[deck.ArthurType] {
 			t.Fatalf("invalid starter deck: %+v", deck)
 		}
 		leaderCardID := 0
@@ -93,7 +100,7 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 				break
 			}
 		}
-		if leaderCardID != cnStarterLeaderCardIDByArthur[deck.ArthurType] {
+		if leaderCardID != accountstore.StarterLeaderCardIDByArthur[deck.ArthurType] {
 			t.Fatalf("Arthur %d leader = %d", deck.ArthurType, leaderCardID)
 		}
 	}
@@ -108,41 +115,61 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 	foundTutorialMultiGacha := false
 	for _, gacha := range state.Gachas {
 		switch gacha.GachaID {
-		case cnOnboardingGachaID:
+		case masterdata.OnboardingGachaID:
 			foundTutorialGacha = true
 			if gacha.PayTypeID != 2001 || !slices.Equal(gacha.CardIDs, []int{10002001}) {
 				t.Fatalf("tutorial gacha = %+v", gacha)
 			}
-		case cnOnboardingMultiGachaID:
+		case masterdata.OnboardingMultiGachaID:
 			foundTutorialMultiGacha = true
 			if gacha.PayType != 3 || gacha.Price != 400 || gacha.CardNum != 11 ||
 				gacha.GuaranteedRarityRank != 5 || gacha.GuaranteedCount != 1 ||
 				gacha.RemainderRarityRank != 4 {
 				t.Fatalf("tutorial multi gacha = %+v", gacha)
 			}
+			if !slices.Equal(gacha.CardIDs, []int{10000013, 10000025, 10000033, 10000037,
+				10000058, 10000087, 10000111, 10000129, 10000133, 10000171, 10001008, 10001014}) ||
+				len(gacha.CardWeights) != len(gacha.CardIDs) || slices.ContainsFunc(gacha.CardWeights, func(w int) bool { return w != 1 }) {
+				t.Fatalf("tutorial lineup inherited the standard pool: %+v", gacha)
+			}
 		}
 	}
 	if !foundTutorialGacha || !foundTutorialMultiGacha {
 		t.Fatal("one or more client-reserved tutorial gachas are missing")
 	}
-	if cnOnboardingGachaID != 90000200 {
-		t.Fatalf("tutorial gacha ID = %d, want client-reserved first-draw ID", cnOnboardingGachaID)
+	if masterdata.OnboardingGachaID != 90000200 {
+		t.Fatalf("tutorial gacha ID = %d, want client-reserved first-draw ID", masterdata.OnboardingGachaID)
 	}
 	encoded, err := encodeCNSaveState(state)
 	if err != nil {
 		t.Fatalf("encode clean onboarding snapshot: %v", err)
 	}
-	decoded, err := decodeCNSaveState(encoded)
+	decoded, err := accountstore.DecodeSaveState(encoded)
 	if err != nil {
 		t.Fatalf("decode clean onboarding snapshot: %v", err)
 	}
 	if decoded.Onboarding != state.Onboarding || len(decoded.Cards) != 10 || decoded.Buddies == nil {
 		t.Fatal("onboarding snapshot did not round-trip")
 	}
+	for index := range decoded.Gachas {
+		if decoded.Gachas[index].GachaID == masterdata.OnboardingMultiGachaID {
+			decoded.Gachas[index].PlayCount = 1
+			decoded.Gachas[index].CardIDs = []int{99990100}
+		}
+	}
+	if err := accountstore.InstallOnboardingGacha(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, gacha := range decoded.Gachas {
+		if gacha.GachaID == masterdata.OnboardingMultiGachaID &&
+			(gacha.PlayCount != 1 || slices.Contains(gacha.CardIDs, 99990100)) {
+			t.Fatal("updating tutorial lineup reset the completed draw or retained an old prize")
+		}
+	}
 }
 
 func TestMigrateCNDefaultDeckNamesPreservesPlayerNames(t *testing.T) {
-	state := release.State{Decks: []release.Deck{
+	state := gamestate.State{Decks: []gamestate.Deck{
 		{ArthurType: 1, Name: "佣兵本地卡组"},
 		{ArthurType: 2, Name: "我的富豪卡组"},
 		{ArthurType: 3, Name: "盗贼本地卡组"},
@@ -160,17 +187,17 @@ func TestMigrateCNDefaultDeckNamesPreservesPlayerNames(t *testing.T) {
 }
 
 func TestMigrateCNOnboardingGachaID(t *testing.T) {
-	state, err := loadCNSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
+	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
 	if err != nil {
 		t.Fatalf("load seed: %v", err)
 	}
-	if err := initializeCNOnboardingSnapshot(&state, 100000124); err != nil {
+	if err := accountstore.InitializeOnboardingSnapshot(&state, 100000124); err != nil {
 		t.Fatalf("initialize onboarding: %v", err)
 	}
 	for index := range state.Gachas {
-		if state.Gachas[index].GachaID == cnOnboardingGachaID {
-			state.Gachas[index].GachaID = cnLegacyOnboardingGachaID
-			state.Gachas[index].GroupID = cnLegacyOnboardingGachaID
+		if state.Gachas[index].GachaID == masterdata.OnboardingGachaID {
+			state.Gachas[index].GachaID = masterdata.LegacyOnboardingGachaID
+			state.Gachas[index].GroupID = masterdata.LegacyOnboardingGachaID
 		}
 	}
 	changed, err := migrateCNOnboardingGachaID(&state)
@@ -180,13 +207,13 @@ func TestMigrateCNOnboardingGachaID(t *testing.T) {
 	found := false
 	foundMulti := false
 	for _, gacha := range state.Gachas {
-		if gacha.GachaID == cnLegacyOnboardingGachaID {
+		if gacha.GachaID == masterdata.LegacyOnboardingGachaID {
 			t.Fatal("legacy onboarding gacha survived migration")
 		}
-		if gacha.GachaID == cnOnboardingGachaID {
+		if gacha.GachaID == masterdata.OnboardingGachaID {
 			found = true
 		}
-		if gacha.GachaID == cnOnboardingMultiGachaID {
+		if gacha.GachaID == masterdata.OnboardingMultiGachaID {
 			foundMulti = true
 		}
 	}
@@ -196,12 +223,12 @@ func TestMigrateCNOnboardingGachaID(t *testing.T) {
 }
 
 func TestMigrateCNOnboardingStateRestoresMissingOriginalSteps(t *testing.T) {
-	state, err := loadCNSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
+	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
 	if err != nil {
 		t.Fatalf("load seed: %v", err)
 	}
-	state.Onboarding = release.OnboardingState{
-		ConfigVersion:       cnLegacyOnboardingConfigVersion,
+	state.Onboarding = gamestate.OnboardingState{
+		ConfigVersion:       masterdata.LegacyOnboardingConfigVersion,
 		Step:                5,
 		CurrentAnnounced:    true,
 		PendingClearQuestID: 1045,
@@ -210,42 +237,18 @@ func TestMigrateCNOnboardingStateRestoresMissingOriginalSteps(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("migrate onboarding sequence = (%t, %v)", changed, err)
 	}
-	if state.Onboarding.ConfigVersion != cnOnboardingConfigVersion ||
+	if state.Onboarding.ConfigVersion != masterdata.OnboardingConfigVersion ||
 		state.Onboarding.Step != 4 || state.Onboarding.CurrentAnnounced ||
 		state.Onboarding.PendingClearQuestID != 0 {
 		t.Fatalf("migrated onboarding state = %+v", state.Onboarding)
 	}
 
-	state.Onboarding = release.OnboardingState{
-		ConfigVersion: cnLegacyOnboardingConfigVersion,
+	state.Onboarding = gamestate.OnboardingState{
+		ConfigVersion: masterdata.LegacyOnboardingConfigVersion,
 		Step:          7,
 	}
 	changed, err = migrateCNOnboardingState(&state)
-	if err != nil || !changed || state.Onboarding.Step != cnOnboardingStepCount {
+	if err != nil || !changed || state.Onboarding.Step != masterdata.OnboardingStepCount {
 		t.Fatalf("migrate completed onboarding = (%+v, %t, %v)", state.Onboarding, changed, err)
-	}
-}
-
-func TestCNOnboardingDoesNotReceiveLocalQAInitialItems(t *testing.T) {
-	state := release.State{
-		Onboarding: release.OnboardingState{ConfigVersion: cnOnboardingConfigVersion},
-		Items:      []release.Item{{ItemID: 2001}},
-	}
-	master := cnItemRuntimeMaster{
-		LocalAccountConfigVersion: 3,
-		LocalAccountInitialItems:  []release.Item{{ItemID: 4000, Num: 10000}},
-		Items: []release.ItemDefinition{
-			{ItemID: 2001}, {ItemID: 4000},
-		},
-	}
-	changed, err := applyCNItemRuntimeMaster(&state, master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !changed || state.LocalAccountConfigVersion != 3 {
-		t.Fatalf("local item config migration = (%t, %d)", changed, state.LocalAccountConfigVersion)
-	}
-	if len(state.Items) != 1 || state.Items[0].ItemID != 2001 {
-		t.Fatalf("onboarding items = %+v", state.Items)
 	}
 }

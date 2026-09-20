@@ -5,12 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"kairisei.local/server/internal/release"
 	"slices"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"kairisei.local/server/internal/gamestate"
 )
 
 const (
@@ -114,10 +115,10 @@ type BattleDrop struct {
 
 type RoomSpec struct {
 	FameRewardsSet     bool
-	FameRewards        []release.Reward
-	Battles            []release.TeamBattleReplayBattle
+	FameRewards        []gamestate.Reward
+	Battles            []gamestate.TeamBattleReplayBattle
 	DropLedgerVersion  int
-	DropPlan           []release.TeamBattleEnemyDrop
+	DropPlan           []gamestate.TeamBattleEnemyDrop
 	BattlePointUse     int
 	ContinueAllowed    bool
 	BossID             int
@@ -171,13 +172,13 @@ type RoomSnapshot struct {
 // per-account SQLite store.
 type CompletedBattle struct {
 	FameRewardsSet     bool
-	FameRewards        []release.Reward
+	FameRewards        []gamestate.Reward
 	Turns              int
 	BattleIndex        int
 	Progress           int
 	DropLedgerVersion  int
 	DestroyedEnemyBits int
-	ReleasedDrops      []release.TeamBattleEnemyDrop
+	ReleasedDrops      []gamestate.TeamBattleEnemyDrop
 	HostCostPaid       bool
 	RoomID             int64
 	BossID             int
@@ -236,19 +237,19 @@ type cardPlaySubmission struct {
 
 type room struct {
 	RoomSnapshot
-	battles                []release.TeamBattleReplayBattle
+	battles                []gamestate.TeamBattleReplayBattle
 	battleIndex            int
 	progress               int
 	nextBattlePending      bool
 	nextBattleIndex        int
 	gameNextFinished       map[int]bool
 	waveDropsRecorded      map[int]bool
-	releasedDrops          []release.TeamBattleEnemyDrop
+	releasedDrops          []gamestate.TeamBattleEnemyDrop
 	destroyedEnemyBits     int
 	dropLedgerVersion      int
-	dropPlan               []release.TeamBattleEnemyDrop
+	dropPlan               []gamestate.TeamBattleEnemyDrop
 	fameRewardsSet         bool
-	fameRewards            []release.Reward
+	fameRewards            []gamestate.Reward
 	battlePointUse         int
 	continueAllowed        bool
 	continuation           *roomContinuation
@@ -309,6 +310,26 @@ type Hub struct {
 	combat             *CombatCatalog
 	startAuthorizer    func(BattleStart) error
 	continueAuthorizer func(BattleContinue) (ContinueBalance, error)
+	gameSpeed          func() int
+}
+
+func ValidGameSpeed(speed int) bool {
+	return speed == 100 || speed == 150 || speed == 200
+}
+
+// AttachGameSpeed binds the in-memory operator setting before room activity.
+// The callback is read-only; each room retains its creation-time speed.
+func (h *Hub) AttachGameSpeed(current func() int) error {
+	if current == nil || !ValidGameSpeed(current()) {
+		return errors.New("multiplayer speed must be 100, 150 or 200 percent")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.gameSpeed != nil || len(h.rooms) != 0 || len(h.pending) != 0 {
+		return errors.New("attach multiplayer speed before room activity")
+	}
+	h.gameSpeed = current
+	return nil
 }
 
 type BattleStart struct {
@@ -1011,7 +1032,7 @@ func cloneMember(member Member) Member {
 
 func cloneRoomSpec(spec RoomSpec) RoomSpec {
 	spec.FameRewards = cloneFameRewards(spec.FameRewards)
-	spec.Battles = append([]release.TeamBattleReplayBattle(nil), spec.Battles...)
+	spec.Battles = append([]gamestate.TeamBattleReplayBattle(nil), spec.Battles...)
 	spec.DropPlan = cloneDropPlan(spec.DropPlan)
 	spec.Owner = cloneMember(spec.Owner)
 	spec.Drops = append([]BattleDrop(nil), spec.Drops...)
@@ -1044,7 +1065,7 @@ func cloneCompletedBattle(completed CompletedBattle) CompletedBattle {
 	return completed
 }
 
-func cloneFameRewards(source []release.Reward) []release.Reward {
+func cloneFameRewards(source []gamestate.Reward) []gamestate.Reward {
 	result := slices.Clone(source)
 	for i := range result {
 		result[i].CardSkillLevels = slices.Clone(result[i].CardSkillLevels)
@@ -1052,8 +1073,8 @@ func cloneFameRewards(source []release.Reward) []release.Reward {
 	return result
 }
 
-func cloneDropPlan(source []release.TeamBattleEnemyDrop) []release.TeamBattleEnemyDrop {
-	result := append([]release.TeamBattleEnemyDrop(nil), source...)
+func cloneDropPlan(source []gamestate.TeamBattleEnemyDrop) []gamestate.TeamBattleEnemyDrop {
+	result := append([]gamestate.TeamBattleEnemyDrop(nil), source...)
 	for index := range result {
 		result[index].Reward.CardSkillLevels = slices.Clone(result[index].Reward.CardSkillLevels)
 	}

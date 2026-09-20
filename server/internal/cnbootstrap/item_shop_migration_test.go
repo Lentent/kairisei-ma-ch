@@ -3,26 +3,27 @@ package cnbootstrap
 import (
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestItemShopConfigMigrationPreservesOwnedItemBalances(t *testing.T) {
-	state := release.State{
+	state := gamestate.State{
 		ItemShopConfigVersion: 1,
-		Items: []release.Item{
+		Items: []gamestate.Item{
 			{ItemID: 9010, Num: 7},
 			{ItemID: 6062, Num: 3},
 		},
-		ItemShopTabs: []release.ItemShopTab{{TabType: 0}},
+		ItemShopTabs: []gamestate.ItemShopTab{{TabType: 0}},
 	}
-	seed := release.State{
-		ItemShopConfigVersion: cnItemShopConfigVersion,
-		Items: []release.Item{
+	seed := gamestate.State{
+		ItemShopConfigVersion: accountstore.ItemShopConfigVersion,
+		Items: []gamestate.Item{
 			{ItemID: 9010, Num: 0},
 			{ItemID: 1000, Num: 0},
 		},
-		ItemShopTabs: []release.ItemShopTab{
-			{TabType: 0, Lineup: []release.ItemShopLineup{{LineupID: 992001}}},
+		ItemShopTabs: []gamestate.ItemShopTab{
+			{TabType: 0, Lineup: []gamestate.ItemShopLineup{{LineupID: 992001}}},
 			{TabType: 1}, {TabType: 2}, {TabType: 3}, {TabType: 4},
 		},
 	}
@@ -31,7 +32,7 @@ func TestItemShopConfigMigrationPreservesOwnedItemBalances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed || state.ItemShopConfigVersion != cnItemShopConfigVersion ||
+	if !changed || state.ItemShopConfigVersion != accountstore.ItemShopConfigVersion ||
 		len(state.ItemShopTabs) != 5 || state.ItemShopTabs[0].Lineup[0].LineupID != 992001 {
 		t.Fatalf("item shop config was not replaced: %+v", state)
 	}

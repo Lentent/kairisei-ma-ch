@@ -55,9 +55,10 @@ func NormalizeCDNBaseURL(value string) (string, error) {
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
-func (config CDNConfig) resourceURLs(serverURL string) (patchURL, cpkURL string) {
-	if config.BaseURL == "" {
-		return serverURL + "/local/resources/patch/", serverURL + "/local/resources/cpk/"
+func (config CDNConfig) resourceURLs(serverURL, imageNamespace string) (patchURL, cpkURL, imageURL string) {
+	base := config.BaseURL
+	if base == "" {
+		base = serverURL + "/local/resources"
 	}
-	return config.BaseURL + "/patch/", config.BaseURL + "/cpk/"
+	return base + "/patch/", base + "/cpk/", base + "/image/" + imageNamespace + "/"
 }

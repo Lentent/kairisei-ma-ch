@@ -6,18 +6,19 @@ import (
 	"errors"
 	"net/http"
 
+	adminapi "kairisei.local/server/internal/admin"
 	"kairisei.local/server/internal/httpapi"
 )
 
-func cnGachaPublicationBusiness(business http.Handler, operations *cnOperationStore) http.Handler {
+func cnGachaPublicationBusiness(business http.Handler, operations *adminapi.Operations) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		active, err := operations.gachaPublication()
+		active, err := operations.GachaPublication()
 		if err != nil {
 			http.Error(writer, "read local gacha publication", http.StatusInternalServerError)
 			return
 		}
 		business.ServeHTTP(writer, httpapi.WithGachaPublication(request, func(id int) bool {
-			return operations.gachaIDPublished(id, active)
+			return operations.GachaIDPublished(id, active)
 		}))
 	})
 }
@@ -69,7 +70,7 @@ var cnItemInfoFieldMap = map[string]string{
 	"0": "itemid", "1": "num", "2": "limit_time", "3": "exchange",
 }
 
-func cnBootstrapGachaShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapGachaShow(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "GachaShow")
 		if err != nil {
@@ -84,7 +85,7 @@ func cnBootstrapGachaShow(businessHandler http.Handler, operations *cnOperationS
 			return
 		}
 		domainBody, _ := json.Marshal(map[string]int{"show_type": showType})
-		active, err := operations.gachaPublication()
+		active, err := operations.GachaPublication()
 		if err != nil {
 			http.Error(writer, "read local gacha publication", http.StatusInternalServerError)
 			return
@@ -95,14 +96,14 @@ func cnBootstrapGachaShow(businessHandler http.Handler, operations *cnOperationS
 			businessHandler,
 			func(content []byte) ([]byte, error) {
 				return adaptCNGachaShowPublicationResponse(
-					content, active, operations.managedGachaGroups,
+					content, active, operations.ManagedGroups(),
 				)
 			},
 		)
 	}
 }
 
-func cnBootstrapGachaPlay(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapGachaPlay(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "GachaPlay2")
 		if err != nil {
@@ -134,12 +135,12 @@ func cnBootstrapGachaPlay(businessHandler http.Handler, operations *cnOperationS
 			http.Error(writer, "invalid CN GachaPlay2 select lineup", http.StatusBadRequest)
 			return
 		}
-		active, err := operations.gachaPublication()
+		active, err := operations.GachaPublication()
 		if err != nil {
 			http.Error(writer, "read local gacha publication", http.StatusInternalServerError)
 			return
 		}
-		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.gachaIDPublished(id, active) })
+		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.GachaIDPublished(id, active) })
 		domainBody, _ := json.Marshal(map[string]any{
 			"gachaid": gachaID, "pay_type": payType, "gacha_hash": gachaHash,
 			"select_lineup_list": selectLineup, "popupid": popupID,
@@ -150,7 +151,7 @@ func cnBootstrapGachaPlay(businessHandler http.Handler, operations *cnOperationS
 			businessHandler,
 			func(content []byte) ([]byte, error) {
 				return adaptCNGachaPlayPublicationResponse(
-					content, active, operations.managedGachaGroups,
+					content, active, operations.ManagedGroups(),
 				)
 			},
 		)
@@ -186,7 +187,7 @@ func decodeCNGachaSelectLineup(raw json.RawMessage) ([]map[string]json.RawMessag
 	return result, nil
 }
 
-func cnBootstrapGachaLineupShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapGachaLineupShow(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "GachaLineupShow2")
 		if err != nil {
@@ -203,12 +204,12 @@ func cnBootstrapGachaLineupShow(businessHandler http.Handler, operations *cnOper
 			return
 		}
 		domainBody, _ := json.Marshal(map[string]any{"gachaids": gachaIDs, "popupid": popupID})
-		active, err := operations.gachaPublication()
+		active, err := operations.GachaPublication()
 		if err != nil {
 			http.Error(writer, "read local gacha publication", http.StatusInternalServerError)
 			return
 		}
-		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.gachaIDPublished(id, active) })
+		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.GachaIDPublished(id, active) })
 		forwardCNBusiness(
 			writer,
 			adaptCNBusinessRequest(request, http.MethodPost, "/GachaLineupShow2", domainBody),
@@ -218,7 +219,7 @@ func cnBootstrapGachaLineupShow(businessHandler http.Handler, operations *cnOper
 	}
 }
 
-func cnBootstrapGachaOddsShow(businessHandler http.Handler, operations *cnOperationStore) http.HandlerFunc {
+func cnBootstrapGachaOddsShow(businessHandler http.Handler, operations *adminapi.Operations) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		payload, err := readCNSessionPayload(request, "GachaOddsShow")
 		if err != nil {
@@ -234,12 +235,12 @@ func cnBootstrapGachaOddsShow(businessHandler http.Handler, operations *cnOperat
 			return
 		}
 		domainBody, _ := json.Marshal(map[string]int{"gachaid": gachaID, "popupid": popupID})
-		active, err := operations.gachaPublication()
+		active, err := operations.GachaPublication()
 		if err != nil {
 			http.Error(writer, "read local gacha publication", http.StatusInternalServerError)
 			return
 		}
-		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.gachaIDPublished(id, active) })
+		request = httpapi.WithGachaPublication(request, func(id int) bool { return operations.GachaIDPublished(id, active) })
 		forwardCNBusiness(
 			writer,
 			adaptCNBusinessRequest(request, http.MethodPost, "/GachaOddsShow", domainBody),
@@ -247,10 +248,6 @@ func cnBootstrapGachaOddsShow(businessHandler http.Handler, operations *cnOperat
 			adaptCNGachaOddsShowResponse,
 		)
 	}
-}
-
-func adaptCNGachaShowResponse(content []byte) ([]byte, error) {
-	return adaptCNGachaShowPublicationResponse(content, nil, nil)
 }
 
 func adaptCNGachaShowPublicationResponse(
@@ -283,10 +280,6 @@ func adaptCNGachaShowPublicationResponse(
 			"3": user,
 		}, nil
 	})
-}
-
-func adaptCNGachaPlayResponse(content []byte) ([]byte, error) {
-	return adaptCNGachaPlayPublicationResponse(content, nil, nil)
 }
 
 func adaptCNGachaItemPlayMethod(method map[string]json.RawMessage) (any, error) {

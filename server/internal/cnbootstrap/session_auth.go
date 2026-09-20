@@ -3,17 +3,21 @@ package cnbootstrap
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
+
+	"kairisei.local/server/internal/accounthttp"
+	"kairisei.local/server/internal/accountstore"
 )
 
 type cnAuthenticatedUserKey struct{}
 
-func authenticateCNSessions(accounts *cnAccountStore) func(http.Handler) http.Handler {
+func authenticateCNSessions(accounts *accountstore.Accounts) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			request.Header.Del(cnAccountUserHeader)
+			request.Header.Del(accounthttp.AccountUserHeader)
 			if request.Method != http.MethodPost || isUnauthenticatedCNPost(request.URL.Path) {
 				next.ServeHTTP(writer, request)
 				return
@@ -36,9 +40,17 @@ func authenticateCNSessions(accounts *cnAccountStore) func(http.Handler) http.Ha
 				next.ServeHTTP(writer, request)
 				return
 			}
-			userID, err := accounts.resolveSession(sessionKey)
+			userID, err := accounts.ResolveSessionContext(request.Context(), sessionKey)
 			if err != nil {
-				http.Error(writer, "invalid CN account session", http.StatusUnauthorized)
+				if errors.Is(err, accountstore.ErrInvalidSession) {
+					common := cnBootstrapCommon()
+					common["res_code"] = -3208
+					common["res_str"] = "登录已失效或服务器已重启，请返回标题重新登录并检查更新。"
+					common["res_err_action"] = 1 // Original error dialog: return to title, never delete save data.
+					writeCNProtocolResponseWithPopup(writer, common, map[string]any{})
+				} else {
+					http.Error(writer, "resolve CN account session", http.StatusInternalServerError)
+				}
 				return
 			}
 			request = request.WithContext(

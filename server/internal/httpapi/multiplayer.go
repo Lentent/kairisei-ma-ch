@@ -8,8 +8,9 @@ import (
 	"sort"
 	"time"
 
+	"kairisei.local/server/internal/game"
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/multiplayer"
-	"kairisei.local/server/internal/release"
 )
 
 type teamBattleRoomIssue struct {
@@ -40,7 +41,7 @@ func (a *API) teamBattleMultiShow(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusBadRequest, "invalid active Arthur type")
 		return
 	}
-	groups, err := teamBattleMultiGroups(a.store.teamBattleSoloState())
+	groups, err := teamBattleMultiGroups(a.account.TeamBattleSoloState())
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -126,7 +127,7 @@ func (a *API) teamBattleAIRoomCreate(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "invalid local AI room configuration")
 		return
 	}
-	if payload.AIID != localAIUserID(a.release.State.User.UserID, payload.DeckArthurType) {
+	if payload.AIID != localAIUserID(a.initialState.User.UserID, payload.DeckArthurType) {
 		writeError(writer, http.StatusBadRequest, "unknown local AI room owner")
 		return
 	}
@@ -148,7 +149,7 @@ func (a *API) teamBattleAIRoomCreate(writer http.ResponseWriter, request *http.R
 }
 
 func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Credential, error) {
-	teamBattleSolo := a.store.teamBattleSoloState()
+	teamBattleSolo := a.account.TeamBattleSoloState()
 	var groupID int
 	var bossGroup any
 	var found bool
@@ -157,10 +158,10 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		if !teamBattleSoloBossAccessible(teamBattleSolo, issue.BossID, time.Now().Unix()) {
 			return multiplayer.Credential{}, errors.New("team battle boss is locked")
 		}
-		groupID, bossGroup, found = teamBattleGroupForBoss(teamBattleSolo, issue.BossID)
+		groupID, bossGroup, found = game.TeamBattleGroupForBoss(teamBattleSolo, issue.BossID)
 	case 1, 2:
 		groupID, bossGroup, found = teamBattlePastBossGroupForBoss(
-			a.release.State.TeamBattlePastBossGroups, issue.BossID,
+			a.initialState.TeamBattlePastBossGroups, issue.BossID,
 		)
 	default:
 		return multiplayer.Credential{}, errors.New("invalid team battle payment flag")
@@ -168,40 +169,40 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 	if !found {
 		return multiplayer.Credential{}, errors.New("unknown team battle boss")
 	}
-	rules, found := teamBattleGroupEntryRules(bossGroup, issue.BossID)
-	if !found || !rules.allowsMultiplayer() {
+	rules, found := game.TeamBattleGroupEntryRules(bossGroup, issue.BossID)
+	if !found || !rules.AllowsMultiplayer() {
 		return multiplayer.Credential{}, errors.New("this battle does not allow multiplayer rooms")
 	}
-	replay, found := teamBattleReplayForBoss(a.release.State.TeamBattleReplays, issue.BossID)
+	replay, found := teamBattleReplayForBoss(a.initialState.TeamBattleReplays, issue.BossID)
 	if !found {
 		return multiplayer.Credential{}, errors.New("unknown team battle replay")
 	}
-	rewardProfile, found := teamBattleRewardProfileForContext(
-		a.release.State.TeamBattleRewards,
-		teamBattleContext{BossID: issue.BossID},
+	rewardProfile, found := game.TeamBattleRewardProfileForContext(
+		a.initialState.TeamBattleRewards,
+		game.TeamBattleContext{BossID: issue.BossID},
 	)
 	if !found {
 		return multiplayer.Credential{}, errors.New("unknown team battle drop profile")
 	}
-	member, err := a.multiplayerMember(issue.DeckArthurType, issue.DeckArthurTypeIndex)
+	member, err := a.account.MultiplayerMember(a.initialState.User.UserID, issue.DeckArthurType, issue.DeckArthurTypeIndex)
 	if err != nil {
 		return multiplayer.Credential{}, err
 	}
-	fallbackParty := a.multiplayerOwnerFallbackParty(issue.DeckArthurType)
+	fallbackParty := a.account.MultiplayerOwnerFallbackParty(a.initialState.User.UserID, issue.DeckArthurType)
 	// The stock multiplayer picker uses bp_use_half; the request supplies no
 	// price. Freeze the published cost in the room and debit only at start.
 	bpUse := rules.BPUseHalf
 	if bpUse <= 0 || bpUse > rules.BPUse {
 		return multiplayer.Credential{}, errors.New("multiplayer battle point cost is unavailable")
 	}
-	if a.store.battlePointState().Current < bpUse {
+	if a.account.BattlePointState().Current < bpUse {
 		return multiplayer.Credential{}, errors.New("multiplayer host battle points are insufficient")
 	}
 	battles, err := teamBattleReplayBattles(replay)
 	if err != nil {
 		return multiplayer.Credential{}, err
 	}
-	dropPlan, err := planTeamBattleDrops(rewardProfile, teamBattleEnemyTypes(battles), fmt.Sprintf("multi:issue:%d:%d", member.UserID, time.Now().UnixNano()))
+	dropPlan, err := game.PlanTeamBattleDrops(rewardProfile, teamBattleEnemyTypes(battles), fmt.Sprintf("multi:issue:%d:%d", member.UserID, time.Now().UnixNano()))
 	if err != nil {
 		return multiplayer.Credential{}, err
 	}
@@ -210,7 +211,7 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		DropLedgerVersion:  1,
 		DropPlan:           dropPlan,
 		FameRewardsSet:     true,
-		FameRewards:        teamBattleFamePool(rewardProfile, a.release.State.TeamBattleFameBonusPolicy),
+		FameRewards:        game.TeamBattleFamePool(rewardProfile, a.initialState.TeamBattleFameBonusPolicy),
 		BattlePointUse:     bpUse,
 		ContinueAllowed:    rules.Continue != 0,
 		BossID:             issue.BossID,
@@ -230,7 +231,7 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		CostInitial:        replay.CostInitial,
 		HoldMax:            replay.HoldMax,
 		BurstGaugeInitial:  replay.BurstGaugeInitial,
-		Seed:               newBattleSeed(),
+		Seed:               game.NewBattleSeed(),
 		Drops:              teamBattleDropPlanSpecs(dropPlan, 0),
 		BossGroup:          bossGroup,
 		Owner:              member,
@@ -263,7 +264,7 @@ func (a *API) teamBattleMultiRoomEnter(writer http.ResponseWriter, request *http
 		a.writeMultiplayerAvailabilityError(writer, err, false, http.StatusForbidden)
 		return
 	}
-	member, err := a.multiplayerMember(payload.DeckArthurType, payload.DeckArthurTypeIndex)
+	member, err := a.account.MultiplayerMember(a.initialState.User.UserID, payload.DeckArthurType, payload.DeckArthurTypeIndex)
 	if err != nil {
 		a.writeStoreError(writer, err)
 		return
@@ -304,7 +305,7 @@ func (a *API) teamBattleMultiRoomReserve(writer http.ResponseWriter, request *ht
 	}
 	limit, err := a.multiplayer.Reserve(
 		payload.RoomID,
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 		int(payload.DeckArthurType),
 	)
 	if err != nil {
@@ -330,7 +331,7 @@ func (a *API) writeMultiplayerAvailabilityError(writer http.ResponseWriter, err 
 }
 
 func multiplayerRoomAllowsVisitor(roomType int, friendState int8) bool {
-	return roomType != 1 || friendState == friendStateFriend
+	return roomType != 1 || friendState == game.FriendStateFriend
 }
 
 func (a *API) authorizeMultiplayerRoom(roomID int64) error {
@@ -342,8 +343,8 @@ func (a *API) authorizeMultiplayerRoom(roomID int64) error {
 }
 
 func (a *API) authorizeMultiplayerRoomSnapshot(room multiplayer.RoomSnapshot) error {
-	rules, found := a.store.teamBattleEntryRulesForBoss(room.BossID)
-	if !found || !rules.allowsMultiplayer() {
+	rules, found := a.account.TeamBattleEntryRulesForBoss(room.BossID)
+	if !found || !rules.AllowsMultiplayer() {
 		return multiplayer.ErrRoomUnavailable
 	}
 	if room.RoomType != 1 {
@@ -385,7 +386,7 @@ func (a *API) teamBattleMultiRoomReserveCancel(writer http.ResponseWriter, reque
 	}
 	if err := a.multiplayer.CancelReservation(
 		payload.RoomID,
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 		int(payload.DeckArthurType),
 	); err != nil {
 		a.writeStoreError(writer, err)
@@ -412,11 +413,11 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	a.teamBattleResultMu.Lock()
 	defer a.teamBattleResultMu.Unlock()
-	if cached, exists := a.store.teamBattleResultReceipt(payload.RoomID); exists {
+	if cached, exists := a.account.TeamBattleResultReceipt(payload.RoomID); exists {
 		a.writeProtocol(writer, cached)
 		return
 	}
-	completed, err := a.multiplayer.SettlementFor(payload.RoomID, a.release.State.User.UserID)
+	completed, err := a.multiplayer.SettlementFor(payload.RoomID, a.initialState.User.UserID)
 	if err != nil {
 		if errors.Is(err, multiplayer.ErrCompletedBattleIneligible) ||
 			errors.Is(err, multiplayer.ErrCompletedBattleUnavailable) {
@@ -441,7 +442,7 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	members, membersOnline, err := multiplayerResultMembersWire(
 		completed,
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 		friendStates,
 	)
 	if err != nil {
@@ -450,7 +451,7 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	fameSources, claimantFameSource, err := multiplayerFameSources(
 		completed,
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 	)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
@@ -458,7 +459,7 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	hostBonusArthurType, isRoomOwner, err := multiplayerHostBonusArthurType(
 		completed,
-		a.release.State.User.UserID,
+		a.initialState.User.UserID,
 		claimantFameSource,
 	)
 	if err != nil {
@@ -470,7 +471,7 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	multiplayerReplay, found := teamBattleReplayForBoss(
-		a.release.State.TeamBattleReplays,
+		a.initialState.TeamBattleReplays,
 		completed.BossID,
 	)
 	if !found {
@@ -484,17 +485,17 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	friendPointReward := 0
 	for _, member := range completed.Members {
-		if member.UserID == a.release.State.User.UserID {
+		if member.UserID == a.initialState.User.UserID {
 			continue
 		}
-		friendPointReward += a.store.friendPointRewardForState(friendStates[member.UserID])
+		friendPointReward += a.account.FriendPointRewardForState(friendStates[member.UserID])
 	}
-	if _, _, started, startErr := a.store.beginTeamBattle(
+	if _, _, started, startErr := a.account.BeginTeamBattle(
 		completed.BossID,
 		teamBattleEnemyTypes(battles),
 		0, // The host's exact paid cost comes from its durable start receipt.
 		isRoomOwner,
-		a.release.State.TeamBattleRewards,
+		a.initialState.TeamBattleRewards,
 		fmt.Sprintf("multi:room=%d", payload.RoomID),
 		fameSources,
 		hostBonusArthurType,
@@ -516,10 +517,10 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 		writeError(writer, http.StatusConflict, "team battle points are insufficient")
 		return
 	}
-	settlement, err := a.store.completeTeamBattle(
+	settlement, err := a.account.CompleteTeamBattle(
 		completed.BossID,
 		true,
-		a.release.State.TeamBattleRewards,
+		a.initialState.TeamBattleRewards,
 		multiplayerDropReport(completed),
 	)
 	if err != nil {
@@ -528,15 +529,15 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	resultRewards := battleResultRewardsWire(settlement.Result.Rewards)
 	clearRewards := battleResultRewardsWire(settlement.FirstClear.Rewards)
-	newCards := append([]cardInfo(nil), settlement.Result.Cards...)
+	newCards := append([]game.CardInfo(nil), settlement.Result.Cards...)
 	newCards = append(newCards, settlement.FirstClear.Cards...)
-	newStackCards := append([]release.CardStack(nil), settlement.Result.StackCards...)
+	newStackCards := append([]gamestate.CardStack(nil), settlement.Result.StackCards...)
 	newStackCards = append(newStackCards, settlement.FirstClear.StackCards...)
-	newItems := append([]release.Item(nil), settlement.Result.Items...)
+	newItems := append([]gamestate.Item(nil), settlement.Result.Items...)
 	newItems = append(newItems, settlement.FirstClear.Items...)
-	newSpheres := append([]release.Sphere(nil), settlement.Result.Spheres...)
+	newSpheres := append([]gamestate.Sphere(nil), settlement.Result.Spheres...)
 	newSpheres = append(newSpheres, settlement.FirstClear.Spheres...)
-	newBuddies := append([]release.Buddy(nil), settlement.Result.Buddies...)
+	newBuddies := append([]gamestate.Buddy(nil), settlement.Result.Buddies...)
 	newBuddies = append(newBuddies, settlement.FirstClear.Buddies...)
 	for _, fameAward := range settlement.Fame {
 		newCards = append(newCards, fameAward.Result.Cards...)
@@ -574,14 +575,14 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 		"new_buddys":                      toWireBuddies(newBuddies),
 		"members":                         members,
 		"members_is_online":               membersOnline,
-		"is_result_reward_in_present_box": boolInt(settlement.Result.InPresentBox),
-		"is_clear_reward_in_present_box":  boolInt(settlement.FirstClear.InPresentBox),
+		"is_result_reward_in_present_box": game.BoolInt(settlement.Result.InPresentBox),
+		"is_clear_reward_in_present_box":  game.BoolInt(settlement.FirstClear.InPresentBox),
 		"is_fame_reward_in_present_box":   battleAwardsInPresentBox(settlement.Fame),
 		"is_stage_reward_in_present_box":  0,
-		"is_score_reward_in_present_box":  boolInt(settlement.Score.InPresentBox),
+		"is_score_reward_in_present_box":  game.BoolInt(settlement.Score.InPresentBox),
 		"rookie_type":                     0,
 		"unlock_notice":                   []any{},
-		"bonus_fame_add":                  a.release.State.TeamBattleFameBonusPolicy.BonusFameAdd,
+		"bonus_fame_add":                  a.initialState.TeamBattleFameBonusPolicy.BonusFameAdd,
 		"stage_quest":                     stageQuest,
 		"scene_transition":                []any{},
 		"auto_fusion_result":              []any{},
@@ -594,18 +595,18 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 		writeError(writer, http.StatusInternalServerError, "encode multiplayer settlement")
 		return
 	}
-	if err := a.store.recordTeamBattleResultReceipt(payload.RoomID, encodedResponse, time.Now()); err != nil {
+	if err := a.account.RecordTeamBattleResultReceipt(payload.RoomID, encodedResponse, time.Now()); err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !a.persistOrError(writer) {
 		return
 	}
-	if err := a.multiplayer.MarkSettlementClaimed(payload.RoomID, a.release.State.User.UserID); err != nil {
+	if err := a.multiplayer.MarkSettlementClaimed(payload.RoomID, a.initialState.User.UserID); err != nil {
 		a.logger.Warn(
 			"persisted multiplayer settlement but could not mark in-memory claim",
 			"room_id", payload.RoomID,
-			"user_id", a.release.State.User.UserID,
+			"user_id", a.initialState.User.UserID,
 			"error", err,
 		)
 	}
@@ -681,33 +682,33 @@ func multiplayerResultMembersWire(
 func multiplayerFameSources(
 	completed multiplayer.CompletedBattle,
 	claimantUserID int,
-) ([]teamBattleFameSource, teamBattleFameSource, error) {
+) ([]game.TeamBattleFameSource, game.TeamBattleFameSource, error) {
 	if claimantUserID <= 0 || len(completed.Members) != 4 || len(completed.OnlineUserIDs) == 0 {
-		return nil, teamBattleFameSource{}, errors.New("completed multiplayer fame projection is incomplete")
+		return nil, game.TeamBattleFameSource{}, errors.New("completed multiplayer fame projection is incomplete")
 	}
 	eligibleUserIDs := make(map[int]struct{}, len(completed.OnlineUserIDs))
 	for _, userID := range completed.OnlineUserIDs {
 		if userID <= 0 {
-			return nil, teamBattleFameSource{}, errors.New("completed multiplayer fame claimant is invalid")
+			return nil, game.TeamBattleFameSource{}, errors.New("completed multiplayer fame claimant is invalid")
 		}
 		eligibleUserIDs[userID] = struct{}{}
 	}
-	sources := make([]teamBattleFameSource, 0, len(eligibleUserIDs))
+	sources := make([]game.TeamBattleFameSource, 0, len(eligibleUserIDs))
 	seenArthurTypes := make(map[int]struct{}, len(completed.Members))
-	claimant := teamBattleFameSource{}
+	claimant := game.TeamBattleFameSource{}
 	for _, member := range completed.Members {
 		if member.ArthurType < 1 || member.ArthurType > 4 || member.LeaderFame <= 0 ||
 			member.LeaderFame > 100 {
-			return nil, teamBattleFameSource{}, errors.New("completed multiplayer fame member is invalid")
+			return nil, game.TeamBattleFameSource{}, errors.New("completed multiplayer fame member is invalid")
 		}
 		if _, duplicate := seenArthurTypes[member.ArthurType]; duplicate {
-			return nil, teamBattleFameSource{}, errors.New("completed multiplayer fame Arthur type is duplicated")
+			return nil, game.TeamBattleFameSource{}, errors.New("completed multiplayer fame Arthur type is duplicated")
 		}
 		seenArthurTypes[member.ArthurType] = struct{}{}
 		if _, eligible := eligibleUserIDs[member.UserID]; !eligible {
 			continue
 		}
-		source := teamBattleFameSource{
+		source := game.TeamBattleFameSource{
 			ArthurType: member.ArthurType,
 			LeaderFame: member.LeaderFame,
 		}
@@ -717,7 +718,7 @@ func multiplayerFameSources(
 		}
 	}
 	if len(sources) == 0 || claimant.ArthurType == 0 {
-		return nil, teamBattleFameSource{}, errors.New("completed multiplayer fame claimant is unavailable")
+		return nil, game.TeamBattleFameSource{}, errors.New("completed multiplayer fame claimant is unavailable")
 	}
 	sort.Slice(sources, func(left, right int) bool {
 		return sources[left].ArthurType < sources[right].ArthurType
@@ -728,7 +729,7 @@ func multiplayerFameSources(
 func multiplayerHostBonusArthurType(
 	completed multiplayer.CompletedBattle,
 	claimantUserID int,
-	claimant teamBattleFameSource,
+	claimant game.TeamBattleFameSource,
 ) (int, bool, error) {
 	if claimantUserID <= 0 || claimant.ArthurType < 1 || claimant.ArthurType > 4 ||
 		completed.OwnerMemberType < 1 || completed.OwnerMemberType > 4 || len(completed.Members) != 4 {
@@ -750,176 +751,6 @@ func multiplayerHostBonusArthurType(
 		return member.ArthurType, true, nil
 	}
 	return 0, false, errors.New("completed multiplayer room owner is unavailable")
-}
-
-func (a *API) multiplayerMember(arthurType int8, deckIndex int8) (multiplayer.Member, error) {
-	cards, decks := a.store.show()
-	deck, found := exactDeck(decks, arthurType, deckIndex)
-	if !found {
-		return multiplayer.Member{}, errors.New("local multiplayer deck is unavailable")
-	}
-	if len(deck.CardUniqueIDs) != 10 {
-		return multiplayer.Member{}, errors.New("local multiplayer deck must contain ten cards")
-	}
-	cardByUniqueID := make(map[int64]cardInfo, len(cards))
-	for _, card := range cards {
-		cardByUniqueID[card.UniqueID] = card
-	}
-	leader, found := partnerLeaderCard(deck, cardByUniqueID)
-	if !found {
-		return multiplayer.Member{}, errors.New("local multiplayer leader card is unavailable")
-	}
-	hp, attack, magic, mind := partnerDeckStats(
-		deck,
-		cardByUniqueID,
-		a.store.jobParameter(deck.JobType),
-	)
-	battleCards := make([]multiplayer.BattleCard, len(deck.CardUniqueIDs))
-	for index, uniqueID := range deck.CardUniqueIDs {
-		card, exists := cardByUniqueID[uniqueID]
-		if !exists || card.CardID <= 0 || card.Level <= 0 {
-			return multiplayer.Member{}, fmt.Errorf("local multiplayer card in deck slot %d is unavailable", index+1)
-		}
-		battleCards[index] = multiplayer.BattleCard{
-			CardType: index + 1,
-			CardID:   card.CardID,
-			Level:    card.Level,
-			Love:     card.Love,
-		}
-	}
-	supportCards := make([]multiplayer.BattleCard, 0, len(deck.SupportCardUniqueIDs))
-	for index, uniqueID := range deck.SupportCardUniqueIDs {
-		if uniqueID == 0 {
-			continue
-		}
-		card, exists := cardByUniqueID[uniqueID]
-		if !exists || card.CardID <= 0 || card.Level <= 0 {
-			return multiplayer.Member{}, fmt.Errorf("local multiplayer support card in deck slot %d is unavailable", index+1)
-		}
-		supportCards = append(supportCards, multiplayer.BattleCard{
-			CardType: index + 11, CardID: card.CardID, Level: card.Level, Love: card.Love,
-		})
-	}
-	sphereByUniqueID := make(map[int64]release.Sphere)
-	for _, sphere := range a.store.sphereState() {
-		sphereByUniqueID[sphere.UniqueID] = sphere
-	}
-	battleSpheres := make([]multiplayer.BattleSphere, 0, len(deck.SphereUniqueIDs))
-	for index, uniqueID := range deck.SphereUniqueIDs {
-		if uniqueID == 0 {
-			continue
-		}
-		sphere, exists := sphereByUniqueID[uniqueID]
-		if !exists || sphere.SphereID <= 0 || sphere.Level <= 0 {
-			return multiplayer.Member{}, fmt.Errorf("local multiplayer sphere in deck slot %d is unavailable", index+1)
-		}
-		battleSpheres = append(battleSpheres, multiplayer.BattleSphere{
-			SphereType: index + 1,
-			SphereID:   sphere.SphereID,
-			Level:      sphere.Level,
-		})
-	}
-	battleBuddies := make([]multiplayer.BattleBuddy, 0, len(deck.BuddyUniqueIDs))
-	buddyByUniqueID := make(map[int64]release.Buddy)
-	for _, buddy := range a.store.buddyState() {
-		buddyByUniqueID[buddy.UniqueID] = buddy
-	}
-	for index, uniqueID := range deck.BuddyUniqueIDs {
-		if uniqueID == 0 {
-			continue
-		}
-		buddy, exists := buddyByUniqueID[uniqueID]
-		if !exists || buddy.BuddyID <= 0 || buddy.Level <= 0 {
-			return multiplayer.Member{}, fmt.Errorf("local multiplayer buddy in deck slot %d is unavailable", index+1)
-		}
-		battleBuddies = append(battleBuddies, multiplayer.BattleBuddy{
-			BuddyType: index + 1,
-			BuddyID:   buddy.BuddyID,
-			Level:     buddy.Level,
-		})
-	}
-	avatarIndex := int(arthurType) - 1
-	avatars := a.store.avatarsState()
-	if avatarIndex < 0 || avatarIndex >= len(avatars) {
-		return multiplayer.Member{}, errors.New("local multiplayer avatar is unavailable")
-	}
-	honorIDs, _ := a.store.honorState()
-	if len(honorIDs) != 4 {
-		return multiplayer.Member{}, errors.New("local multiplayer honor deck is unavailable")
-	}
-	avatar := avatars[avatarIndex]
-	return multiplayer.Member{
-		UserID:       a.release.State.User.UserID,
-		IsBurst:      int(a.store.arthurBurstUnlocked(arthurType)),
-		Level:        a.store.userLevel(),
-		ArthurType:   int(arthurType),
-		JobType:      int(deck.JobType),
-		HP:           hp,
-		Attack:       attack,
-		Magic:        magic,
-		Mind:         mind,
-		Name:         a.store.userName(),
-		LeaderCardID: leader.CardID,
-		LeaderFame:   leader.Fame,
-		LeaderLevel:  leader.Level,
-		DeckRank:     int(deck.DeckRank),
-		DeckName:     deck.Name,
-		CostumeID:    avatar.CostumeID,
-		PartsIDs:     append([]int(nil), avatar.AvatarPartIDs...),
-		DeckHonorIDs: append([]int(nil), honorIDs...),
-		DeckCards:    battleCards,
-		SupportCards: supportCards,
-		DeckSpheres:  battleSpheres,
-		DeckBuddies:  battleBuddies,
-		IsBuddy:      boolInt(len(battleBuddies) > 0),
-	}, nil
-}
-
-// multiplayerOwnerFallbackParty projects available active Arthur decks
-// from the room owner's persisted account. Missing/unconfigured professions
-// can still be filled by humans; countdown checks the actual remaining roles.
-// These are combat participants, not
-// connected room users, so their stable character IDs use the same per-account
-// namespace as the local solo partner projections.
-func (a *API) multiplayerOwnerFallbackParty(selectedArthurType int8) []multiplayer.Member {
-	_, decks := a.store.show()
-	result := make([]multiplayer.Member, 0, 3)
-	for arthurType := int8(1); arthurType <= 4; arthurType++ {
-		if arthurType == selectedArthurType {
-			continue
-		}
-		deckIndex, found := activeDeckIndex(decks, arthurType)
-		if !found {
-			continue
-		}
-		member, err := a.multiplayerMember(arthurType, deckIndex)
-		if err != nil {
-			continue
-		}
-		member.UserID = a.release.State.User.UserID*10 + int(arthurType)
-		member.Name = a.store.userName()
-		member.IsRoomLoading = 1
-		result = append(result, member)
-	}
-	return result
-}
-
-func activeDeckIndex(decks []deckInfo, arthurType int8) (int8, bool) {
-	var fallback int8
-	hasFallback := false
-	for _, deck := range decks {
-		if deck.ArthurType != arthurType {
-			continue
-		}
-		if !hasFallback || deck.Index < fallback {
-			fallback = deck.Index
-			hasFallback = true
-		}
-		if deck.IsActive != 0 {
-			return deck.Index, true
-		}
-	}
-	return fallback, hasFallback
 }
 
 func (a *API) battleSVWire(credential multiplayer.Credential) map[string]any {
@@ -1025,38 +856,6 @@ func teamBattlePastBossGroupForBoss(groups []json.RawMessage, bossID int) (int, 
 			"7": pictID, "8": 0, "9": 0, "10": bosses,
 			"11": []any{}, "12": []any{}, "13": []any{}, "14": 0, "15": 0,
 		}, true
-	}
-	return 0, nil, false
-}
-
-func teamBattleGroupForBoss(configuration json.RawMessage, bossID int) (int, any, bool) {
-	var top map[string]json.RawMessage
-	if json.Unmarshal(configuration, &top) != nil {
-		return 0, nil, false
-	}
-	for _, key := range []string{"9", "10", "11", "12"} {
-		var groups []map[string]json.RawMessage
-		if json.Unmarshal(top[key], &groups) != nil {
-			continue
-		}
-		for _, group := range groups {
-			var groupID int
-			var bosses []map[string]json.RawMessage
-			if json.Unmarshal(group["0"], &groupID) != nil || json.Unmarshal(group["10"], &bosses) != nil {
-				continue
-			}
-			for _, boss := range bosses {
-				var current int
-				if json.Unmarshal(boss["0"], &current) == nil && current == bossID {
-					var wire any
-					encoded, err := json.Marshal(group)
-					if err != nil || json.Unmarshal(encoded, &wire) != nil {
-						return 0, nil, false
-					}
-					return groupID, wire, true
-				}
-			}
-		}
 	}
 	return 0, nil, false
 }

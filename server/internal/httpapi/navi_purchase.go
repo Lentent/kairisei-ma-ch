@@ -1,6 +1,8 @@
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+)
 
 func (a *API) buyNavi(writer http.ResponseWriter, request *http.Request) {
 	var payload struct {
@@ -10,7 +12,7 @@ func (a *API) buyNavi(writer http.ResponseWriter, request *http.Request) {
 		a.writeStoreError(writer, err)
 		return
 	}
-	if err := a.store.purchaseNavi(payload.NaviID); err != nil {
+	if err := a.account.PurchaseNavi(payload.NaviID); err != nil {
 		a.writeStoreError(writer, err)
 		return
 	}

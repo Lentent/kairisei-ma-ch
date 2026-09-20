@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,19 +19,17 @@ import (
 
 	"kairisei.local/server/internal/cdnsync"
 	"kairisei.local/server/internal/cnbootstrap"
-	"kairisei.local/server/internal/httpapi"
 	"kairisei.local/server/internal/multiplayer"
-	"kairisei.local/server/internal/release"
 )
 
 type options struct {
-	cdnSyncConfig             string
-	cdnSyncDryRun             bool
-	cdnConfig                 string
-	cdnManifestOutput         string
-	resourceSet               string
-	clientProfile             string
-	releaseDirectory          string
+	cdnSyncConfig     string
+	cdnSyncDryRun     bool
+	cdnConfig         string
+	cdnManifestOutput string
+	resourceSet       string
+	clientProfile     string
+
 	requestLog                string
 	cnSavePath                string
 	cnSaveSeedPath            string
@@ -53,6 +52,7 @@ type options struct {
 	cnPlayerProgressionPath   string
 	cnLoginBonusPath          string
 	cnCPKRoot                 string
+	cnImageRoot               string
 	cnCPKAliasPath            string
 	cnPatchRoots              stringListFlag
 	listenHost                string
@@ -96,7 +96,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	flags.StringVar(&opts.resourceSet, "resource-set", "", "complete resource-set.json used for CDN export/sync")
 	flags.StringVar(&opts.shutdownEvent, "shutdown-event", "", "Windows local graceful shutdown event")
 	flags.StringVar(&opts.clientProfile, "client-profile", "", "explicit client profile")
-	flags.StringVar(&opts.releaseDirectory, "release-dir", "", "legacy release directory")
+
 	flags.StringVar(&opts.requestLog, "request-log", "", "CN JSONL request capture")
 	flags.StringVar(&opts.cnSavePath, "cn-save-path", "", "editable local CN character save")
 	flags.StringVar(&opts.cnSaveSeedPath, "cn-save-seed", "", "versioned local CN save migration seed")
@@ -119,6 +119,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	flags.StringVar(&opts.cnPlayerProgressionPath, "cn-player-progression", "", "CN player EXP, cap and base-job progression policy")
 	flags.StringVar(&opts.cnLoginBonusPath, "cn-login-bonus", "", "CN local daily login bonus policy")
 	flags.StringVar(&opts.cnCPKRoot, "cn-cpk-root", "", "read-only official CN CPK root")
+	flags.StringVar(&opts.cnImageRoot, "cn-image-root", "", "read-only enlarged card image root")
 	flags.StringVar(&opts.cnCPKAliasPath, "cn-cpk-aliases", "", "generated CN CPK logical alias manifest")
 	flags.Var(&opts.cnPatchRoots, "cn-patch-root", "read-only official CN patch root; repeat for source overlays")
 	flags.StringVar(&opts.listenHost, "listen-host", "0.0.0.0", "local listen address")
@@ -198,7 +199,6 @@ func run(arguments []string, logger *slog.Logger) error {
 	defer closeEvent()
 	baseURL := "http://" + opts.advertiseHost + ":" + strconv.Itoa(opts.port)
 	var handler http.Handler
-	var runtimeRelease *release.Release
 	var multiplayerHub *multiplayer.Hub
 	var battleServer *multiplayer.Server
 	var err error
@@ -232,15 +232,45 @@ func run(arguments []string, logger *slog.Logger) error {
 		}
 		battleServer, err = multiplayer.NewServer(multiplayerHub, logger)
 		if err == nil {
-			handler, err = cnbootstrap.NewWithMultiplayerAndPVP(opts.requestLog, opts.cnSavePath, opts.cnSaveSeedPath, opts.cnAssetMapPath, opts.cnCardMasterPath, opts.cnExploreMasterPath, opts.cnStoryMasterPath, opts.cnBattleMasterPath, opts.cnNaviMasterPath, opts.cnItemMasterPath, opts.cnAvatarMasterPath, opts.cnGachaBannerPath, opts.cnFiveStarGachaBannerPath, opts.cnHomeBannerPath, opts.cnStampMasterPath, opts.cnHonorMasterPath, opts.cnPVPMasterPath, opts.cnPlayerProgressionPath, opts.cnLoginBonusPath, opts.advertiseHost, opts.port, multiplayer.Endpoint{Host: opts.advertiseHost, Port: uint16(opts.battlePort)}, multiplayerHub, opts.cnCPKRoot, opts.cnCPKAliasPath, []string(opts.cnPatchRoots), cdn, logger)
-		}
-	case "":
-		if opts.releaseDirectory == "" {
-			return errors.New("-client-profile or -release-dir is required")
-		}
-		runtimeRelease, err = release.Load(opts.releaseDirectory)
-		if err == nil {
-			handler, err = httpapi.New(runtimeRelease, baseURL, logger)
+			handler, err = cnbootstrap.New(cnbootstrap.Config{
+				Persistence: cnbootstrap.PersistenceConfig{
+					RequestLog: opts.requestLog,
+					SavePath:   opts.cnSavePath,
+					SeedPath:   opts.cnSaveSeedPath,
+				},
+				Resources: cnbootstrap.ResourcesConfig{
+					AssetMap:            opts.cnAssetMapPath,
+					GachaBanner:         opts.cnGachaBannerPath,
+					FiveStarGachaBanner: opts.cnFiveStarGachaBannerPath,
+					HomeBanner:          opts.cnHomeBannerPath,
+					CPKRoot:             opts.cnCPKRoot,
+					ImageRoot:           opts.cnImageRoot,
+					CPKAliases:          opts.cnCPKAliasPath,
+					PatchRoots:          []string(opts.cnPatchRoots),
+				},
+				Masters: cnbootstrap.MastersConfig{
+					Cards:             opts.cnCardMasterPath,
+					Explore:           opts.cnExploreMasterPath,
+					Story:             opts.cnStoryMasterPath,
+					Battle:            opts.cnBattleMasterPath,
+					Navi:              opts.cnNaviMasterPath,
+					Items:             opts.cnItemMasterPath,
+					Avatar:            opts.cnAvatarMasterPath,
+					Stamps:            opts.cnStampMasterPath,
+					Honors:            opts.cnHonorMasterPath,
+					PVP:               opts.cnPVPMasterPath,
+					PlayerProgression: opts.cnPlayerProgressionPath,
+					LoginBonus:        opts.cnLoginBonusPath,
+				},
+				Network: cnbootstrap.NetworkConfig{
+					AdvertiseHost: opts.advertiseHost,
+					HTTPPort:      opts.port,
+					BattleSV:      multiplayer.Endpoint{Host: opts.advertiseHost, Port: uint16(opts.battlePort)},
+				},
+				Multiplayer: multiplayerHub,
+				CDN:         cdn,
+				Logger:      logger,
+			})
 		}
 	default:
 		return fmt.Errorf("unsupported client profile %q", opts.clientProfile)
@@ -249,6 +279,13 @@ func run(arguments []string, logger *slog.Logger) error {
 		return err
 	}
 
+	if closer, ok := handler.(io.Closer); ok {
+		defer func() {
+			if err := closer.Close(); err != nil {
+				logger.Error("close SQLite connection pools", "error", err)
+			}
+		}()
+	}
 	server := &http.Server{
 		Addr:              opts.listenHost + ":" + strconv.Itoa(opts.port),
 		Handler:           handler,
@@ -262,15 +299,12 @@ func run(arguments []string, logger *slog.Logger) error {
 		return fmt.Errorf("listen on %s: %w", server.Addr, err)
 	}
 	defer listener.Close()
-	var battleListener net.Listener
-	if battleServer != nil {
-		battleAddress := opts.listenHost + ":" + strconv.Itoa(opts.battlePort)
-		battleListener, err = net.Listen("tcp", battleAddress)
-		if err != nil {
-			return fmt.Errorf("listen on BattleSv %s: %w", battleAddress, err)
-		}
-		defer battleListener.Close()
+	battleAddress := opts.listenHost + ":" + strconv.Itoa(opts.battlePort)
+	battleListener, err := net.Listen("tcp", battleAddress)
+	if err != nil {
+		return fmt.Errorf("listen on BattleSv %s: %w", battleAddress, err)
 	}
+	defer battleListener.Close()
 	var adminServer *http.Server
 	var adminListener net.Listener
 	if opts.adminPort != 0 {
@@ -293,11 +327,7 @@ func run(arguments []string, logger *slog.Logger) error {
 		defer adminListener.Close()
 	}
 	attributes := []any{"listen", server.Addr, "advertise_base_url", baseURL}
-	if opts.clientProfile != "" {
-		attributes = append(attributes, "client_profile", opts.clientProfile, "request_log", opts.requestLog, "battle_listen", battleListener.Addr().String(), "battle_advertise", net.JoinHostPort(opts.advertiseHost, strconv.Itoa(opts.battlePort)))
-	} else {
-		attributes = append(attributes, "release_id", runtimeRelease.Manifest.ReleaseID)
-	}
+	attributes = append(attributes, "client_profile", opts.clientProfile, "request_log", opts.requestLog, "battle_listen", battleListener.Addr().String(), "battle_advertise", net.JoinHostPort(opts.advertiseHost, strconv.Itoa(opts.battlePort)))
 	if adminListener != nil {
 		attributes = append(attributes, "admin_listen", adminListener.Addr().String())
 	}
@@ -308,9 +338,7 @@ func run(arguments []string, logger *slog.Logger) error {
 	httpErrors := make(chan error, 1)
 	go func() { httpErrors <- server.Serve(listener) }()
 	battleErrors := make(chan error, 1)
-	if battleServer != nil {
-		go func() { battleErrors <- battleServer.Serve(battleListener) }()
-	}
+	go func() { battleErrors <- battleServer.Serve(battleListener) }()
 	var adminErrors chan error
 	if adminServer != nil {
 		adminErrors = make(chan error, 1)
@@ -318,8 +346,8 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	shutdown := func() {
 		logger.Info("server stopping; draining requests and SQLite transactions")
-		// Close all admission paths together. DB connections belong to each
-		// operation and close in its defer; exiting early would skip those defers.
+		// Close all admission paths together. Shared SQLite pools close on
+		// return only after every active HTTP/Admin/BattleSv operation drains.
 		var draining sync.WaitGroup
 		for _, service := range []*http.Server{server, adminServer} {
 			if service != nil {
@@ -327,12 +355,8 @@ func run(arguments []string, logger *slog.Logger) error {
 				go func() { defer draining.Done(); _ = service.Shutdown(context.Background()) }()
 			}
 		}
-		if battleListener != nil {
-			_ = battleListener.Close()
-		}
-		if battleServer != nil {
-			_ = battleServer.Close()
-		}
+		_ = battleListener.Close()
+		_ = battleServer.Close()
 		draining.Wait()
 		logger.Info("server stopped; active operations drained")
 	}

@@ -111,6 +111,7 @@ $playerProgressionPath = Join-Path $configRoot 'cn602-player-progression-runtime
 $loginBonusPath = Join-Path $configRoot 'cn602-login-bonus-runtime.json'
 $cpkRoot = Join-Path $resourceRoot 'cpk'
 $cpkAliasesPath = Join-Path $controlRoot 'cn602-cpk-aliases.json'
+$imageRoot = $null
 $avatarPatchRoot = Join-Path $controlRoot 'cn602-private-derived-avatar-icons'
 $patchRoot = Join-Path $resourceRoot 'patch'
 $resourceSetPath = Join-Path $packageRoot 'resource-set\resource-set.json'
@@ -148,8 +149,8 @@ if (Test-Path -LiteralPath $resourceSetPath -PathType Leaf) {
         'cn-five-star-gacha-banner'='fiveStarBannerPath'; 'cn-home-banner'='homeBannerPath'; 'cn-stamp-master'='stampMasterPath'
         'cn-honor-master'='honorMasterPath'; 'cn-pvp-master'='pvpMasterPath'; 'cn-player-progression'='playerProgressionPath'
         'cn-login-bonus'='loginBonusPath'; 'cn-cpk-root'='cpkRoot'; 'cn-cpk-aliases'='cpkAliasesPath'; 'cn-patch-root'='patchRoot'
+        'cn-image-root'='imageRoot'
     }
-    if ($resourceInputs.Count -ne $bindings.Count) { throw 'Unexpected resource entrypoint count.' }
     foreach ($name in $bindings.Keys) {
         if (-not $resourceInputs.ContainsKey($name)) { throw "Missing resource entrypoint: $name" }
         Set-Variable -Name $bindings[$name] -Value $resourceInputs[$name]
@@ -176,6 +177,9 @@ foreach ($path in @(
 }
 foreach ($path in @($combatMasterRoot, $cpkRoot, $avatarPatchRoot, $patchRoot)) {
     Assert-RequiredPath -LiteralPath $path -PathType Container
+}
+if ($null -ne $imageRoot) {
+    Assert-RequiredPath -LiteralPath $imageRoot -PathType Container
 }
 
 if (Test-Path -LiteralPath $statePath -PathType Leaf) {
@@ -243,6 +247,9 @@ Add-NativeArgument -List $arguments -Name '-cn-player-progression' -Value $playe
 Add-NativeArgument -List $arguments -Name '-cn-login-bonus' -Value $loginBonusPath
 Add-NativeArgument -List $arguments -Name '-cn-cpk-root' -Value $cpkRoot
 Add-NativeArgument -List $arguments -Name '-cn-cpk-aliases' -Value $cpkAliasesPath
+if ($null -ne $imageRoot) {
+    Add-NativeArgument -List $arguments -Name '-cn-image-root' -Value $imageRoot
+}
 Add-NativeArgument -List $arguments -Name '-cn-patch-root' -Value $patchRoot
 if ($null -eq $resourceInputs) {
     Add-NativeArgument -List $arguments -Name '-cn-patch-root' -Value $avatarPatchRoot

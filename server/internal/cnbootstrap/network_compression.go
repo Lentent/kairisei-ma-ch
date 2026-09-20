@@ -80,7 +80,7 @@ func cnNetworkCompression(logger *slog.Logger) func(http.Handler) http.Handler {
 					http.Error(w, "invalid compressed request", http.StatusBadRequest)
 					return
 				}
-				// Capture/authentication consume exactly the original bytes.
+				// capture/authentication consume exactly the original bytes.
 				r = r.Clone(r.Context())
 				r.Body, r.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
 				r.Header.Del("Content-Encoding")
@@ -118,6 +118,7 @@ func (w *compressionWriter) WriteHeader(code int) {
 	}
 	w.status, w.wroteHeader = code, true
 }
+
 func (w *compressionWriter) Write(body []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
@@ -131,7 +132,9 @@ func (w *compressionWriter) Write(body []byte) (int, error) {
 	w.wireBytes += n
 	return n, err
 }
+
 func (w *compressionWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *compressionWriter) flushIdentity() {
 	if w.sent {
 		return
@@ -142,10 +145,12 @@ func (w *compressionWriter) flushIdentity() {
 	w.wireBytes += n
 	w.body.Reset()
 }
+
 func (w *compressionWriter) Flush() {
 	w.flushIdentity()
 	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
+
 func (w *compressionWriter) finish(accept bool) int {
 	if w.sent {
 		return w.wireBytes

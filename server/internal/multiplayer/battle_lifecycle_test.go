@@ -2,6 +2,7 @@ package multiplayer
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,27 @@ func TestNativeTerminalCSVUsesInt64Fields(t *testing.T) {
 		got, err := test.row.CSV()
 		if err != nil || got != test.csv {
 			t.Fatalf("native CSV = %q, %v; want %q", got, err, test.csv)
+		}
+	}
+}
+
+func TestRetirementWireWaitsForDamagePresentation(t *testing.T) {
+	for _, prefix := range [][]BattleResult{
+		nil,
+		{{Command: resultHP, Args: []int64{1, 1000, 0, 1}}},
+		{{Command: resultHP, Args: []int64{1, 1000, 0, 1}}, {Command: resultAttackPartition}},
+	} {
+		rows := append(append([]BattleResult(nil), prefix...), battleGameOverResult(1), battleGameOverResult(2))
+		wire, err := encodeBattleResults(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "82,1\n82,2"
+		if len(prefix) > 0 {
+			want = "3,1,1000,0,1\n502\n" + want
+		}
+		if wire != want || strings.Count(wire, "502") > 1 || rows[len(rows)-2].Command != resultGameOver {
+			t.Fatalf("retirement boundary: %q; want %q", wire, want)
 		}
 	}
 }

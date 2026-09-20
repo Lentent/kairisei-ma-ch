@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/wirecompression"
 )
 
@@ -20,7 +20,7 @@ const (
 	maxFrameBytes = 256 * 1024
 	// The CN client interprets RoomInfo.game_speed as a percentage and
 	// multiplies it by 0.01 before assigning UnityEngine.Time.timeScale.
-	gameSpeed            = 100
+	DefaultGameSpeed     = 150
 	roomCountdownSeconds = 3
 )
 
@@ -411,6 +411,10 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	if !autoStart {
 		startMembers = max(defaultMemberCount, startMembers)
 	}
+	speed := DefaultGameSpeed
+	if hub.gameSpeed != nil {
+		speed = hub.gameSpeed()
+	}
 	created := &room{
 		RoomSnapshot: RoomSnapshot{
 			RoomID:             roomID,
@@ -426,14 +430,14 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 			AllowToLeave:       pending.Spec.AllowToLeave,
 			GameStartMemberNum: startMembers,
 			OwnerMemberType:    1,
-			GameSpeed:          gameSpeed,
+			GameSpeed:          speed,
 			State:              RoomStateOpen,
 			BossGroup:          roomPrivate{value: pending.Spec.BossGroup, password: fields[3]},
 			Members:            []Member{member},
 		},
 		battlePointUse:       pending.Spec.BattlePointUse,
 		continueAllowed:      pending.Spec.ContinueAllowed,
-		battles:              append([]release.TeamBattleReplayBattle(nil), roomSpecBattles(pending.Spec)...),
+		battles:              append([]gamestate.TeamBattleReplayBattle(nil), roomSpecBattles(pending.Spec)...),
 		dropLedgerVersion:    pending.Spec.DropLedgerVersion,
 		dropPlan:             cloneDropPlan(pending.Spec.DropPlan),
 		fameRewardsSet:       pending.Spec.FameRewardsSet,
@@ -474,7 +478,7 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	c.roomID, c.memberType, c.userID = roomID, 1, userID
 
 	frames := []battleFrame{{method: responseMethod, payload: joinCSV(
-		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), "1", strconv.Itoa(gameSpeed), comebackToken, strconv.Itoa(startMembers),
+		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), "1", strconv.Itoa(created.GameSpeed), comebackToken, strconv.Itoa(startMembers),
 	)}}
 	for _, roomMember := range created.Members {
 		frames = append(frames, battleFrame{method: "RoomMember", payload: memberCSV(roomMember)})

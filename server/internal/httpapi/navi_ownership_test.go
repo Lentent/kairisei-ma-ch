@@ -8,33 +8,36 @@ import (
 	"strings"
 	"testing"
 
-	"kairisei.local/server/internal/release"
+	"kairisei.local/server/internal/gamestate"
 )
 
 func TestExpandedNavigatorOwnershipDoesNotWrapLegacyMask(t *testing.T) {
-	s := &store{coinFree: 1000, naviPurchasePrice: 10, naviUnlockFlag: 1,
-		selectableNaviIDs: map[int8]struct{}{0: {}},
-		naviCatalogIDs:    map[int8]struct{}{0: {}, 62: {}, 63: {}, 64: {}, 70: {}, 127: {}},
-	}
+	s := testAccount(t, func(state *gamestate.State) {
+		state.User.Coin, state.User.CoinFree = 0, 1000
+		state.User.NaviPurchasePrice = 10
+		state.User.NaviUnlockFlag = 1
+		state.User.SelectableNaviIDs = []int8{0}
+		state.User.NaviCatalogIDs = []int8{0, 62, 63, 64, 70, 127}
+	})
 	for _, id := range []int8{62, 63, 64, 70, 127} {
-		if err := s.purchaseNavi(id); err != nil || !s.selectNavi(id) {
+		if err := s.PurchaseNavi(id); err != nil || !s.SelectNavi(id) {
 			t.Fatalf("purchase/select %d: %v", id, err)
 		}
-		balance := s.coinFree
-		if err := s.purchaseNavi(id); err == nil || s.coinFree != balance {
+		balance := s.Snapshot(gamestate.State{}).User.CoinFree
+		if err := s.PurchaseNavi(id); err == nil || s.Snapshot(gamestate.State{}).User.CoinFree != balance {
 			t.Fatalf("duplicate navigator %d was charged", id)
 		}
 	}
-	if s.selectNavi(6) || s.selectNavi(-1) || s.coinFree != 950 {
+	if s.SelectNavi(6) || s.SelectNavi(-1) || s.Snapshot(gamestate.State{}).User.CoinFree != 950 {
 		t.Fatal("navigator IDs wrapped or purchase amount changed")
 	}
-	mask, ids := s.naviUnlockState()
+	mask, ids := s.NaviUnlockState()
 	want := []int8{0, 62, 63, 64, 70, 127}
 	if mask != int64(1)|(int64(1)<<62) || !slices.Equal(ids, want) {
 		t.Fatalf("connect ownership: mask %d, IDs %v", mask, ids)
 	}
 	// Exercise the real connect response, including array encoding for int8 IDs.
-	a := &API{store: s, release: &release.Release{State: release.State{}}}
+	a := &API{account: s, initialState: gamestate.State{}}
 	w := httptest.NewRecorder()
 	a.connect(w, httptest.NewRequest("POST", "/", strings.NewReader(`{"session":"test"}`)))
 	var body struct {

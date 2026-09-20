@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"kairisei.local/server/internal/multiplayer"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,12 @@ import (
 	"runtime/pprof"
 	"strings"
 	"testing"
+
+	"kairisei.local/server/internal/accountstore"
+	adminapi "kairisei.local/server/internal/admin"
+	"kairisei.local/server/internal/masterdata"
+	"kairisei.local/server/internal/multiplayer"
+	"kairisei.local/server/internal/testfixture"
 )
 
 // Optional full-input gate: constructs the production handlers without opening
@@ -48,15 +53,77 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewWithMultiplayerAndPVP(filepath.Join(dir, "requests.jsonl"), filepath.Join(dir, "save.json"), p("cn-save-seed"), p("cn-asset-map"), p("cn-card-master"), p("cn-explore-master"), p("cn-story-master"), p("cn-battle-master"), p("cn-navi-master"), p("cn-item-master"), p("cn-avatar-master"), p("cn-gacha-banner"), p("cn-five-star-gacha-banner"), p("cn-home-banner"), p("cn-stamp-master"), p("cn-honor-master"), p("cn-pvp-master"), p("cn-player-progression"), p("cn-login-bonus"), "127.0.0.1", 26020, multiplayer.Endpoint{Host: "127.0.0.1", Port: 26021}, multiplayer.NewHub(), p("cn-cpk-root"), p("cn-cpk-aliases"), []string{p("cn-patch-root")}, CDNConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handler, err := New(Config{
+		Persistence: PersistenceConfig{
+			RequestLog: filepath.Join(dir, "requests.jsonl"),
+			SavePath:   filepath.Join(dir, "save.json"),
+			SeedPath:   p("cn-save-seed"),
+		},
+		Resources: ResourcesConfig{
+			AssetMap:            p("cn-asset-map"),
+			GachaBanner:         p("cn-gacha-banner"),
+			FiveStarGachaBanner: p("cn-five-star-gacha-banner"),
+			HomeBanner:          p("cn-home-banner"),
+			CPKRoot:             p("cn-cpk-root"),
+			ImageRoot:           p("cn-image-root"),
+			CPKAliases:          p("cn-cpk-aliases"),
+			PatchRoots:          []string{p("cn-patch-root")},
+		},
+		Masters: MastersConfig{
+			Cards:             p("cn-card-master"),
+			Explore:           p("cn-explore-master"),
+			Story:             p("cn-story-master"),
+			Battle:            p("cn-battle-master"),
+			Navi:              p("cn-navi-master"),
+			Items:             p("cn-item-master"),
+			Avatar:            p("cn-avatar-master"),
+			Stamps:            p("cn-stamp-master"),
+			Honors:            p("cn-honor-master"),
+			PVP:               p("cn-pvp-master"),
+			PlayerProgression: p("cn-player-progression"),
+			LoginBonus:        p("cn-login-bonus"),
+		},
+		Network: NetworkConfig{
+			AdvertiseHost: "127.0.0.1",
+			HTTPPort:      26020,
+			BattleSV:      multiplayer.Endpoint{Host: "127.0.0.1", Port: 26021},
+		},
+		Multiplayer: multiplayer.NewHub(),
+		CDN:         CDNConfig{},
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cards, err := loadCNCardRuntimeMaster(p("cn-card-master"))
+	t.Cleanup(func() {
+		if err := handler.(io.Closer).Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	cards, err := masterdata.LoadCardRuntimeMaster(p("cn-card-master"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	auditCompleteAdminContent(t, handler)
+	avatar, err := masterdata.LoadAvatarRuntimeMaster(p("cn-avatar-master"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var costumes struct {
+		Entries []adminapi.AdminCatalogEntry `json:"entries"`
+	}
+	admin := handler.(interface{ AdminHandler() http.Handler }).AdminHandler()
+	if err := json.Unmarshal(testfixture.CallContentAdmin(t, admin, "GET", "/api/catalog?kind=costume&limit=200", nil, 200), &costumes); err != nil {
+		t.Fatal(err)
+	}
+	if len(costumes.Entries) != len(avatar.CostumeRewards) {
+		t.Fatalf("Admin costume count %d differs from resource catalog %d", len(costumes.Entries), len(avatar.CostumeRewards))
+	}
+	requests := make([]adminapi.AdminMailRequest, 0, len(avatar.CostumeRewards))
+	for _, row := range avatar.CostumeRewards {
+		requests = append(requests, adminapi.AdminMailRequest{RewardType: row.Type, RewardTypeID: row.ID, Quantity: 1})
+	}
+	testfixture.CallContentAdmin(t, admin, "POST", "/api/catalog/resolve", map[string]any{"rewards": requests}, 200)
 	auditCompletePastAdmin(t, handler)
 	auditCompletePlayerPolicy(t, handler)
 	auditCompleteFollowBusiness(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
@@ -81,32 +148,50 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	if output := os.Getenv("CN602_PAGE_PROBE"); output != "" {
 		probeCompleteRuntimePages(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards, output)
 	}
-	items, err := loadCNItemRuntimeMaster(p("cn-item-master"))
+	items, err := masterdata.LoadItemRuntimeMaster(p("cn-item-master"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, catalog, err := buildCNAdminCatalog(cards, items)
+	_, catalog, err := adminapi.BuildAdminCatalog(cards, items)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := loadCNSaveState(p("cn-save-seed"))
+	state, err := accountstore.LoadSaveState(p("cn-save-seed"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin := &cnAdmin{catalogByKey: catalog}
 	auditCompleteRuntimeDropCatalog(t, state, cards, p("cn-battle-master"))
+	if err := accountstore.InstallOnboardingGacha(&state); err != nil {
+		t.Fatal(err)
+	}
+	for _, pool := range state.Gachas {
+		if pool.GachaID != masterdata.OnboardingMultiGachaID {
+			continue
+		}
+		stars := map[int]int{}
+		for _, id := range pool.CardIDs {
+			entry, ok := catalog[fmt.Sprintf("6:%d", id)]
+			if !ok || entry.Rarity < 4 || entry.Rarity > 5 {
+				t.Fatalf("tutorial card %d missing or not basic 4/5 star: %+v", id, entry)
+			}
+			stars[entry.Rarity]++
+		}
+		if stars[5] != 4 || stars[4] != 8 {
+			t.Fatalf("tutorial lineup: %v", stars)
+		}
+	}
 	count := 0
 	for _, base := range state.Gachas {
 		if len(base.RewardPool) == 0 {
 			continue
 		}
 		count++
-		config := cnAdminGachaConfigFromProfile(base)
-		if _, err := admin.validateMixedGachaConfig(base, config); err != nil {
+		config := adminapi.AdminGachaConfigFromProfile(base)
+		if _, err := adminapi.ValidateMixedGachaConfig(catalog, base, config); err != nil {
 			t.Fatalf("preset %d: %v", base.GachaID, err)
 		}
 		config.RewardPool[0].Reward.Num++
-		if _, err := admin.validateMixedGachaConfig(base, config); err == nil {
+		if _, err := adminapi.ValidateMixedGachaConfig(catalog, base, config); err == nil {
 			t.Fatal("operator could replace locked reward quantity")
 		}
 	}
@@ -116,18 +201,7 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	t.Logf("production construction, Admin assets and %d mixed editor presets passed; no listeners started", count)
 }
 
-// Opt-in production-data reproduction of high balances and large inventories.
-func attachProbeCardCatalog(t *testing.T, storage *cnSaveDatabase, cards cnCardRuntimeMaster) {
-	t.Helper()
-	state, err := loadCNSaveState(storage.seedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	state.CardTemplates = cards.CardTemplates
-	storage.catalog = &state
-}
-
-func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, seedPath string, cards cnCardRuntimeMaster, output string) {
+func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, seedPath string, cards masterdata.CardRuntimeMaster, output string) {
 	t.Helper()
 	if !filepath.IsAbs(output) {
 		t.Fatal("absolute probe output required")
@@ -135,14 +209,19 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 	if err := os.Mkdir(output, 0700); err != nil {
 		t.Fatal(err)
 	}
-	storage, err := newCNSaveDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	storage, err := accountstore.OpenDatabase(savePath, seedPath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	attachProbeCardCatalog(t, storage, cards)
-	accounts := &cnAccountStore{storage: storage}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	testfixture.AttachProbeCardCatalog(t, storage, cards)
+	accounts := testfixture.TestAccountRepository(t, storage)
 	// Reserve the prebuilt primary handler; cases use fresh uncached accounts.
-	if _, err := accounts.resolveLogin("00000000-0000-0000-0001-000000000000"); err != nil {
+	if _, err := accounts.ResolveLogin("00000000-0000-0000-0001-000000000000"); err != nil {
 		t.Fatal(err)
 	}
 	for caseID, scenario := range []struct{ paid, free, cards int }{
@@ -150,11 +229,11 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 		{0, 10000000, 700}, {0, 10000000, 701}, {0, 10000000, 2000},
 		{0, 10000000, 5995}, {0, 10000000, 6000},
 	} {
-		identity, err := accounts.resolveLogin(fmt.Sprintf("00000000-0000-0000-0001-%012d", caseID+1))
+		identity, err := accounts.ResolveLogin(fmt.Sprintf("00000000-0000-0000-0001-%012d", caseID+1))
 		if err != nil {
 			t.Fatal(err)
 		}
-		state, err := accounts.loadState(identity.UserID)
+		state, err := accounts.LoadState(identity.UserID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,8 +246,8 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 			card.UniqueID = int64(len(state.Cards) + 100000)
 			state.Cards = append(state.Cards, card)
 		}
-		state.Onboarding.Step = cnOnboardingStepCount
-		if err := accounts.persistState(identity.UserID, state); err != nil {
+		state.Onboarding.Step = masterdata.OnboardingStepCount
+		if err := accounts.PersistState(identity.UserID, state); err != nil {
 			t.Fatal(err)
 		}
 		call := func(route, payload, name string) map[string]json.RawMessage {
@@ -207,7 +286,7 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 				continue
 			}
 			seenCounts[cards] = true
-			before, err := accounts.loadState(identity.UserID)
+			before, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,7 +295,7 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 			if err := json.Unmarshal(result["5"], &user); err != nil {
 				t.Fatal(err)
 			}
-			after, err := accounts.loadState(identity.UserID)
+			after, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -245,7 +324,7 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 			t.Fatalf("expected both ordinary draw options, got %d", count)
 		}
 		if scenario.cards == 6000 {
-			before, err := accounts.loadState(identity.UserID)
+			before, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -254,7 +333,7 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 			// the real adapters and reload the independent SQLite repository.
 			call("/CardSell", fmt.Sprintf(`{"uniqids":[%d],"cardids":[]}`, before.Cards[len(before.Cards)-1].UniqueID), "sell-for-mail")
 			call("/PresentBoxRecv", fmt.Sprintf(`{"presentid":%d}`, present.PresentID), "claim-mailed-draw")
-			after, err := accounts.loadState(identity.UserID)
+			after, err := accounts.LoadState(identity.UserID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -262,13 +341,12 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 				t.Fatal("mailed draw was lost or duplicated when claiming after freeing capacity")
 			}
 		}
-		db, err := storage.open()
+		db, err := storage.Open()
 		if err != nil {
 			t.Fatal(err)
 		}
 		var metadataBytes, cardRows int
 		err = db.QueryRow(`SELECT length(payload_json),(SELECT COUNT(*) FROM cn_account_card WHERE user_id=?) FROM cn_account_snapshot WHERE user_id=?`, identity.UserID, identity.UserID).Scan(&metadataBytes, &cardRows)
-		db.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,7 +360,7 @@ func profileCompleteRuntimeAccounts(t *testing.T, handler http.Handler, profile 
 	for count := 0; count <= 32; count++ {
 		if count > 0 {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(fmt.Sprintf(`{"uuid":"00000000-0000-0000-0000-%012d","clver":"6.0.4"}`, count))))
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(fmt.Sprintf(`{"uuid":"00000000-0000-0000-0000-%012d","clver":"%s"}`, count, cnMinimumClientVersion))))
 			var login struct {
 				Session string `json:"sess_key"`
 			}

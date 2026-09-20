@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"kairisei.local/server/internal/cpk"
 )
 
 type CDNObject struct {
@@ -108,7 +110,7 @@ func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
 		return result, errors.New("CDN export requires a complete CN resource set")
 	}
 	inputs := make(map[string]string)
-	for _, key := range []string{"cn-patch-root", "cn-asset-map", "cn-cpk-root", "cn-cpk-aliases"} {
+	for _, key := range []string{"cn-patch-root", "cn-asset-map", "cn-cpk-root", "cn-cpk-aliases", "cn-image-root"} {
 		inputs[key], err = cdnSourcePath(root, manifest.Entrypoints[key])
 		if err != nil {
 			return result, fmt.Errorf("CDN entrypoint %s: %w", key, err)
@@ -120,6 +122,12 @@ func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
 			return result, fmt.Errorf("duplicate resource file %q", file.Path)
 		}
 		indexed[file.Path] = cdnObject{Source: file.Path, Bytes: file.Bytes, SHA256: file.SHA256}
+	}
+	if err := validateCDNMetadata(root, filepath.Join(inputs["cn-cpk-root"], cpk.VersionsFileName), indexed); err != nil {
+		return result, err
+	}
+	if err := validateCDNMetadata(root, filepath.Join(inputs["cn-image-root"], "manifest.json"), indexed); err != nil {
+		return result, err
 	}
 	objects := make(map[string]cdnObject)
 	add := func(key, source string, size int64) error {
@@ -166,17 +174,30 @@ func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
 		}
 	}
 	cpkRoot := inputs["cn-cpk-root"]
-	aliases, err := loadCPKAliases(cpkRoot, inputs["cn-cpk-aliases"])
+	aliases, err := cpk.LoadAliases(cpkRoot, inputs["cn-cpk-aliases"])
 	if err != nil {
 		return result, err
 	}
-	cpkDelivery, err := loadCNCPKDelivery(cpkRoot, aliases)
+	cpkDelivery, err := cpk.Load(cpkRoot, aliases)
 	if err != nil {
 		return result, err
 	}
 	for _, file := range cpkDelivery {
 		if err := add("cpk/CPK/"+file.Name+".v"+strconv.FormatUint(file.Version, 10), file.SourcePath, file.Size); err != nil {
 			return result, err
+		}
+	}
+	images, err := loadCardImages(inputs["cn-image-root"])
+	if err != nil {
+		return result, err
+	}
+	for _, file := range images.Files {
+		key := "image/" + images.Namespace + "/" + file.Path
+		if err := add(key, file.SourcePath, file.Bytes); err != nil {
+			return result, err
+		}
+		if objects[key].SHA256 != file.SHA256 {
+			return result, fmt.Errorf("card image manifest identity mismatch: %s", file.Path)
 		}
 	}
 	files := make([]cdnObject, 0, len(objects))
@@ -189,6 +210,38 @@ func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
 		return result, errors.New("empty CDN delivery manifest")
 	}
 	return CDNManifest{SchemaVersion: 1, ResourceSetSHA256: hex.EncodeToString(digest[:]), Files: files, Root: root}, nil
+}
+
+// Download identities include metadata even when it is not itself downloaded.
+func validateCDNMetadata(root, metadata string, indexed map[string]cdnObject) error {
+	info, err := os.Stat(metadata)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 8<<20 {
+		return errors.New("invalid CDN metadata size")
+	}
+	relative, err := filepath.Rel(root, metadata)
+	if err != nil {
+		return err
+	}
+	entry, exists := indexed[filepath.ToSlash(relative)]
+	if !exists {
+		return fmt.Errorf("CDN metadata is not registered: %s", metadata)
+	}
+	resolved, err := cdnSourcePath(root, entry.Source)
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(resolved)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(content)
+	if int64(len(content)) != entry.Bytes || hex.EncodeToString(digest[:]) != entry.SHA256 {
+		return fmt.Errorf("CDN metadata identity mismatch: %s", entry.Source)
+	}
+	return nil
 }
 
 func cdnSourcePath(root, relative string) (string, error) {
