@@ -163,6 +163,11 @@ func TestContinuePaymentQuorumRetryAndReconnect(t *testing.T) {
 	if _, submitted := current.cardPlaySubmissions[1]; submitted {
 		t.Fatal("revived connected member was automatically skipped")
 	}
+	for _, peer := range []*clientConn{recovered, guest} {
+		if strings.Contains(peer.conn.(*hubCheckingConn).output.String(), "28,1\n") {
+			t.Fatal("revived member received a stale KO pass confirmation")
+		}
+	}
 	if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
 		t.Fatal(err)
 	}
@@ -182,13 +187,32 @@ func TestContinuePaymentQuorumRetryAndReconnect(t *testing.T) {
 }
 
 func TestContinueDeclineAndTimeout(t *testing.T) {
-	for _, allDead := range []bool{false, true} {
-		t.Run(map[bool]string{false: "survivors", true: "wipe"}[allDead], func(t *testing.T) {
-			_, current := continueRoomFixture(t, func(BattleContinue) (ContinueBalance, error) {
+	for _, tc := range []struct {
+		name    string
+		wipe    bool
+		onlyAI  bool
+		canPlay bool
+	}{
+		{name: "survivors", canPlay: true},
+		{name: "wipe", wipe: true},
+		{name: "only_ai_survivor", onlyAI: true, canPlay: true},
+		{name: "only_ai_pass", onlyAI: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, current := continueRoomFixture(t, func(BattleContinue) (ContinueBalance, error) {
 				t.Fatal("decline charged currency")
 				return ContinueBalance{}, nil
-			}, allDead)
+			}, tc.wipe)
 			owner, guest := current.connections[1], current.connections[2]
+			peers := []*clientConn{owner, guest}
+			if tc.onlyAI {
+				// Both humans and one CPU are KO; only CPU slot 4 is alive.
+				current.engine.players[1].HP = 0
+				current.engine.players[2].HP = 0
+				if !tc.canPlay {
+					current.engine.catalog.PlayerSkills[1][0].Cost = 99
+				}
+			}
 			if err := owner.handleContinuePhaseFinish(""); err != nil {
 				t.Fatal(err)
 			}
@@ -196,73 +220,104 @@ func TestContinueDeclineAndTimeout(t *testing.T) {
 				t.Fatal("early decline retired party before others could revive it")
 			}
 			current.continuation.deadline = time.Time{}
-			if err := owner.server.advanceContinue(1); err != nil {
+			if err := s.advanceContinue(1); err != nil {
 				t.Fatal(err)
 			}
 			if !current.engine.players[0].GameOver || current.engine.continuePending || current.engine.continueCount != 0 {
 				t.Fatal("cancel did not retire KO members")
 			}
-			for _, peer := range []*clientConn{owner, guest} {
+			for _, peer := range peers {
 				if err := peer.handleGameOverPhaseFinish(""); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if allDead {
+			if tc.wipe {
 				if current.engine.EndType() != 2 || !strings.Contains(guest.conn.(*hubCheckingConn).output.String(), "ApiGameEnd{") {
 					t.Fatal("wipe cancellation did not end cleanly")
 				}
-			} else if !current.chaliceEnemyStarted {
+				return
+			}
+			if !current.chaliceEnemyStarted {
 				t.Fatal("survivors did not resume")
 			}
-			if !allDead {
-				current.engine.enemies[0].HP = 1000000
-				current.engine.enemies[0].MaxHP = 1000000
-				current.engine.enemies[0].BaseMaxHP = 1000000
-				for turn := 0; turn < 2; turn++ {
-					for _, peer := range []*clientConn{owner, guest} {
-						if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
-							t.Fatal(err)
+			current.engine.enemies[0].HP = 1000000
+			current.engine.enemies[0].MaxHP = 1000000
+			current.engine.enemies[0].BaseMaxHP = 1000000
+			for turn := 0; turn < 2; turn++ {
+				for _, peer := range peers {
+					peer.conn.(*hubCheckingConn).output.Reset()
+				}
+				beforeHP := current.engine.enemies[0].HP
+				for _, peer := range peers {
+					if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for _, peer := range peers {
+					if err := peer.handleTurnPhaseFinish(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, submitted := current.cardPlaySubmissions[1]; submitted || current.userAttackStarted {
+					t.Fatal("connected KO human bypassed original client input")
+				}
+				selection, submitted := current.engine.selectedPlays[4]
+				if !submitted || (selectedCardCount(selection) > 0) != tc.canPlay || current.engine.enemies[0].HP != beforeHP {
+					t.Fatal("CPU input was not confirmed while waiting for human input")
+				}
+				beforeRNG := current.engine.rng
+				beforeFrames := guest.conn.(*hubCheckingConn).output.String()
+				if err := s.submitAutomaticRoomCards(1); err != nil {
+					t.Fatal(err)
+				}
+				if current.engine.rng != beforeRNG || guest.conn.(*hubCheckingConn).output.String() != beforeFrames {
+					t.Fatal("automatic retry changed confirmed CPU input")
+				}
+				// Both KO clients skip manually on the first AI-only turn and
+				// use their original CardPlayTimeup requests on the second.
+				if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", tc.onlyAI && turn == 1); err != nil {
+					t.Fatal(err)
+				}
+				if current.userAttackStarted {
+					t.Fatal("room bypassed the remaining connected KO client's input")
+				}
+				if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", turn == 1); err != nil {
+					t.Fatal(err)
+				}
+				if !current.userAttackStarted || (current.engine.enemies[0].HP < beforeHP) != tc.canPlay {
+					t.Fatal("client skip/timeout did not release the CPU attack")
+				}
+				for _, peer := range peers {
+					frames := peer.conn.(*hubCheckingConn).output.String()
+					input, confirm, attack := strings.Index(frames, "ApiUserPhase{"), strings.Index(frames, "ApiCardPlayR{"), strings.Index(frames, "ApiUserAttack{")
+					if input < 0 || confirm <= input || attack <= confirm || strings.Count(frames, "ApiUserAttack{") != 1 {
+						t.Fatal("input, CPU confirmation and attack are missing or out of order", frames)
+					}
+					for slot := 1; slot <= maxRoomMembers; slot++ {
+						if current.engine.players[slot-1].HP <= 0 && strings.Contains(frames, fmt.Sprintf("28,%d\n", slot)) {
+							t.Fatal("KO member received a synthetic pass notification")
 						}
 					}
-					for _, peer := range []*clientConn{owner, guest} {
-						if err := peer.handleTurnPhaseFinish(); err != nil {
-							t.Fatal(err)
-						}
-					}
-					submission, skipped := current.cardPlaySubmissions[1]
-					if !skipped || selectedActionCount(submission) != 0 {
-						t.Fatal("connected dead member still requires a manual skip")
-					}
-					if _, selected := current.engine.selectedPlays[1]; selected || current.userAttackStarted {
-						t.Fatal("KO skip changed native selection state or bypassed the living member")
-					}
-					before := current.engine.rng
-					frames := guest.conn.(*hubCheckingConn).output.String()
-					if err := owner.server.submitAutomaticRoomCards(1); err != nil {
+					beforeRNG = current.engine.rng
+					if err := peer.handleCardPlay(strings.Repeat("0,", 11)+"0", true); err != nil {
 						t.Fatal(err)
 					}
-					if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
+					if err := s.tryAdvanceCardPlay(1); err != nil {
 						t.Fatal(err)
 					}
-					if current.engine.rng != before || guest.conn.(*hubCheckingConn).output.String() != frames {
-						t.Fatal("repeated KO skip changed RNG or emitted another confirmation")
+					if current.engine.rng != beforeRNG || peer.conn.(*hubCheckingConn).output.String() != frames {
+						t.Fatal("late timeout replayed the attack")
 					}
-					if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
-						t.Fatal(err)
-					}
-					if !current.userAttackStarted || owner.closed || current.connections[1] != owner {
-						t.Fatal("living submission failed to advance with dead spectator connected")
-					}
-					if turn == 0 {
-						for _, finish := range []func(*clientConn) error{
-							(*clientConn).handleUserAttackFinish,
-							(*clientConn).handleChaliceSphrExecUserPhaseFinish,
-							(*clientConn).handleEnemyPhaseFinish,
-						} {
-							for _, peer := range []*clientConn{owner, guest} {
-								if err := finish(peer); err != nil {
-									t.Fatal(err)
-								}
+				}
+				if turn == 0 {
+					for _, finish := range []func(*clientConn) error{
+						(*clientConn).handleUserAttackFinish,
+						(*clientConn).handleChaliceSphrExecUserPhaseFinish,
+						(*clientConn).handleEnemyPhaseFinish,
+					} {
+						for _, peer := range peers {
+							if err := finish(peer); err != nil {
+								t.Fatal(err)
 							}
 						}
 					}
