@@ -641,16 +641,13 @@ func ApplyCardRuntimeMaster(state *gamestate.State, master CardRuntimeMaster) (b
 	state.SphereDefinitions = append([]gamestate.SphereDefinition(nil), master.SphereDefinitions...)
 	state.SphereExperienceTables = cloneSphereExperienceTables(master.SphereExperienceTables)
 	state.SphereEvolutionPrices = cloneSphereEvolutionPrices(master.SphereEvolutionPrices)
-	cleanOnboardingSpheres := state.Onboarding.ConfigVersion == OnboardingConfigVersion &&
+	onboarding := state.Onboarding.ConfigVersion == OnboardingConfigVersion &&
 		state.Onboarding.Step < OnboardingStepCount
-	if cleanOnboardingSpheres {
-		if len(state.Spheres) != 0 {
-			state.Spheres = []gamestate.Sphere{}
-			changed = true
-		}
+	if onboarding {
+		// Account creation already removes QA spheres. Later preparation must
+		// preserve legitimately received instances and their equipped slots.
 		for index := range state.Decks {
-			if len(state.Decks[index].SphereUniqueIDs) != 3 ||
-				!allZeroInt64(state.Decks[index].SphereUniqueIDs) {
+			if len(state.Decks[index].SphereUniqueIDs) == 0 {
 				state.Decks[index].SphereUniqueIDs = make([]int64, 3)
 				changed = true
 			}
@@ -661,7 +658,9 @@ func ApplyCardRuntimeMaster(state *gamestate.State, master CardRuntimeMaster) (b
 	}
 	legacySphereProgression := state.SphereConfigVersion < master.SphereConfigVersion
 	if legacySphereProgression {
-		if len(state.Spheres) == 0 && !cleanOnboardingSpheres {
+		// Only legacy QA profiles receive seed instances. Finishing training
+		// does not turn a real account into a QA profile during later upgrades.
+		if len(state.Spheres) == 0 && state.Onboarding.ConfigVersion == 0 {
 			state.Spheres = append([]gamestate.Sphere{}, master.SphereSeedTemplates...)
 			for index := range state.Decks {
 				deck := &state.Decks[index]

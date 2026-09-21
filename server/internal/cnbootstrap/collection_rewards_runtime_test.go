@@ -2,6 +2,7 @@ package cnbootstrap
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -71,6 +72,9 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 				continue
 			}
 			reward := gamestate.Reward{Type: entry.RewardType, RewardTypeID: entry.RewardTypeID, Num: 1, CardSkillLevels: []int16{}}
+			if kind == "sphere" {
+				reward.Num = 50
+			}
 			if kind == "card" {
 				reward.CardLevel, reward.CardFame, reward.CardSkillLevels = 1, 1, []int16{1}
 			}
@@ -81,6 +85,15 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 				reward.Num = 2
 			}
 			state.Engagement.Presents = append(state.Engagement.Presents, gamestate.Present{PresentID: int64(491000 + len(state.Engagement.Presents)), Title: "同类再次赠送", Reward: reward})
+			if kind == "sphere" {
+				for _, other := range catalog.Entries {
+					if other.RewardTypeID != reward.RewardTypeID && other.ResourceState != "unavailable" {
+						reward.RewardTypeID = other.RewardTypeID
+						state.Engagement.Presents = append(state.Engagement.Presents, gamestate.Present{Title: "另一种秘石", Reward: reward})
+						break
+					}
+				}
+			}
 			found = true
 			break
 		}
@@ -88,6 +101,8 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 			t.Fatalf("no unowned %s sample", kind)
 		}
 	}
+	presents := state.Engagement.Presents
+	state.Engagement.Presents = nil
 	if err = accounts.PersistState(identity.UserID, state); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +125,29 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 		return result
 	}
 	stampReceived := false
-	for _, present := range state.Engagement.Presents {
+	sphereReceived := make(map[int]int)
+	for index, present := range presents {
+		// Deliver through Admin so every subsequent gift rebuilds the cached
+		// handler, as it does for a player receiving separate operator grants.
+		batch := adminapi.AdminMailBatch{
+			ID: fmt.Sprintf("collection-reload-%d", index), Title: present.Title, Message: "重复领取与重载检查",
+			UserIDs: []int{identity.UserID},
+			Rewards: []adminapi.AdminMailRequest{{RewardType: present.Reward.Type, RewardTypeID: present.Reward.RewardTypeID, Quantity: present.Reward.Num}},
+		}
+		testfixture.CallContentAdmin(t, admin, "POST", "/api/mail-batches", batch, 200)
+		var delivery struct {
+			Results []struct {
+				OK     bool `json:"ok"`
+				Result struct {
+					PresentIDs []int64 `json:"present_ids"`
+				} `json:"result"`
+			} `json:"results"`
+		}
+		body := testfixture.CallContentAdmin(t, admin, "POST", "/api/mail-batches/"+batch.ID+"/run", map[string]any{"user_ids": batch.UserIDs}, 200)
+		if json.Unmarshal(body, &delivery) != nil || len(delivery.Results) != 1 || !delivery.Results[0].OK || len(delivery.Results[0].Result.PresentIDs) != 1 {
+			t.Fatalf("Admin gift delivery failed: %s", body)
+		}
+		present.PresentID = delivery.Results[0].Result.PresentIDs[0]
 		result := call("/PresentBoxRecv", map[string]int64{"presentid": present.PresentID})
 		if present.Reward.Type == 16 {
 			var ids []int
@@ -120,6 +157,20 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 			stampReceived = true
 		}
 		call("/PresentBoxRecv", map[string]int64{"presentid": present.PresentID})
+		if present.Reward.Type == 15 {
+			id := present.Reward.RewardTypeID
+			if _, tracked := sphereReceived[id]; !tracked {
+				sphereReceived[id] = inventoryRewardCount(t, state, present.Reward)
+			}
+			sphereReceived[id] += present.Reward.Num
+			current, err := accounts.LoadPersistentState(identity.UserID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := inventoryRewardCount(t, current, present.Reward); got != sphereReceived[id] {
+				t.Fatalf("sphere after Admin reload: got %d, want %d", got, sphereReceived[id])
+			}
+		}
 	}
 	var costumes []int
 	if json.Unmarshal(call("/CostumeShow", nil)["costumeids"], &costumes) != nil || !slices.Contains(costumes, want["costume"]) {
@@ -136,9 +187,21 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 	if !slices.Contains(costume.IDs, want["costume"]) || !slices.Contains(reloaded.Stamps.StampIDs, want["stamp"]) || !slices.Contains(reloaded.Honors.HonorIDs, want["honor"]) {
 		t.Fatal("unlock lost after SQL reload")
 	}
+	if len(sphereReceived) != 2 {
+		t.Fatal("sphere regression did not cover a different reward ID")
+	}
+	for id, expected := range sphereReceived {
+		if got := inventoryRewardCount(t, reloaded, gamestate.Reward{Type: 15, RewardTypeID: id}); got != expected {
+			t.Fatalf("sphere %d lost after other Admin gifts: got %d, want %d", id, got, expected)
+		}
+	}
 	for kind, rewardType := range map[string]int{"card": 6, "item": 8, "material": 13, "sphere": 15, "buddy": 19} {
-		if got := inventoryRewardCount(t, reloaded, gamestate.Reward{Type: rewardType, RewardTypeID: want[kind]}); got != before[kind]+3 {
-			t.Fatalf("%s repeat gift/retry: got %d, expected %d", kind, got, before[kind]+3)
+		expected := before[kind] + 3
+		if kind == "sphere" {
+			expected = before[kind] + 52
+		}
+		if got := inventoryRewardCount(t, reloaded, gamestate.Reward{Type: rewardType, RewardTypeID: want[kind]}); got != expected {
+			t.Fatalf("%s repeat Admin gift/retry: got %d, expected %d", kind, got, expected)
 		}
 	}
 	for _, card := range reloaded.Cards {
@@ -162,7 +225,28 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 	if want["card"] != 0 || want["sphere"] != 0 || want["buddy"] != 0 {
 		t.Fatal("instance IDs regressed after account reload")
 	}
-	t.Log("native repeat gifts/retry: independent card/sphere/buddy copies, additive item/material stacks, unique unlocks, SQLite and monotonic IDs passed")
+	// Upgrading definitions must not refill a real account's empty inventory
+	// from the QA seed, whether it is still training or has already graduated.
+	for _, step := range []int{0, masterdata.OnboardingStepCount} {
+		migration := reloaded
+		// This separate repository supplies the seed's static action price;
+		// production prepares it from the current catalog before account data.
+		migration.CardActions.FusionGoldPerCard = cards.CardProgressionPolicy.FusionGoldPerMaterialPerBaseLevel
+		migration.Onboarding.Step = step
+		migration.SphereConfigVersion = cards.SphereConfigVersion - 1
+		migration.Spheres = nil
+		migration.Decks = append([]gamestate.Deck(nil), reloaded.Decks...)
+		for i := range migration.Decks {
+			migration.Decks[i].SphereUniqueIDs = make([]int64, 3)
+		}
+		if _, err := masterdata.ApplyCardRuntimeMaster(&migration, cards); err != nil {
+			t.Fatal(err)
+		}
+		if len(migration.Spheres) != 0 {
+			t.Fatalf("onboarding step %d received QA spheres during definition upgrade", step)
+		}
+	}
+	t.Log("Admin gift/cache reload/retry: sphere 50+2=52 plus 2 of another kind; card/buddy instances, additive item/material stacks, unique unlocks, SQLite and monotonic IDs passed")
 }
 
 func inventoryRewardCount(t *testing.T, state gamestate.State, reward gamestate.Reward) int {
