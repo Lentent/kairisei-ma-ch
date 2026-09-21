@@ -658,18 +658,6 @@ func ApplyCardRuntimeMaster(state *gamestate.State, master CardRuntimeMaster) (b
 	}
 	legacySphereProgression := state.SphereConfigVersion < master.SphereConfigVersion
 	if legacySphereProgression {
-		// Only legacy QA profiles receive seed instances. Finishing training
-		// does not turn a real account into a QA profile during later upgrades.
-		if len(state.Spheres) == 0 && state.Onboarding.ConfigVersion == 0 {
-			state.Spheres = append([]gamestate.Sphere{}, master.SphereSeedTemplates...)
-			for index := range state.Decks {
-				deck := &state.Decks[index]
-				if deck.ArthurType < 1 || deck.ArthurType > 4 || !allZeroInt64(deck.SphereUniqueIDs) {
-					continue
-				}
-				deck.SphereUniqueIDs = append([]int64(nil), master.SphereSeedDecks[fmt.Sprint(deck.ArthurType)]...)
-			}
-		}
 		state.SphereConfigVersion = master.SphereConfigVersion
 		changed = true
 	}
@@ -1039,13 +1027,4 @@ func cloneBuddyEvolutionPrices(source map[string][]int) map[string][]int {
 		result[rarity] = append([]int(nil), values...)
 	}
 	return result
-}
-
-func allZeroInt64(values []int64) bool {
-	for _, value := range values {
-		if value != 0 {
-			return false
-		}
-	}
-	return true
 }

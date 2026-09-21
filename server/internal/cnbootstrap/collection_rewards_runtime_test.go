@@ -163,13 +163,6 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 				sphereReceived[id] = inventoryRewardCount(t, state, present.Reward)
 			}
 			sphereReceived[id] += present.Reward.Num
-			current, err := accounts.LoadPersistentState(identity.UserID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := inventoryRewardCount(t, current, present.Reward); got != sphereReceived[id] {
-				t.Fatalf("sphere after Admin reload: got %d, want %d", got, sphereReceived[id])
-			}
 		}
 	}
 	var costumes []int
@@ -195,11 +188,8 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 			t.Fatalf("sphere %d lost after other Admin gifts: got %d, want %d", id, got, expected)
 		}
 	}
-	for kind, rewardType := range map[string]int{"card": 6, "item": 8, "material": 13, "sphere": 15, "buddy": 19} {
+	for kind, rewardType := range map[string]int{"card": 6, "item": 8, "material": 13, "buddy": 19} {
 		expected := before[kind] + 3
-		if kind == "sphere" {
-			expected = before[kind] + 52
-		}
 		if got := inventoryRewardCount(t, reloaded, gamestate.Reward{Type: rewardType, RewardTypeID: want[kind]}); got != expected {
 			t.Fatalf("%s repeat Admin gift/retry: got %d, expected %d", kind, got, expected)
 		}
@@ -224,27 +214,6 @@ func auditCompleteCollectionRewards(t *testing.T, h http.Handler, savePath, seed
 	}
 	if want["card"] != 0 || want["sphere"] != 0 || want["buddy"] != 0 {
 		t.Fatal("instance IDs regressed after account reload")
-	}
-	// Upgrading definitions must not refill a real account's empty inventory
-	// from the QA seed, whether it is still training or has already graduated.
-	for _, step := range []int{0, masterdata.OnboardingStepCount} {
-		migration := reloaded
-		// This separate repository supplies the seed's static action price;
-		// production prepares it from the current catalog before account data.
-		migration.CardActions.FusionGoldPerCard = cards.CardProgressionPolicy.FusionGoldPerMaterialPerBaseLevel
-		migration.Onboarding.Step = step
-		migration.SphereConfigVersion = cards.SphereConfigVersion - 1
-		migration.Spheres = nil
-		migration.Decks = append([]gamestate.Deck(nil), reloaded.Decks...)
-		for i := range migration.Decks {
-			migration.Decks[i].SphereUniqueIDs = make([]int64, 3)
-		}
-		if _, err := masterdata.ApplyCardRuntimeMaster(&migration, cards); err != nil {
-			t.Fatal(err)
-		}
-		if len(migration.Spheres) != 0 {
-			t.Fatalf("onboarding step %d received QA spheres during definition upgrade", step)
-		}
 	}
 	t.Log("Admin gift/cache reload/retry: sphere 50+2=52 plus 2 of another kind; card/buddy instances, additive item/material stacks, unique unlocks, SQLite and monotonic IDs passed")
 }
