@@ -1139,79 +1139,40 @@ func (s *Account) settleTowerQuestLocked(context TeamBattleContext, isClear bool
 func (s *Account) TeamBattleSoloState() json.RawMessage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if refreshed, changed, err := expireTeamBattleUserBuffs(s.teamBattleSolo, time.Now().Unix()); err == nil && changed {
-		s.teamBattleSolo = refreshed
+	catalog, err := s.teamBattleCatalogLocked()
+	if err == nil {
+		if projected, err := catalog.MarshalJSON(); err == nil {
+			return projected
+		}
 	}
-	tutorialNormalQuest := s.onboarding.ConfigVersion == cnOnboardingConfigVersion &&
-		s.onboarding.Step == 0
-	tutorialActivity := s.onboarding.ConfigVersion == cnOnboardingConfigVersion &&
-		s.onboarding.Step == cnOnboardingStepCount-1
-	projected, err := projectCNTeamBattlePublication(
-		s.teamBattleSolo, s.stageQuests, s.teamBattleLimitedGroupIDs,
-		tutorialNormalQuest, tutorialActivity,
-	)
-	if err != nil {
-		return filterBattleCatalog(append(json.RawMessage(nil), s.teamBattleSolo...), s.disabledTeamBattleBossIDs)
-	}
-	return filterBattleCatalog(projected, s.disabledTeamBattleBossIDs)
+	return filterBattleCatalog(append(json.RawMessage(nil), s.teamBattleSolo...), s.disabledTeamBattleBossIDs)
 }
 
-func expireTeamBattleUserBuffs(
-	configuration json.RawMessage,
-	nowUnix int64,
-) (json.RawMessage, bool, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(configuration, &top); err != nil {
-		return nil, false, err
+// TeamBattleCatalog gives protocol adapters a request-owned view without an
+// intermediate JSON encode/decode. Saved progression remains account-owned.
+func (s *Account) TeamBattleCatalog() (*TeamBattleCatalog, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.teamBattleCatalogLocked()
+}
+
+func (s *Account) teamBattleCatalogLocked() (*TeamBattleCatalog, error) {
+	catalog, err := decodeTeamBattleCatalog(s.teamBattleSolo)
+	if err != nil {
+		return nil, err
 	}
-	changed := false
-	for _, groupKey := range []string{"9", "10", "11", "12"} {
-		var groups []map[string]json.RawMessage
-		if err := json.Unmarshal(top[groupKey], &groups); err != nil {
-			return nil, false, err
-		}
-		groupChanged := false
-		for groupIndex := range groups {
-			var bosses []map[string]json.RawMessage
-			if err := json.Unmarshal(groups[groupIndex]["10"], &bosses); err != nil {
-				return nil, false, err
-			}
-			bossesChanged := false
-			for bossIndex := range bosses {
-				var expiration int64
-				if err := json.Unmarshal(bosses[bossIndex]["16"], &expiration); err != nil {
-					return nil, false, err
-				}
-				if expiration <= 0 || expiration > nowUnix {
-					continue
-				}
-				bosses[bossIndex]["10"] = json.RawMessage("0")
-				bosses[bossIndex]["16"] = json.RawMessage("0")
-				bossesChanged = true
-			}
-			if bossesChanged {
-				encoded, err := json.Marshal(bosses)
-				if err != nil {
-					return nil, false, err
-				}
-				groups[groupIndex]["10"] = encoded
-				groupChanged = true
-			}
-		}
-		if groupChanged {
-			encoded, err := json.Marshal(groups)
-			if err != nil {
-				return nil, false, err
-			}
-			top[groupKey] = encoded
-			changed = true
+	if changed, err := catalog.expireUserBuffs(time.Now().Unix()); err == nil && changed {
+		if refreshed, err := catalog.MarshalJSON(); err == nil {
+			s.teamBattleSolo = refreshed
 		}
 	}
-	if !changed {
-		return append(json.RawMessage(nil), configuration...), false, nil
+	tutorialNormalQuest := s.onboarding.ConfigVersion == cnOnboardingConfigVersion && s.onboarding.Step == 0
+	tutorialActivity := s.onboarding.ConfigVersion == cnOnboardingConfigVersion && s.onboarding.Step == cnOnboardingStepCount-1
+	if err := catalog.project(s.stageQuests, s.teamBattleLimitedGroupIDs, tutorialNormalQuest, tutorialActivity); err != nil {
+		return nil, err
 	}
-	encoded, err := json.Marshal(top)
-	return encoded, true, err
+	catalog.filterDisabled(s.disabledTeamBattleBossIDs)
+	return catalog, nil
 }
 
 type userBuffExecResult struct {

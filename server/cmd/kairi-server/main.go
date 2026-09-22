@@ -22,7 +22,10 @@ import (
 	"kairisei.local/server/internal/multiplayer"
 )
 
+const serverVersion = "1.3.1"
+
 type options struct {
+	showVersion       bool
 	cdnSyncConfig     string
 	cdnSyncDryRun     bool
 	cdnConfig         string
@@ -89,6 +92,7 @@ func main() {
 func run(arguments []string, logger *slog.Logger) error {
 	var opts options
 	flags := flag.NewFlagSet("kairi-server", flag.ContinueOnError)
+	flags.BoolVar(&opts.showVersion, "version", false, "print server version and exit")
 	flags.StringVar(&opts.cdnConfig, "cdn-config", "", "optional public CDN JSON config; empty keeps local downloads")
 	flags.StringVar(&opts.cdnManifestOutput, "export-cdn-manifest", "", "export client download object mapping and exit without starting the server")
 	flags.StringVar(&opts.cdnSyncConfig, "sync-cdn", "", "sync client resources using this JSON config, then enable CDN and exit; no game service or database")
@@ -133,6 +137,10 @@ func run(arguments []string, logger *slog.Logger) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
+	}
+	if opts.showVersion {
+		_, err := fmt.Fprintln(os.Stdout, "kairi-server "+serverVersion)
+		return err
 	}
 	if opts.cdnSyncConfig != "" {
 		if opts.cdnManifestOutput != "" {

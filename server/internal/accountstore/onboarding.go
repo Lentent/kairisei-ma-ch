@@ -198,9 +198,6 @@ func InstallOnboardingGacha(state *gamestate.State) error {
 	for _, gacha := range state.Gachas {
 		playCounts[gacha.GachaID] = gacha.PlayCount
 	}
-	if legacyCount, exists := playCounts[masterdata.LegacyOnboardingGachaID]; exists {
-		playCounts[masterdata.OnboardingGachaID] = legacyCount
-	}
 	gachas := make([]gamestate.GachaProfile, 0, len(state.Gachas)+2)
 	for index := range state.Gachas {
 		gacha := state.Gachas[index]
@@ -213,8 +210,7 @@ func InstallOnboardingGacha(state *gamestate.State) error {
 			multiSource = &copy
 		}
 		if gacha.GachaID != masterdata.OnboardingGachaID &&
-			gacha.GachaID != masterdata.OnboardingMultiGachaID &&
-			gacha.GachaID != masterdata.LegacyOnboardingGachaID {
+			gacha.GachaID != masterdata.OnboardingMultiGachaID {
 			gachas = append(gachas, gacha)
 		}
 	}

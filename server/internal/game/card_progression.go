@@ -114,11 +114,3 @@ func (s *Account) normalizeCardLocked(card CardInfo) (CardInfo, error) {
 	card.BaseAddPrice = fusionGold
 	return card, nil
 }
-
-func (s *Account) addCardExperienceLocked(card CardInfo, addition int) (CardInfo, error) {
-	if addition <= 0 || card.Level >= card.LevelMax || card.Experience > math.MaxInt-addition {
-		return CardInfo{}, errors.New("card cannot gain experience")
-	}
-	card.Experience += addition
-	return s.normalizeCardLocked(card)
-}

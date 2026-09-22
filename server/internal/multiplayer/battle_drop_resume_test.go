@@ -48,8 +48,8 @@ func TestCompletedComebackAfterFinalFrameDisconnect(t *testing.T) {
 			if err := right.Close(); err != nil {
 				t.Fatal(err)
 			}
-			hub.mu.Lock()
-			err = server.completeGoBattleLocked(hub, current)
+			session := hub.lockRoomSession(current.RoomID)
+			err = server.completeGoBattleLocked(session, current)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -175,6 +175,7 @@ func TestComebackRestoresPriorWaveRewardsWithoutDuplicatingCurrentDrops(t *testi
 			if terminal {
 				hub.completed[123] = &completedBattle{CompletedBattle: CompletedBattle{RoomID: 123, Members: members,
 					BattleIndex: 2, Progress: 2, ReleasedDrops: ledger}, terminalEngine: engine, terminalBattleEndType: 1,
+					expiresAt:           time.Now().Add(completedLifetime),
 					comebackConnections: map[int]*clientConn{1: client}, comebackTokens: map[int]string{}}
 			} else {
 				hub.rooms[123] = &room{RoomSnapshot: RoomSnapshot{RoomID: 123, State: RoomStateBattle, Members: members},

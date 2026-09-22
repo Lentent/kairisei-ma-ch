@@ -224,6 +224,17 @@ func (storage *Database) persistWithAudit(state gamestate.State, audit *AdminAud
 		}
 	}()
 	updatedUTC := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := writePrimaryAccountSnapshot(transaction, state, content, digestText, updatedUTC, audit); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit CN SQLite save: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func writePrimaryAccountSnapshot(transaction *sql.Tx, state gamestate.State, content []byte, digestText, updatedUTC string, audit *AdminAudit) error {
 	if err := writeAccountRows(transaction, state); err != nil {
 		return err
 	}
@@ -274,17 +285,7 @@ func (storage *Database) persistWithAudit(state gamestate.State, audit *AdminAud
 			return err
 		}
 	}
-	if err := audit.appendTo(transaction, updatedUTC); err != nil {
-		return err
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit CN SQLite save: %w", err)
-	}
-	committed = true
-
-	// The JSON path is an optional first-import input, never a save output.
-	// SQLite and its account projection are committed together above.
-	return nil
+	return audit.appendTo(transaction, updatedUTC)
 }
 
 // Open returns the single-writer pool, owned by Database. Callers close rows and

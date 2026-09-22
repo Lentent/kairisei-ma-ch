@@ -167,9 +167,10 @@ func assembleApplication(config Config) (*application, error) {
 		return nil, err
 	}
 	businessHandler := accounthttp.New(accounthttp.Config{
-		Primary:   primaryBusinessHandler,
-		IdleLimit: cacheLimit,
-		Prepare:   operationStore.PrepareBusiness,
+		Primary:       primaryBusinessHandler,
+		IdleLimit:     cacheLimit,
+		Prepare:       operationStore.PrepareBusiness,
+		PersistStates: accountStore.PersistStates,
 		Build: func(userID int) (http.Handler, error) {
 			state, err := accountStore.LoadState(userID)
 			if err != nil {

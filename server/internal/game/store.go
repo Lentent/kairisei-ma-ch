@@ -166,7 +166,6 @@ type Account struct {
 	exploreStages               []gamestate.ExploreStage
 	exploreStageCursor          int
 	exploreActiveStage          int
-	friends                     []gamestate.Friend
 	followMax                   int
 	storyMainParts              []gamestate.StoryMainPart
 	cnStoryMainParts            []gamestate.StoryMainPart
@@ -507,7 +506,6 @@ func New(state gamestate.State) (*Account, error) {
 		exploreStages:               cloneExploreStages(exploreStages),
 		exploreStageCursor:          state.Explore.StageCursor,
 		exploreActiveStage:          state.Explore.ActiveStageID,
-		friends:                     cloneFriends(state.Friends.Users),
 		followMax:                   state.Friends.FollowMax,
 		storyMainParts:              cloneStoryMainParts(state.Story.MainParts),
 		cnStoryMainParts:            cloneStoryMainParts(state.Story.CNMainParts),
@@ -867,7 +865,7 @@ func New(state gamestate.State) (*Account, error) {
 			return nil, fmt.Errorf("card store tower profile %d is incomplete", towerID)
 		}
 	}
-	if result.followMax < 1 || result.followMax < len(result.friends) {
+	if result.followMax < 1 {
 		return nil, errors.New("friend store capacity is invalid")
 	}
 	if state.Explore.StartedAtUnix > 0 {
@@ -1199,15 +1197,6 @@ func cloneExploreStages(stages []gamestate.ExploreStage) []gamestate.ExploreStag
 	return cloned
 }
 
-func cloneFriends(friends []gamestate.Friend) []gamestate.Friend {
-	cloned := make([]gamestate.Friend, len(friends))
-	for index, friend := range friends {
-		cloned[index] = friend
-		cloned[index].DeckHonorIDs = append([]int(nil), friend.DeckHonorIDs...)
-	}
-	return cloned
-}
-
 func (s *Account) Show() ([]CardInfo, []DeckInfo) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1248,12 +1237,6 @@ func (s *Account) FriendPointState() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.friendPoint
-}
-
-func (s *Account) friendPointHelperReward() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.playerProgression.Friends.HelperReward.OtherPerPartner
 }
 
 func (s *Account) FriendPointRewardForState(state int8) int {

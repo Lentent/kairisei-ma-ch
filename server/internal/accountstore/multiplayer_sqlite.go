@@ -22,8 +22,8 @@ func (accounts *Accounts) NextRoomID(minimum int64) (int64, error) {
 	if minimum <= 0 {
 		return 0, errors.New("minimum multiplayer room ID is invalid")
 	}
-	accounts.mu.Lock()
-	defer accounts.mu.Unlock()
+	// The single-writer pool/IMMEDIATE transaction serializes this durable
+	// sequence. It does not depend on mutable account or login state.
 	transaction, err := accounts.beginMultiplayerTransaction()
 	if err != nil {
 		return 0, err
@@ -85,8 +85,8 @@ func (accounts *Accounts) SaveCompleted(completed multiplayer.CompletedBattle, e
 	digest := sha256.Sum256(content)
 	digestText := hex.EncodeToString(digest[:])
 
-	accounts.mu.Lock()
-	defer accounts.mu.Unlock()
+	// Completion storage owns no account state. Serialize through the SQLite
+	// writer, without taking the account/login mutex from a room operation.
 	transaction, err := accounts.beginMultiplayerTransaction()
 	if err != nil {
 		return err
@@ -153,33 +153,24 @@ func (accounts *Accounts) LoadCompleted(roomID int64, now time.Time) (multiplaye
 	if roomID <= 0 || now.IsZero() {
 		return multiplayer.CompletedBattle{}, time.Time{}, errors.New("completed room lookup is invalid")
 	}
-	accounts.mu.Lock()
-	defer accounts.mu.Unlock()
-	transaction, err := accounts.beginMultiplayerTransaction()
+	// Completions are immutable. A single WAL reader query is sufficient; a
+	// lookup must not reserve the writer or serialize unrelated account work.
+	// NextRoomID and SaveCompleted batch-prune expired rows on their write path.
+	database, err := accounts.storage.OpenRead()
 	if err != nil {
-		return multiplayer.CompletedBattle{}, time.Time{}, err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = transaction.Rollback()
-		}
-	}()
-	if err := accounts.pruneMultiplayerCompletions(transaction, now); err != nil {
 		return multiplayer.CompletedBattle{}, time.Time{}, err
 	}
 	var expiresUnix int64
 	var content []byte
 	var expectedDigest string
-	if err := transaction.QueryRowContext(
+	if err := database.QueryRowContext(
 		context.Background(),
 		`SELECT expires_unix, payload_json, payload_sha256
-		 FROM cn_multiplayer_completion WHERE room_id = ?`,
+		 FROM cn_multiplayer_completion WHERE room_id = ? AND expires_unix > ?`,
 		roomID,
+		now.Unix(),
 	).Scan(&expiresUnix, &content, &expectedDigest); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_ = transaction.Rollback()
-			committed = true
 			return multiplayer.CompletedBattle{}, time.Time{}, multiplayer.ErrCompletedBattleUnavailable
 		}
 		return multiplayer.CompletedBattle{}, time.Time{}, fmt.Errorf("read multiplayer completion: %w", err)
@@ -208,10 +199,6 @@ func (accounts *Accounts) LoadCompleted(roomID int64, now time.Time) (multiplaye
 	if err := validateCompletedBattle(completed, expiresAt); err != nil {
 		return multiplayer.CompletedBattle{}, time.Time{}, err
 	}
-	if err := transaction.Commit(); err != nil {
-		return multiplayer.CompletedBattle{}, time.Time{}, fmt.Errorf("commit multiplayer completion read: %w", err)
-	}
-	committed = true
 	return completed, expiresAt, nil
 }
 

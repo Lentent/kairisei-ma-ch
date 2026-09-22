@@ -80,3 +80,38 @@ func TestContentCatalogKeepsProgressWhenMovingGroups(t *testing.T) {
 		t.Fatal("reopening difficulty lost clear progress", err)
 	}
 }
+
+func TestBattleCatalogRequestOwnsPublicationAndPreservesClosedClears(t *testing.T) {
+	raw := json.RawMessage(`{"future":9007199254740993,"9":[{"0":760000001,"9":0,"10":[{"0":30010101,"10":1,"14":1,"16":1},{"0":30010102,"10":2,"14":1,"16":0}]}],"10":[],"11":[],"12":[]}`)
+	s := &Account{teamBattleSolo: raw, disabledTeamBattleBossIDs: map[int]bool{30010102: true}}
+	view, err := s.TeamBattleCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.HasBoss(30010101) || view.HasBoss(30010102) {
+		t.Fatal("published boss membership differs from disabled rules")
+	}
+	group := view.Groups("10")[0].(map[string]any)
+	boss := group["10"].([]any)[0].(map[string]any)
+	if boss["10"] != json.Number("0") || boss["16"] != json.Number("0") {
+		t.Fatal("expired buff was not reset in publication")
+	}
+	// Mutating the response cannot leak into a later request or saved progress.
+	boss["10"] = json.Number("2")
+	saved, err := decodeTeamBattleCatalog(s.teamBattleSolo)
+	if err != nil || saved.fields["future"] != json.Number("9007199254740993") || len(saved.groups["9"][0].bosses) != 2 {
+		t.Fatal("expiry changed unmodeled fields or removed closed progress", err)
+	}
+	if saved.groups["9"][0].bosses[0].fields["10"] != json.Number("0") {
+		t.Fatal("response mutation reached account state")
+	}
+	s.ApplyBattleCatalogConfiguration(gamestate.State{TeamBattleSolo: raw})
+	reopened, err := s.TeamBattleCatalog()
+	if err != nil || !reopened.HasBoss(30010102) {
+		t.Fatal("reopened boss was not published", err)
+	}
+	bosses := reopened.Groups("10")[0].(map[string]any)["10"].([]any)
+	if bosses[1].(map[string]any)["10"] != json.Number("2") {
+		t.Fatal("reopening a difficulty reset its first clear")
+	}
+}

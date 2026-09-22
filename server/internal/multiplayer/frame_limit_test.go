@@ -17,9 +17,10 @@ var hubWriteProbe sync.Mutex
 
 type hubCheckingConn struct {
 	net.Conn
-	hub    *Hub
-	locked bool
-	output strings.Builder
+	hub     *Hub
+	session *roomSession
+	locked  bool
+	output  strings.Builder
 }
 
 func (connection *hubCheckingConn) Write(p []byte) (int, error) {
@@ -29,19 +30,28 @@ func (connection *hubCheckingConn) Write(p []byte) (int, error) {
 	} else {
 		connection.locked = true
 	}
+	if connection.session != nil {
+		if connection.session.mu.TryLock() {
+			connection.session.mu.Unlock()
+		} else {
+			connection.locked = true
+		}
+	}
 	hubWriteProbe.Unlock()
 	return connection.output.Write(p)
 }
 
-func TestRoomInitialFramesDoNotWriteUnderGlobalHubLock(t *testing.T) {
+func TestRoomInitialFramesDoNotWriteUnderStateLocks(t *testing.T) {
 	left, right := net.Pipe()
 	defer left.Close()
 	defer right.Close()
 	hub := NewHub()
 	connection := &hubCheckingConn{Conn: left, hub: hub}
 	client := &clientConn{conn: connection}
-	hub.mu.Lock()
-	if err := client.writeInitialRoomFramesAndUnlock(hub, []battleFrame{{"RoomCreateRequestResult", "0"}, {"RoomMember", "1"}}); err != nil {
+	hub.rooms[1] = &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateOpen}}
+	session := hub.lockRoomSession(1)
+	connection.session = session.owner
+	if err := client.writeInitialRoomFramesAndUnlock(session, []battleFrame{{"RoomCreateRequestResult", "0"}, {"RoomMember", "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if connection.locked || connection.output.String() != "RoomCreateRequestResult{\n0\n}\nRoomMember{\n1\n}\n" {

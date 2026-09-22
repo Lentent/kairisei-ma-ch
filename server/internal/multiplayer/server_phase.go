@@ -23,25 +23,26 @@ func roomBarrierReady[T any](connections map[int]*clientConn, acknowledgements m
 
 func (s *Server) tryAdvanceGameStart(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.gameStarted || current.turnPhaseStarted ||
 		!roomBarrierReady(current.connections, current.gameStartFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("GameStartFinish Go battle engine is unavailable")
 	}
 	results, err := current.engine.TurnPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.turnPhaseStarted = true
@@ -51,7 +52,7 @@ func (s *Server) tryAdvanceGameStart(roomID int64) error {
 	connectedMembers := len(current.connections)
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiTurnPhase", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
@@ -66,44 +67,45 @@ func (s *Server) tryAdvanceGameStart(roomID int64) error {
 
 func (s *Server) tryAdvanceTurnPhase(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.turnPhaseStarted || current.userPhaseStarted ||
 		!roomBarrierReady(current.connections, current.turnPhaseFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if roomContinuePending(current) {
-		return s.continueAtBarrierLocked(hub, current)
+		return s.continueAtBarrierLocked(session, current)
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("TurnPhaseFinish Go battle engine is unavailable")
 	}
 	if current.engineBattleEnd != 0 {
-		return s.completeGoBattleLocked(hub, current)
+		return s.completeGoBattleLocked(session, current)
 	}
 	results, err := current.engine.UserPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.userPhaseStarted = true
 	submissions, err := automaticRoomCardSubmissionFrames(current)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	connectedMembers := len(current.connections)
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	frames := append([]battleFrame{{"ApiUserPhase", result}}, submissions...)
 	deliveries := reserveRoomFramesLocked(connections, frames...)
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
@@ -112,7 +114,10 @@ func (s *Server) tryAdvanceTurnPhase(roomID int64) error {
 		"connected_members", connectedMembers,
 		"result_rows", len(results),
 	)
-	return nil
+	// If every connected human is KO, no CardPlay request is required to
+	// trigger the attack. Reserve/broadcast input and CPU confirmations first;
+	// the usual barrier keeps living humans and animation ACKs authoritative.
+	return s.tryAdvanceCardPlay(roomID)
 }
 
 func (s *Server) tryAdvanceCardPlay(roomID int64) error {
@@ -120,15 +125,16 @@ func (s *Server) tryAdvanceCardPlay(roomID int64) error {
 		return err
 	}
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userPhaseStarted || current.userAttackStarted ||
 		!roomBarrierReady(current.connections, current.cardPlaySubmissions) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("CardPlay Go battle engine is unavailable")
 	}
 	cardPlayResults, err := commitRoomCardPlays(current)
@@ -137,7 +143,7 @@ func (s *Server) tryAdvanceCardPlay(roomID int64) error {
 		if errors.As(err, &inputErr) {
 			owner := current.connections[inputErr.memberType]
 			if owner != nil {
-				hub.mu.Unlock()
+				session.Unlock()
 				// A queued choice can become invalid before the last teammate
 				// submits. Detach its owner, then let the existing disconnect
 				// path fill that slot and retry the barrier outside the lock.
@@ -149,25 +155,26 @@ func (s *Server) tryAdvanceCardPlay(roomID int64) error {
 				return nil
 			}
 		}
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	cardPlayResult, err := encodeOptionalBattleResults(cardPlayResults)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	attackResults, err := current.engine.UserAttack()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("execute Go user attack: %w", err)
 	}
 	attackResult, err := encodeBattleResults(attackResults)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.userAttackStarted = true
+	current.openUserChaliceInput(attackResults)
 	current.engineBattleEnd = current.engine.EndType()
 	battleEnd := current.engineBattleEnd
 	connectedMembers := len(current.connections)
@@ -180,17 +187,15 @@ func (s *Server) tryAdvanceCardPlay(roomID int64) error {
 	}
 	frames = append(frames, battleFrame{"ApiUserAttack", attackResult})
 	deliveries := reserveRoomFramesLocked(connections, frames...)
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info("local multiplayer Go user attack broadcast",
 		"room_id", roomID, "connected_members", connectedMembers,
 		"evaluated_members", maxRoomMembers,
 		"card_play_result_rows", len(cardPlayResults),
-		"card_play_result_rows_csv", battleResultRows(cardPlayResults),
 		"attack_result_rows", len(attackResults),
-		"attack_result_rows_csv", battleResultRows(attackResults),
-		"contract_rows", battleContractRows(attackResults), "battle_end", battleEnd)
+		"battle_end", battleEnd)
 	return nil
 }
 
@@ -272,31 +277,36 @@ func commitRoomCardPlays(current *room) ([]BattleResult, error) {
 
 func (s *Server) tryAdvanceUserAttack(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userAttackStarted || current.chaliceUserStarted ||
 		!roomBarrierReady(current.connections, current.userAttackFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if roomContinuePending(current) {
-		return s.continueAtBarrierLocked(hub, current)
+		return s.continueAtBarrierLocked(session, current)
 	}
 	if current.engineBattleEnd != 0 {
-		return s.completeGoBattleLocked(hub, current)
+		return s.completeGoBattleLocked(session, current)
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("UserAttackFinish Go battle engine is unavailable")
+	}
+	if err := current.commitChaliceInput(); err != nil {
+		session.Unlock()
+		return err
 	}
 	results, err := current.engine.ExecuteChaliceUserPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("execute Go chalice user phase: %w", err)
 	}
 	result, err := encodeOptionalBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.chaliceUserStarted = true
@@ -304,7 +314,7 @@ func (s *Server) tryAdvanceUserAttack(roomID int64) error {
 	battleEnd := current.engineBattleEnd
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiChaliceSphrExecUserPhase", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
@@ -318,31 +328,33 @@ func (s *Server) tryAdvanceUserAttack(roomID int64) error {
 
 func (s *Server) tryAdvanceChaliceUser(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.chaliceUserStarted || current.enemyPhaseStarted ||
 		!roomBarrierReady(current.connections, current.chaliceUserFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if roomContinuePending(current) {
-		return s.continueAtBarrierLocked(hub, current)
+		return s.continueAtBarrierLocked(session, current)
 	}
 	if current.engineBattleEnd != 0 {
-		return s.completeGoBattleLocked(hub, current)
+		return s.completeGoBattleLocked(session, current)
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecUserPhaseFinish Go battle engine is unavailable")
 	}
+	current.openEnemyChaliceInput()
 	results, err := current.engine.EnemyPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("execute Go enemy phase: %w", err)
 	}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.enemyPhaseStarted = true
@@ -350,14 +362,13 @@ func (s *Server) tryAdvanceChaliceUser(roomID int64) error {
 	battleEnd := current.engineBattleEnd
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiEnemyPhase", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
 		"local multiplayer Go enemy phase broadcast",
 		"room_id", roomID,
 		"result_rows", len(results),
-		"contract_rows", battleContractRows(results),
 		"battle_end", battleEnd,
 	)
 	return nil
@@ -365,38 +376,43 @@ func (s *Server) tryAdvanceChaliceUser(roomID int64) error {
 
 func (s *Server) tryAdvanceEnemyPhase(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.enemyPhaseStarted || current.chaliceEnemyStarted ||
 		!roomBarrierReady(current.connections, current.enemyPhaseFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if roomContinuePending(current) {
-		return s.continueAtBarrierLocked(hub, current)
+		return s.continueAtBarrierLocked(session, current)
 	}
 	if current.engineBattleEnd != 0 {
-		return s.completeGoBattleLocked(hub, current)
+		return s.completeGoBattleLocked(session, current)
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("EnemyPhaseFinish Go battle engine is unavailable")
+	}
+	if err := current.commitChaliceInput(); err != nil {
+		session.Unlock()
+		return err
 	}
 	results, err := current.engine.ExecuteChaliceEnemyPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("execute Go chalice enemy phase: %w", err)
 	}
 	result, err := encodeOptionalBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.chaliceEnemyStarted = true
 	current.engineBattleEnd = current.engine.EndType()
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiChaliceSphrExecEnemyPhase", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
@@ -409,31 +425,32 @@ func (s *Server) tryAdvanceEnemyPhase(roomID int64) error {
 
 func (s *Server) tryAdvanceChaliceEnemy(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.chaliceEnemyStarted ||
 		!roomBarrierReady(current.connections, current.chaliceEnemyFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if roomContinuePending(current) {
-		return s.continueAtBarrierLocked(hub, current)
+		return s.continueAtBarrierLocked(session, current)
 	}
 	if current.engineBattleEnd != 0 {
-		return s.completeGoBattleLocked(hub, current)
+		return s.completeGoBattleLocked(session, current)
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecEnemyPhaseFinish Go battle engine is unavailable")
 	}
 	results, err := current.engine.TurnPhase()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.engineBattleEnd = current.engine.EndType()
@@ -454,7 +471,7 @@ func (s *Server) tryAdvanceChaliceEnemy(roomID int64) error {
 	turnNumber := current.turnNumber
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiTurnPhase", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
@@ -473,10 +490,11 @@ func (s *Server) tryAdvanceChaliceEnemy(roomID int64) error {
 // and may still reclaim its slot through the bounded comeback token.
 func (s *Server) advanceBattleAfterDisconnect(roomID int64) error {
 	hub := s.hub
-	hub.mu.RLock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.gameStarted || len(current.connections) == 0 {
-		hub.mu.RUnlock()
+		session.Unlock()
 		return nil
 	}
 	var advance func(int64) error
@@ -500,6 +518,6 @@ func (s *Server) advanceBattleAfterDisconnect(roomID int64) error {
 	default:
 		advance = s.tryAdvanceChaliceEnemy
 	}
-	hub.mu.RUnlock()
+	session.Unlock()
 	return advance(roomID)
 }

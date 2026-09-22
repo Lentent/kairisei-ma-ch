@@ -211,7 +211,6 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 	sort.Ints(state.Honors.HonorIDs)
 	state.Honors.DeckHonorIDs = append([]int(nil), s.deckHonorIDs...)
 	state.Friends.FollowMax = s.followMax
-	state.Friends.Users = cloneFriends(s.friends)
 	state.Story.MainParts = cloneStoryMainParts(s.storyMainParts)
 	state.Story.CNMainParts = cloneStoryMainParts(s.cnStoryMainParts)
 	state.Story.SubCharacters = cloneStorySubCharacters(s.storySubCharacters)

@@ -879,7 +879,8 @@ func ValidateSave(save saveState) error {
 	}
 	startRooms := make(map[int64]struct{})
 	for _, receipt := range save.TeamBattleStartReceipts {
-		if receipt.RoomID <= 0 || receipt.BossID <= 0 || receipt.BPUse < 0 {
+		if receipt.RoomID <= 0 || receipt.BossID <= 0 || receipt.BPUse < 0 || receipt.MedalItemID < 0 || receipt.MedalUse < 0 ||
+			(receipt.MedalItemID == 0) != (receipt.MedalUse == 0) || (receipt.MedalUse > 0 && receipt.BPUse != 0) {
 			return errors.New("CN save multiplayer start receipt is invalid")
 		}
 		if _, duplicate := startRooms[receipt.RoomID]; duplicate {

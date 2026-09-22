@@ -124,28 +124,30 @@ func (c *clientConn) handleGameNextFinish(payload string) error {
 		return errors.New("GameNextFinish payload is not empty")
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("GameNextFinish has no active member")
 	}
 	if !current.nextBattlePending { // Retransmitted ACK must never start twice.
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	current.gameNextFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceNextBattle(roomID)
 }
 
 func (s *Server) tryAdvanceNextBattle(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.nextBattlePending || !roomBarrierReady(current.connections, current.gameNextFinished) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	index := current.nextBattleIndex
@@ -162,17 +164,17 @@ func (s *Server) tryAdvanceNextBattle(roomID int64) error {
 	}
 	engine, err := current.engine.NextBattle(wave.EnemyPartyID, drops)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	results, err := engine.Start()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("start next battle: %w", err)
 	}
 	result, err := roomStartResult(current, results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.engine, current.engineBattleEnd = engine, 0
@@ -190,7 +192,7 @@ func (s *Server) tryAdvanceNextBattle(roomID int64) error {
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	payload := strconv.FormatInt(time.Now().Unix(), 10) + "," + result
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiGameStart", payload})
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info("local multiplayer next wave started", "room_id", roomID, "battle_index", index, "enemy_party_id", wave.EnemyPartyID)
 	return nil

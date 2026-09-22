@@ -3,21 +3,7 @@ package cnbootstrap
 import (
 	"encoding/json"
 	"net/http"
-
-	"kairisei.local/server/internal/gamestate"
 )
-
-// normalizeCNLegacyStaticFriends removes the retired per-snapshot friend rows.
-// Live friend, follower, search and partner projections are owned by the
-// SQLite account graph; keeping the former seed rows would preserve two
-// fabricated users in every account even though no current route consumes them.
-func normalizeCNLegacyStaticFriends(state *gamestate.State) bool {
-	if state == nil || len(state.Friends.Users) == 0 {
-		return false
-	}
-	state.Friends.Users = []gamestate.Friend{}
-	return true
-}
 
 var cnFriendUserInfoFieldMap = map[string]string{
 	"userid":            "userid",

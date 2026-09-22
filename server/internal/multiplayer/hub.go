@@ -193,6 +193,8 @@ type CompletedBattle struct {
 // account's reward receipt. It lets the HTTP settlement survive a server
 // restart without moving mutable character state out of the account snapshot.
 type CompletionRepository interface {
+	// Implementations only own durable room data. They must not call back into
+	// Hub or acquire account gameplay locks: SaveCompleted owns a room session.
 	// NextRoomID atomically reserves an ID, even if the room never completes.
 	NextRoomID(minimum int64) (int64, error)
 	SaveCompleted(CompletedBattle, time.Time) error
@@ -236,6 +238,8 @@ type cardPlaySubmission struct {
 }
 
 type room struct {
+	session *roomSession // registry-owned identity; mutable state uses session.mu
+
 	RoomSnapshot
 	battles                []gamestate.TeamBattleReplayBattle
 	battleIndex            int
@@ -272,6 +276,7 @@ type room struct {
 	drops                  []BattleDrop
 	countdownSyncs         int
 	countdownDeadline      time.Time
+	countdownChecking      bool
 	countdownFinishPending bool
 	battleLoading          map[int]bool
 	gameStarted            bool
@@ -292,6 +297,7 @@ type room struct {
 	chaliceEnemyFinished   map[int]bool
 	engineBattleEnd        int
 	engine                 *BattleEngine
+	chaliceInput           roomChaliceInput
 }
 
 type roomReservation struct {
@@ -302,6 +308,8 @@ type roomReservation struct {
 
 type Hub struct {
 	mu                 sync.RWMutex
+	configFrozen       bool       // startup dependencies become immutable on first activity
+	reservationMu      sync.Mutex // serializes cross-room reservation moves
 	nextRoomID         int64
 	rooms              map[int64]*room
 	pending            map[string]pendingRequest
@@ -325,7 +333,7 @@ func (h *Hub) AttachGameSpeed(current func() int) error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.gameSpeed != nil || len(h.rooms) != 0 || len(h.pending) != 0 {
+	if h.configFrozen || h.gameSpeed != nil || len(h.rooms) != 0 || len(h.pending) != 0 {
 		return errors.New("attach multiplayer speed before room activity")
 	}
 	h.gameSpeed = current
@@ -333,21 +341,33 @@ func (h *Hub) AttachGameSpeed(current func() int) error {
 }
 
 type BattleStart struct {
-	RoomID      int64
-	BossID      int
-	OwnerUserID int
-	BPUse       int
+	RoomID       int64
+	BossID       int
+	OwnerUserID  int
+	BPUse        int
+	GuestUserIDs []int
+	// CheckOnly validates the Start click without charging a cancellable countdown.
+	CheckOnly bool
 }
 
+// BattleStartDenied is a normal balance refusal, not a transport failure.
+type BattleStartDenied struct {
+	UserID  int
+	Message string
+}
+
+func (e *BattleStartDenied) Error() string { return e.Message }
+
 // AttachStartAuthorizer binds the account transaction boundary at startup.
-// The callback is always called WITHOUT hub.mu: HTTP owns account->Hub order.
+// Account callbacks run without either registry or room locks. Account-owned
+// HTTP transactions may enter a room; the reverse lock order is forbidden.
 func (h *Hub) AttachStartAuthorizer(authorize func(BattleStart) error) error {
 	if authorize == nil {
 		return errors.New("multiplayer start authorizer is required")
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.startAuthorizer != nil || len(h.rooms) != 0 || len(h.pending) != 0 {
+	if h.configFrozen || h.startAuthorizer != nil || len(h.rooms) != 0 || len(h.pending) != 0 {
 		return errors.New("attach multiplayer start authorizer before room activity")
 	}
 	h.startAuthorizer = authorize
@@ -383,7 +403,7 @@ func (h *Hub) AttachCombatCatalog(catalog *CombatCatalog) error {
 	// gates above, which are sufficient to prevent invalid runtime dispatch.
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.rooms) != 0 || len(h.pending) != 0 || h.combat != nil {
+	if h.configFrozen || len(h.rooms) != 0 || len(h.pending) != 0 || h.combat != nil {
 		return errors.New("multiplayer combat catalog must be attached before room activity")
 	}
 	h.combat = catalog
@@ -405,7 +425,7 @@ func (h *Hub) AttachCompletionRepository(repository CompletionRepository) error 
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.rooms) != 0 || len(h.pending) != 0 || h.repository != nil {
+	if h.configFrozen || len(h.rooms) != 0 || len(h.pending) != 0 || h.repository != nil {
 		return errors.New("multiplayer completion repository must be attached before room activity")
 	}
 	h.repository = repository
@@ -414,6 +434,8 @@ func (h *Hub) AttachCompletionRepository(repository CompletionRepository) error 
 }
 
 type completedBattle struct {
+	session *roomSession // same lifetime lock as the active room
+
 	CompletedBattle
 	claimed               map[int]bool
 	expiresAt             time.Time
@@ -439,41 +461,67 @@ func (h *Hub) SettlementFor(roomID int64, userID int) (CompletedBattle, error) {
 	if roomID <= 0 || userID <= 0 {
 		return CompletedBattle{}, errors.New("completed room identity is invalid")
 	}
-	now := time.Now()
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.pruneCompletedLocked(now)
-	completed, exists := h.completed[roomID]
-	if !exists && h.rooms[roomID] != nil {
+	h.configFrozen = true
+	h.pruneCompletedLocked(time.Now())
+	repository := h.repository
+	h.mu.Unlock()
+	session := h.lockRoomSession(roomID)
+	if session.completed != nil {
+		result, err := session.completed.settlementFor(userID)
+		session.Unlock()
+		return result, err
+	}
+	pending := session.room != nil
+	session.Unlock()
+	if pending {
 		return CompletedBattle{}, ErrCompletedBattlePending
 	}
-	if !exists && h.repository != nil {
-		persisted, expiresAt, err := h.repository.LoadCompleted(roomID, now)
-		if err != nil {
-			if errors.Is(err, ErrCompletedBattleUnavailable) {
-				return CompletedBattle{}, ErrCompletedBattleUnavailable
-			}
-			return CompletedBattle{}, fmt.Errorf("load completed room: %w", err)
-		}
-		claimed := make(map[int]bool, len(persisted.OnlineUserIDs))
-		for _, eligibleUserID := range persisted.OnlineUserIDs {
-			if eligibleUserID <= 0 {
-				return CompletedBattle{}, errors.New("persisted completed room claimant is invalid")
-			}
-			if _, duplicate := claimed[eligibleUserID]; duplicate {
-				return CompletedBattle{}, errors.New("persisted completed room repeats a claimant")
-			}
-			claimed[eligibleUserID] = false
-		}
-		completed = &completedBattle{
-			CompletedBattle: cloneCompletedBattle(persisted),
-			claimed:         claimed,
-			expiresAt:       expiresAt,
-		}
-		h.completed[roomID] = completed
-		exists = true
+	if repository == nil {
+		return CompletedBattle{}, ErrCompletedBattleUnavailable
 	}
-	if !exists {
+
+	// Loading a persisted result does not own a room. Another request can load
+	// and claim it meanwhile; publish only if absent, then recheck under its lock.
+	persisted, expiresAt, loadErr := repository.LoadCompleted(roomID, time.Now())
+	claimed := make(map[int]bool, len(persisted.OnlineUserIDs))
+	if loadErr == nil {
+		for _, id := range persisted.OnlineUserIDs {
+			if id <= 0 {
+				loadErr = errors.New("persisted completed room claimant is invalid")
+				break
+			}
+			if _, duplicate := claimed[id]; duplicate {
+				loadErr = errors.New("persisted completed room repeats a claimant")
+				break
+			}
+			claimed[id] = false
+		}
+	}
+	h.mu.Lock()
+	now := time.Now()
+	h.pruneCompletedLocked(now)
+	if h.rooms[roomID] == nil && h.completed[roomID] == nil && loadErr == nil && expiresAt.After(now) {
+		h.completed[roomID] = &completedBattle{session: &roomSession{}, CompletedBattle: cloneCompletedBattle(persisted), claimed: claimed, expiresAt: expiresAt}
+	}
+	h.mu.Unlock()
+	session = h.lockRoomSession(roomID)
+	defer session.Unlock()
+	if session.completed != nil && session.completed.expiresAt.After(time.Now()) {
+		return session.completed.settlementFor(userID)
+	}
+	if session.room != nil {
+		return CompletedBattle{}, ErrCompletedBattlePending
+	}
+	if loadErr != nil && !errors.Is(loadErr, ErrCompletedBattleUnavailable) {
+		return CompletedBattle{}, fmt.Errorf("load completed room: %w", loadErr)
+	}
+	return CompletedBattle{}, ErrCompletedBattleUnavailable
+}
+
+// Caller owns the session; claiming and cloning use the same memory snapshot.
+func (completed *completedBattle) settlementFor(userID int) (CompletedBattle, error) {
+	if !completed.expiresAt.After(time.Now()) {
 		return CompletedBattle{}, ErrCompletedBattleUnavailable
 	}
 	claimed, eligible := completed.claimed[userID]
@@ -490,11 +538,10 @@ func (h *Hub) MarkSettlementClaimed(roomID int64, userID int) error {
 	if roomID <= 0 || userID <= 0 {
 		return errors.New("completed room identity is invalid")
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.pruneCompletedLocked(time.Now())
-	completed, exists := h.completed[roomID]
-	if !exists {
+	session := h.lockRoomSession(roomID)
+	defer session.Unlock()
+	completed := session.completed
+	if completed == nil || !completed.expiresAt.After(time.Now()) {
 		return errors.New("completed room is unavailable")
 	}
 	if _, eligible := completed.claimed[userID]; !eligible {
@@ -528,6 +575,7 @@ func (h *Hub) IssueCreate(spec RoomSpec) (Credential, error) {
 		}
 	}
 	h.prunePendingLocked(time.Now())
+	h.configFrozen = true
 	h.pending[credential.AuthToken] = pendingRequest{
 		Kind:      pendingCreate,
 		Spec:      cloneRoomSpec(spec),
@@ -549,12 +597,10 @@ func (h *Hub) IssueEnter(roomID int64, member Member) (Credential, error) {
 	if err != nil {
 		return Credential{}, err
 	}
+	session := h.lockRoomSession(roomID)
+	defer session.Unlock()
 	now := time.Now()
-	h.expireReservations(now)
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.prunePendingLocked(now)
-	current, exists := h.rooms[roomID]
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateOpen {
 		return Credential{}, ErrRoomUnavailable
 	}
@@ -576,6 +622,9 @@ func (h *Hub) IssueEnter(roomID int64, member Member) (Credential, error) {
 	if !exists || reservation.UserID != member.UserID || !reservation.ExpiresAt.After(now) {
 		return Credential{}, fmt.Errorf("%w: reservation expired or missing", ErrRoomUnavailable)
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.prunePendingLocked(now)
 	h.pending[credential.AuthToken] = pendingRequest{
 		Kind:      pendingEnter,
 		RoomID:    roomID,
@@ -590,35 +639,66 @@ func (h *Hub) Reserve(roomID int64, userID int, arthurType int) (int64, error) {
 	if roomID <= 0 || userID <= 0 || arthurType < 1 || arthurType > 4 {
 		return 0, errors.New("room reservation is invalid")
 	}
+	// Only reservation moves span rooms. Serialize these moves, then take the
+	// affected sessions in increasing ID order, never while holding Hub.mu.
+	h.reservationMu.Lock()
+	ids := []int64{roomID}
+	for id, view := range h.roomViews() {
+		if id == roomID {
+			continue
+		}
+		for _, reservation := range view.reservations {
+			if reservation.UserID == userID {
+				ids = append(ids, id)
+				break
+			}
+		}
+	}
+	slices.Sort(ids)
+	sessions := make([]*lockedRoomSession, 0, len(ids))
+	var current *room
+	for _, id := range ids {
+		session := h.lockRoomSession(id)
+		sessions = append(sessions, session)
+		if id == roomID {
+			current = session.room
+		}
+	}
+	unlock := func() {
+		for i := len(sessions) - 1; i >= 0; i-- {
+			sessions[i].Unlock()
+		}
+		h.reservationMu.Unlock()
+	}
 	now := time.Now()
-	h.expireReservations(now)
-	h.mu.Lock()
-	h.prunePendingLocked(now)
-	current := h.rooms[roomID]
 	memberType, err := roomReservationSlot(current, userID, arthurType, now)
 	if err != nil {
-		h.mu.Unlock()
+		unlock()
 		return 0, err
 	}
-	cancellations := make([][]frameDelivery, 0, 1)
-	for _, candidate := range h.rooms {
+	var deliveries []frameDelivery
+	for _, session := range sessions {
+		candidate := session.room
+		if candidate == nil {
+			continue
+		}
 		for role, reservation := range candidate.reservations {
-			if reservation.UserID != userID || candidate == current && role == arthurType {
+			expired := !reservation.ExpiresAt.After(now)
+			moving := reservation.UserID == userID && (candidate != current || role != arthurType)
+			if !expired && !moving {
 				continue
 			}
 			delete(candidate.reservations, role)
-			cancellations = append(cancellations,
-				reserveMemberReservationLocked(roomConnections(candidate), reservation.MemberType, false))
+			deliveries = append(deliveries, reserveMemberReservationLocked(roomConnections(candidate), reservation.MemberType, false)...)
 		}
 	}
 	limit := now.Add(reservationLifetime)
-	current.reservations[arthurType] = roomReservation{UserID: userID, MemberType: memberType, ExpiresAt: limit}
-	connections := append([]*clientConn(nil), roomConnections(current)...)
-	deliveries := reserveMemberReservationLocked(connections, memberType, true)
-	h.mu.Unlock()
-	for _, cancellation := range cancellations {
-		sendRoomFrames(cancellation)
+	if current.reservations == nil {
+		current.reservations = make(map[int]roomReservation)
 	}
+	current.reservations[arthurType] = roomReservation{UserID: userID, MemberType: memberType, ExpiresAt: limit}
+	deliveries = append(deliveries, reserveMemberReservationLocked(roomConnections(current), memberType, true)...)
+	unlock()
 	sendRoomFrames(deliveries)
 	h.scheduleReservationExpiry(roomID, userID, arthurType, memberType, limit)
 	return limit.Unix(), nil
@@ -628,27 +708,27 @@ func (h *Hub) CancelReservation(roomID int64, userID int, arthurType int) error 
 	if roomID <= 0 || userID <= 0 || arthurType < 1 || arthurType > 4 {
 		return errors.New("room reservation cancellation is invalid")
 	}
-	h.expireReservations(time.Now())
-	h.mu.Lock()
-	current, exists := h.rooms[roomID]
+	session := h.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists {
-		h.mu.Unlock()
+		session.Unlock()
 		// Closing a room already removes its reservations. Cancellation is done.
 		return nil
 	}
 	reservation, exists := current.reservations[arthurType]
 	if !exists {
-		h.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
-	if reservation.UserID != userID {
-		h.mu.Unlock()
+	if reservation.UserID != userID && reservation.ExpiresAt.After(time.Now()) {
+		session.Unlock()
 		return errors.New("room reservation belongs to another user")
 	}
 	delete(current.reservations, arthurType)
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveMemberReservationLocked(connections, reservation.MemberType, false)
-	h.mu.Unlock()
+	session.Unlock()
 	sendRoomFrames(deliveries)
 	return nil
 }
@@ -726,22 +806,23 @@ func (h *Hub) scheduleReservationExpiry(roomID int64, userID int, arthurType int
 		delay = 0
 	}
 	time.AfterFunc(delay, func() {
-		h.mu.Lock()
-		current, exists := h.rooms[roomID]
+		session := h.lockRoomSession(roomID)
+		defer session.Unlock()
+		current, exists := session.room, session.room != nil
 		if !exists {
-			h.mu.Unlock()
+			session.Unlock()
 			return
 		}
 		reservation, exists := current.reservations[arthurType]
 		if !exists || reservation.UserID != userID || reservation.MemberType != memberType ||
 			!reservation.ExpiresAt.Equal(expiresAt) || reservation.ExpiresAt.After(time.Now()) {
-			h.mu.Unlock()
+			session.Unlock()
 			return
 		}
 		delete(current.reservations, arthurType)
 		connections := append([]*clientConn(nil), roomConnections(current)...)
 		deliveries := reserveMemberReservationLocked(connections, memberType, false)
-		h.mu.Unlock()
+		session.Unlock()
 		sendRoomFrames(deliveries)
 	})
 }
@@ -750,12 +831,10 @@ func (h *Hub) ReservationFor(userID int) (int64, int64, bool) {
 	if userID <= 0 {
 		return 0, 0, false
 	}
-	h.expireReservations(time.Now())
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for roomID, current := range h.rooms {
-		for _, reservation := range current.reservations {
-			if reservation.UserID == userID {
+	now := time.Now()
+	for roomID, view := range h.roomViews() {
+		for _, reservation := range view.reservations {
+			if reservation.UserID == userID && reservation.ExpiresAt.After(now) {
 				return roomID, reservation.ExpiresAt.Unix(), true
 			}
 		}
@@ -772,11 +851,11 @@ type RoomSearch struct {
 }
 
 func (h *Hub) List(query RoomSearch) []RoomSnapshot {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
 	now := time.Now()
-	result := make([]RoomSnapshot, 0, len(h.rooms))
-	for _, current := range h.rooms {
+	views := h.roomViews()
+	result := make([]RoomSnapshot, 0, len(views))
+	for _, view := range views {
+		current := &room{RoomSnapshot: view.snapshot, reservations: view.reservations}
 		if current.State != RoomStateOpen || len(current.Members) >= maxRoomMembers {
 			continue
 		}
@@ -787,7 +866,7 @@ func (h *Hub) List(query RoomSearch) []RoomSnapshot {
 			continue
 		}
 		// The client reuses the search password for entry without prompting.
-		if current.password() != query.Password {
+		if view.password != query.Password {
 			continue
 		}
 		if query.ArthurType != 0 {
@@ -802,13 +881,11 @@ func (h *Hub) List(query RoomSearch) []RoomSnapshot {
 }
 
 func (h *Hub) Snapshot(roomID int64) (RoomSnapshot, bool) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	current, exists := h.rooms[roomID]
-	if !exists {
+	view := h.roomView(roomID)
+	if view == nil || view.snapshot.State == RoomStateClosed {
 		return RoomSnapshot{}, false
 	}
-	return cloneRoomSnapshot(current.RoomSnapshot), true
+	return cloneRoomSnapshot(view.snapshot), true
 }
 
 func (h *Hub) RoomCount() int {
@@ -993,25 +1070,8 @@ func (h *Hub) prunePendingLocked(now time.Time) {
 	}
 }
 
-func (h *Hub) expireReservations(now time.Time) {
-	expired := make([][]frameDelivery, 0)
-	h.mu.Lock()
-	for _, current := range h.rooms {
-		for arthurType, reservation := range current.reservations {
-			if reservation.ExpiresAt.After(now) {
-				continue
-			}
-			delete(current.reservations, arthurType)
-			expired = append(expired,
-				reserveMemberReservationLocked(roomConnections(current), reservation.MemberType, false))
-		}
-	}
-	h.mu.Unlock()
-	for _, expiration := range expired {
-		sendRoomFrames(expiration)
-	}
-}
-
+// Expiry and registry identity are immutable. Eviction never waits for a
+// session; an already-running operation keeps its owner until it finishes.
 func (h *Hub) pruneCompletedLocked(now time.Time) {
 	for roomID, completed := range h.completed {
 		if !completed.expiresAt.After(now) {

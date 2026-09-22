@@ -103,7 +103,12 @@ func TestCountdownRequiresOnlyMissingProfessionDecks(t *testing.T) {
 	}
 	h := NewHub()
 	debits := 0
-	if err := h.AttachStartAuthorizer(func(BattleStart) error { debits++; return nil }); err != nil {
+	if err := h.AttachStartAuthorizer(func(start BattleStart) error {
+		if !start.CheckOnly {
+			debits++
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{hub: h, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -149,7 +154,12 @@ func TestCancelledCountdownAcceptsNewPlayer(t *testing.T) {
 			h := NewHub()
 			s := &Server{hub: h, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 			if reject {
-				if err := h.AttachStartAuthorizer(func(BattleStart) error { return errors.New("debit rejected") }); err != nil {
+				if err := h.AttachStartAuthorizer(func(start BattleStart) error {
+					if start.CheckOnly {
+						return nil
+					}
+					return errors.New("debit rejected")
+				}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -475,7 +485,10 @@ func TestCompletedRoomFreezesReleasedDropsForAllClaimants(t *testing.T) {
 		current.dropPlan = append(current.dropPlan, gamestate.TeamBattleEnemyDrop{EnemyIndex: index, Reward: gamestate.Reward{Type: 4, Num: index + 1}})
 	}
 	h.rooms[1] = current
-	if err := completeBattleLocked(h, current, time.Now()); err != nil {
+	session := h.lockRoomSession(current.RoomID)
+	err := completeBattleLocked(h, current, time.Now())
+	session.Unlock()
+	if err != nil {
 		t.Fatal(err)
 	}
 	current.dropPlan[0].Reward.Num = 999

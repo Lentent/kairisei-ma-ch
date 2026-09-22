@@ -14,21 +14,6 @@ import (
 	"kairisei.local/server/internal/multiplayer"
 )
 
-func TestTeamBattleMultiRoomSearchDoesNotSynthesizeRoom(t *testing.T) {
-	api := &API{}
-
-	rooms, err := api.teamBattleMultiRoomWires(multiplayer.RoomSearch{}, 0)
-	if err != nil {
-		t.Fatalf("list real rooms: %v", err)
-	}
-	if rooms == nil {
-		t.Fatal("room list must be an empty array, not null")
-	}
-	if len(rooms) != 0 {
-		t.Fatalf("expected no rooms without a live multiplayer hub, got %d", len(rooms))
-	}
-}
-
 func TestExpiredMultiplayerRoomReturnsProtocol(t *testing.T) {
 	api := &API{multiplayer: multiplayer.NewHub(), account: &game.Account{}, initialState: gamestate.State{},
 		battleSV: multiplayer.Endpoint{Host: "127.0.0.1", Port: 26021}}

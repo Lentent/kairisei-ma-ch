@@ -41,7 +41,12 @@ func (a *API) teamBattleMultiShow(writer http.ResponseWriter, request *http.Requ
 		writeError(writer, http.StatusBadRequest, "invalid active Arthur type")
 		return
 	}
-	groups, err := teamBattleMultiGroups(a.account.TeamBattleSoloState())
+	catalog, err := a.account.TeamBattleCatalog()
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	groups, err := teamBattleMultiGroups(catalog)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -764,19 +769,12 @@ func (a *API) battleSVWire(credential multiplayer.Credential) map[string]any {
 	}
 }
 
-func teamBattleMultiGroups(configuration json.RawMessage) (map[string]any, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(configuration, &top); err != nil {
-		return nil, fmt.Errorf("decode team battle groups: %w", err)
-	}
+func teamBattleMultiGroups(catalog *game.TeamBattleCatalog) (map[string]any, error) {
 	result := map[string]any{"event_bg_pictid": 0}
 	for key, name := range map[string]string{
 		"9": "normal_groups", "10": "special_groups", "11": "key_groups", "12": "event_groups",
 	} {
-		var sourceGroups []any
-		if err := json.Unmarshal(top[key], &sourceGroups); err != nil {
-			return nil, fmt.Errorf("decode team battle %s: %w", name, err)
-		}
+		sourceGroups := catalog.Groups(key)
 		groups := make([]any, 0, len(sourceGroups))
 		for _, sourceGroup := range sourceGroups {
 			group, err := teamBattleBossGroupNamedDTO(sourceGroup)

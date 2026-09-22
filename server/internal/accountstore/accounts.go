@@ -617,6 +617,17 @@ func (accounts *Accounts) persistAccountData(userID int, state gamestate.State, 
 	}()
 	digest := sha256.Sum256(content)
 	updatedUTC := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := writeAccountSnapshot(transaction, userID, state, content, hex.EncodeToString(digest[:]), updatedUTC, audit); err != nil {
+		return err
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit CN account snapshot update: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func writeAccountSnapshot(transaction *sql.Tx, userID int, state gamestate.State, content []byte, digestText, updatedUTC string, audit *AdminAudit) error {
 	if err := writeAccountRows(transaction, state); err != nil {
 		return err
 	}
@@ -629,7 +640,7 @@ func (accounts *Accounts) persistAccountData(userID int, state gamestate.State, 
 		saveSnapshotSchemaVersion,
 		updatedUTC,
 		content,
-		hex.EncodeToString(digest[:]),
+		digestText,
 		userID,
 	)
 	if err != nil {
@@ -650,14 +661,7 @@ func (accounts *Accounts) persistAccountData(userID int, state gamestate.State, 
 	if err := upsertAccountProjection(transaction, userID, revision, updatedUTC, state); err != nil {
 		return err
 	}
-	if err := audit.appendTo(transaction, updatedUTC); err != nil {
-		return err
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit CN account snapshot update: %w", err)
-	}
-	committed = true
-	return nil
+	return audit.appendTo(transaction, updatedUTC)
 }
 
 // ListPVPOpponents returns persisted local accounts other than the challenger.

@@ -708,38 +708,14 @@ func ApplyCardRuntimeMaster(state *gamestate.State, master CardRuntimeMaster) (b
 		return false, fmt.Errorf("CN save buddy config version %d is unsupported", state.BuddyConfigVersion)
 	}
 	if state.BuddyConfigVersion < master.BuddyConfigVersion {
-		if state.BuddyConfigVersion == 0 {
-			if state.Onboarding.ConfigVersion != 0 {
-				state.Buddies = []gamestate.Buddy{}
-				for index := range state.Decks {
-					state.Decks[index].BuddyUniqueIDs = make([]int64, 5)
-				}
-			} else {
-				state.Buddies = append([]gamestate.Buddy(nil), master.BuddySeedTemplates...)
-				for index := range state.Decks {
-					deck := &state.Decks[index]
-					if deck.ArthurType < 1 || deck.ArthurType > 4 {
-						continue
-					}
-					deck.BuddyUniqueIDs = append([]int64(nil), master.BuddySeedDecks[fmt.Sprint(deck.ArthurType)]...)
-				}
-				ownedStacks := make(map[int]struct{}, len(state.StackCards))
-				for _, stack := range state.StackCards {
-					ownedStacks[stack.CardID] = struct{}{}
-				}
-				for _, stack := range master.BuddySeedStackCards {
-					if _, exists := ownedStacks[stack.CardID]; !exists {
-						state.StackCards = append(state.StackCards, stack)
-					}
-				}
+		if state.BuddyConfigVersion == 0 && len(state.Buddies) == 0 {
+			for index := range state.Decks {
+				state.Decks[index].BuddyUniqueIDs = make([]int64, 5)
 			}
 		}
 		state.BuddyConfigVersion = master.BuddyConfigVersion
 		state.Buddy = gamestate.Buddy{}
 		changed = true
-	}
-	if len(state.Buddies) == 0 && state.Onboarding.ConfigVersion == 0 {
-		return false, errors.New("CN QA save owns no buddies")
 	}
 	buddyDefinitions := make(map[int]gamestate.BuddyDefinition, len(master.BuddyDefinitions))
 	for _, definition := range master.BuddyDefinitions {

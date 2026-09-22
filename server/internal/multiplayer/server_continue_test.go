@@ -253,17 +253,46 @@ func TestContinueDeclineAndTimeout(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				// The previous stock countdown may arrive after TurnPhase has
+				// started. A KO timeout must not disconnect or open input early.
+				if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", true); err != nil {
+					t.Fatal(err)
+				}
+				if current.userPhaseStarted || current.userAttackStarted {
+					t.Fatal("late KO timeout advanced the turn presentation")
+				}
+				if turn == 1 {
+					// Rejoining as a KO spectator must not reintroduce a required
+					// human submission or stand in for another member's phase ACK.
+					if err := owner.close(true); err != nil {
+						t.Fatal(err)
+					}
+					owner = continueTestPeer(t, s, 1)
+					owner.roomID, owner.memberType, owner.userID = 0, 0, 0
+					if err := owner.handleComeback("1001,1,token1,0"); err != nil {
+						t.Fatal(err)
+					}
+					if err := owner.handleReadyToComeback(""); err != nil {
+						t.Fatal(err)
+					}
+					peers[0] = owner
+					if current.userPhaseStarted || owner.comebackPending || current.connections[1] != owner {
+						t.Fatal("KO comeback bypassed the living connection's turn ACK")
+					}
+				}
 				for _, peer := range peers {
 					if err := peer.handleTurnPhaseFinish(); err != nil {
 						t.Fatal(err)
 					}
 				}
-				if _, submitted := current.cardPlaySubmissions[1]; submitted || current.userAttackStarted {
-					t.Fatal("connected KO human bypassed original client input")
+				if !tc.onlyAI {
+					if selection, submitted := current.cardPlaySubmissions[1]; !submitted || selectedActionCount(selection) != 0 || current.userAttackStarted {
+						t.Fatal("KO input must be empty while the living human still chooses")
+					}
 				}
 				selection, submitted := current.engine.selectedPlays[4]
-				if !submitted || (selectedCardCount(selection) > 0) != tc.canPlay || current.engine.enemies[0].HP != beforeHP {
-					t.Fatal("CPU input was not confirmed while waiting for human input")
+				if !submitted || (selectedCardCount(selection) > 0) != tc.canPlay || current.userAttackStarted != tc.onlyAI {
+					t.Fatal("CPU choice or automatic AI-only advancement is incorrect")
 				}
 				beforeRNG := current.engine.rng
 				beforeFrames := guest.conn.(*hubCheckingConn).output.String()
@@ -273,19 +302,18 @@ func TestContinueDeclineAndTimeout(t *testing.T) {
 				if current.engine.rng != beforeRNG || guest.conn.(*hubCheckingConn).output.String() != beforeFrames {
 					t.Fatal("automatic retry changed confirmed CPU input")
 				}
-				// Both KO clients skip manually on the first AI-only turn and
-				// use their original CardPlayTimeup requests on the second.
-				if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", tc.onlyAI && turn == 1); err != nil {
-					t.Fatal(err)
-				}
-				if current.userAttackStarted {
-					t.Fatal("room bypassed the remaining connected KO client's input")
-				}
-				if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", turn == 1); err != nil {
-					t.Fatal(err)
+				// No KO client submits. Only a surviving human must choose;
+				// AI-only rooms must already have advanced, on both turns.
+				if !tc.onlyAI {
+					if current.engine.enemies[0].HP != beforeHP {
+						t.Fatal("CPU attacked before the living human submitted")
+					}
+					if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if !current.userAttackStarted || (current.engine.enemies[0].HP < beforeHP) != tc.canPlay {
-					t.Fatal("client skip/timeout did not release the CPU attack")
+					t.Fatal("CPU attack still waited for KO input")
 				}
 				for _, peer := range peers {
 					frames := peer.conn.(*hubCheckingConn).output.String()

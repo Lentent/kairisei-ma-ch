@@ -15,16 +15,17 @@ import (
 func (s *Server) tryStartLoadedBattle(roomID int64) error {
 	// The auto-start transport skips the lobby countdown. It uses the same
 	// durable host debit; ordinary rooms already committed at countdown end.
-	if err := s.authorizeBattleStart(roomID, RoomStateBattle); err != nil {
+	if err := s.authorizeBattleStart(roomID, RoomStateBattle, false); err != nil {
 		return err
 	}
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || current.gameStarted || current.startCommitting ||
 		(hub.startAuthorizer != nil && !current.hostCostPaid) || len(current.connections) == 0 ||
 		!roomBarrierReady(current.connections, current.battleLoading) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	spec := RoomSpec{
@@ -35,17 +36,17 @@ func (s *Server) tryStartLoadedBattle(roomID int64) error {
 	}
 	engine, err := newBattleEngine(hub.combat, spec, current.Members)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("initialize Go battle engine: %w", err)
 	}
 	results, err := engine.Start()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("start Go battle engine: %w", err)
 	}
 	result, err := roomStartResult(current, results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.engine = engine
@@ -61,7 +62,7 @@ func (s *Server) tryStartLoadedBattle(roomID int64) error {
 	}
 	payload := strconv.FormatInt(time.Now().Unix(), 10) + "," + result
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiGameStart", payload})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	// Pending recoveries consume a Start-state snapshot instead of ApiGameStart.
 	// Send alongside normal peers so one slow socket cannot hold up the others.
@@ -88,71 +89,92 @@ func (s *Server) tryStartLoadedBattle(roomID int64) error {
 	return nil
 }
 
-func (s *Server) authorizeBattleStart(roomID int64, state RoomState) error {
+func (s *Server) authorizeBattleStart(roomID int64, state RoomState, checkOnly bool) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, ok := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, ok := session.room, session.room != nil
 	if ok && current.State == RoomStateCountdown && state == RoomStateCountdown && !current.hostCostPaid &&
 		!current.startCommitting && len(current.connections) < max(defaultMemberCount, current.GameStartMemberNum) {
 		deliveries := reserveRoomFramesLocked(roomConnections(current), reopenCountdownFramesLocked(current)...)
-		hub.mu.Unlock()
+		session.Unlock()
 		broadcastRoomFrames(s, roomID, deliveries)
 		return errors.New("multiplayer start requires at least two real players")
 	}
 	if !ok || current.State != state || current.hostCostPaid || hub.startAuthorizer == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.startCommitting || (state == RoomStateCountdown && current.countdownSyncs > 0) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
-	if state == RoomStateCountdown && time.Now().Before(current.countdownDeadline) {
-		hub.mu.Unlock()
+	if !checkOnly && state == RoomStateCountdown && (current.countdownChecking || time.Now().Before(current.countdownDeadline)) {
+		session.Unlock()
 		return nil
 	}
 	if state == RoomStateBattle && !roomBarrierReady(current.connections, current.battleLoading) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
-	start := BattleStart{RoomID: roomID, BossID: current.BossID, BPUse: current.battlePointUse}
+	start := BattleStart{RoomID: roomID, BossID: current.BossID, BPUse: current.battlePointUse, CheckOnly: checkOnly}
 	for _, member := range current.Members {
 		if member.MemberType == current.OwnerMemberType {
 			start.OwnerUserID = member.UserID
-			break
+		} else if current.connections[member.MemberType] != nil {
+			start.GuestUserIDs = append(start.GuestUserIDs, member.UserID)
 		}
 	}
 	current.startCommitting = true
 	current.startDone = make(chan struct{})
 	authorize := hub.startAuthorizer
-	hub.mu.Unlock()
+	session.Unlock()
 	err := authorize(start)
-	hub.mu.Lock()
-	if hub.rooms[roomID] != current {
+	session = session.relock()
+	defer session.Unlock()
+	if session.room != current {
 		finishStartCommitLocked(current)
-		hub.mu.Unlock()
-		return err
+		return errors.New("battle room changed during account transaction")
 	}
 	if err == nil {
+		if checkOnly {
+			finishStartCommitLocked(current)
+			return nil
+		}
 		current.hostCostPaid = true
 		if state != RoomStateCountdown {
 			finishStartCommitLocked(current)
 		}
 		// Countdown success stays reserved until finishCountdown commits the
 		// battle state and outgoing frames, before a disconnected owner detaches.
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	finishStartCommitLocked(current)
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	var deliveries []frameDelivery
 	if state == RoomStateCountdown {
-		deliveries = reserveRoomFramesLocked(connections, reopenCountdownFramesLocked(current)...)
+		message := "暂时无法开始战斗，请稍后重试。"
+		var denied *BattleStartDenied
+		if errors.As(err, &denied) {
+			message = denied.Message
+			for _, member := range current.Members {
+				if member.UserID == denied.UserID && member.Name != "" {
+					message = member.Name + "：" + message
+					break
+				}
+			}
+		}
+		frames := reopenCountdownFramesLocked(current)
+		// TeamRoom consumes this as a native text dialog. Do not turn a
+		// balance refusal into a socket exception or close the transport.
+		frames = append(frames, battleFrame{"RoomCountdownFailed", joinCSV("-1", message)})
+		deliveries = reserveRoomFramesLocked(connections, frames...)
 	} else {
 		current.State = RoomStateClosed
-		delete(hub.rooms, roomID)
+		hub.removeRoom(current)
 	}
-	hub.mu.Unlock()
+	session.Unlock()
 	if state == RoomStateCountdown {
 		broadcastRoomFrames(s, roomID, deliveries)
 	} else {
@@ -180,18 +202,19 @@ func (c *clientConn) handleAwakeSkip(payload string) error {
 	}
 
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	valid := exists && current.State == RoomStateBattle && current.OwnerMemberType == c.memberType &&
 		current.connections[c.memberType] == c && !c.comebackPending
 	if !valid {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("AwakeSkip is not allowed")
 	}
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	roomID := current.RoomID
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"AwakeSkipExec", ""})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	return nil

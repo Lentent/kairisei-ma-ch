@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"kairisei.local/server/internal/accountstore"
-	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 )
 
@@ -140,115 +139,19 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 	if masterdata.OnboardingGachaID != 90000200 {
 		t.Fatalf("tutorial gacha ID = %d, want client-reserved first-draw ID", masterdata.OnboardingGachaID)
 	}
-	encoded, err := encodeCNSaveState(state)
-	if err != nil {
-		t.Fatalf("encode clean onboarding snapshot: %v", err)
-	}
-	decoded, err := accountstore.DecodeSaveState(encoded)
-	if err != nil {
-		t.Fatalf("decode clean onboarding snapshot: %v", err)
-	}
-	if decoded.Onboarding != state.Onboarding || len(decoded.Cards) != 10 || decoded.Buddies == nil {
-		t.Fatal("onboarding snapshot did not round-trip")
-	}
-	for index := range decoded.Gachas {
-		if decoded.Gachas[index].GachaID == masterdata.OnboardingMultiGachaID {
-			decoded.Gachas[index].PlayCount = 1
-			decoded.Gachas[index].CardIDs = []int{99990100}
+	for index := range state.Gachas {
+		if state.Gachas[index].GachaID == masterdata.OnboardingMultiGachaID {
+			state.Gachas[index].PlayCount = 1
+			state.Gachas[index].CardIDs = []int{99990100}
 		}
 	}
-	if err := accountstore.InstallOnboardingGacha(&decoded); err != nil {
+	if err := accountstore.InstallOnboardingGacha(&state); err != nil {
 		t.Fatal(err)
 	}
-	for _, gacha := range decoded.Gachas {
+	for _, gacha := range state.Gachas {
 		if gacha.GachaID == masterdata.OnboardingMultiGachaID &&
 			(gacha.PlayCount != 1 || slices.Contains(gacha.CardIDs, 99990100)) {
 			t.Fatal("updating tutorial lineup reset the completed draw or retained an old prize")
 		}
-	}
-}
-
-func TestMigrateCNDefaultDeckNamesPreservesPlayerNames(t *testing.T) {
-	state := gamestate.State{Decks: []gamestate.Deck{
-		{ArthurType: 1, Name: "佣兵本地卡组"},
-		{ArthurType: 2, Name: "我的富豪卡组"},
-		{ArthurType: 3, Name: "盗贼本地卡组"},
-	}}
-	if !migrateCNDefaultDeckNames(&state) {
-		t.Fatal("legacy generated deck names were not migrated")
-	}
-	if state.Decks[0].Name != "佣兵卡组1" || state.Decks[1].Name != "我的富豪卡组" ||
-		state.Decks[2].Name != "盗贼卡组1" {
-		t.Fatalf("migrated deck names = %+v", state.Decks)
-	}
-	if migrateCNDefaultDeckNames(&state) {
-		t.Fatal("deck-name migration is not idempotent")
-	}
-}
-
-func TestMigrateCNOnboardingGachaID(t *testing.T) {
-	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
-	if err != nil {
-		t.Fatalf("load seed: %v", err)
-	}
-	if err := accountstore.InitializeOnboardingSnapshot(&state, 100000124); err != nil {
-		t.Fatalf("initialize onboarding: %v", err)
-	}
-	for index := range state.Gachas {
-		if state.Gachas[index].GachaID == masterdata.OnboardingGachaID {
-			state.Gachas[index].GachaID = masterdata.LegacyOnboardingGachaID
-			state.Gachas[index].GroupID = masterdata.LegacyOnboardingGachaID
-		}
-	}
-	changed, err := migrateCNOnboardingGachaID(&state)
-	if err != nil || !changed {
-		t.Fatalf("migrate onboarding gacha = (%t, %v)", changed, err)
-	}
-	found := false
-	foundMulti := false
-	for _, gacha := range state.Gachas {
-		if gacha.GachaID == masterdata.LegacyOnboardingGachaID {
-			t.Fatal("legacy onboarding gacha survived migration")
-		}
-		if gacha.GachaID == masterdata.OnboardingGachaID {
-			found = true
-		}
-		if gacha.GachaID == masterdata.OnboardingMultiGachaID {
-			foundMulti = true
-		}
-	}
-	if !found || !foundMulti {
-		t.Fatal("one or more client-reserved onboarding gachas are missing after migration")
-	}
-}
-
-func TestMigrateCNOnboardingStateRestoresMissingOriginalSteps(t *testing.T) {
-	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
-	if err != nil {
-		t.Fatalf("load seed: %v", err)
-	}
-	state.Onboarding = gamestate.OnboardingState{
-		ConfigVersion:       masterdata.LegacyOnboardingConfigVersion,
-		Step:                5,
-		CurrentAnnounced:    true,
-		PendingClearQuestID: 1045,
-	}
-	changed, err := migrateCNOnboardingState(&state)
-	if err != nil || !changed {
-		t.Fatalf("migrate onboarding sequence = (%t, %v)", changed, err)
-	}
-	if state.Onboarding.ConfigVersion != masterdata.OnboardingConfigVersion ||
-		state.Onboarding.Step != 4 || state.Onboarding.CurrentAnnounced ||
-		state.Onboarding.PendingClearQuestID != 0 {
-		t.Fatalf("migrated onboarding state = %+v", state.Onboarding)
-	}
-
-	state.Onboarding = gamestate.OnboardingState{
-		ConfigVersion: masterdata.LegacyOnboardingConfigVersion,
-		Step:          7,
-	}
-	changed, err = migrateCNOnboardingState(&state)
-	if err != nil || !changed || state.Onboarding.Step != masterdata.OnboardingStepCount {
-		t.Fatalf("migrate completed onboarding = (%+v, %t, %v)", state.Onboarding, changed, err)
 	}
 }

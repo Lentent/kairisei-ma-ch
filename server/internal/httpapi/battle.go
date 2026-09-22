@@ -1020,7 +1020,16 @@ func (a *API) teamBattleMultiRoomSearch(writer http.ResponseWriter, request *htt
 	}
 	// The native quick-room entry sends bossid=0 to request every open room.
 	// Positive values remain an exact official boss filter.
-	if payload.BossID < 0 || payload.BossID > 0 && !teamBattleSoloHasBoss(a.account.TeamBattleSoloState(), payload.BossID) {
+	if payload.BossID < 0 {
+		writeError(writer, http.StatusBadRequest, "unknown team battle boss")
+		return
+	}
+	catalog, err := a.account.TeamBattleCatalog()
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if payload.BossID > 0 && !catalog.HasBoss(payload.BossID) {
 		writeError(writer, http.StatusBadRequest, "unknown team battle boss")
 		return
 	}
@@ -1033,7 +1042,7 @@ func (a *API) teamBattleMultiRoomSearch(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	groups, err := teamBattleMultiGroups(a.account.TeamBattleSoloState())
+	groups, err := teamBattleMultiGroups(catalog)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return

@@ -289,21 +289,6 @@ func combatTargetIsPlayer(target string) bool {
 	}
 }
 
-func battleEffectKind(function string) int {
-	if persistentEffectTargetsPlayers(function) {
-		return 1
-	}
-	return 2
-}
-
-func battleBuffResult(memberType int, roleIndex int, code int) BattleResult {
-	// CN libbattle5 writes the common attribute selector (bit zero) for every
-	// observed ResultCmd62 status family, including regenerate, DOT, parameter
-	// changes and deal changes. Zero makes the client project an empty status
-	// payload even when the server-side effect itself is active.
-	return battleBuffResultWithParameters(memberType, roleIndex, code, 0, 1, 0, 0, 0, 0)
-}
-
 func battleParameterBuffResult(memberType int, role CombatSkillRole, code int) BattleResult {
 	return battleBuffResultWithParameters(
 		memberType, role.RoleIndex, code, combatParameterFlag(role.Parameters[1]), 1, 0, 0, 0, 0,

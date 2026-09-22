@@ -1057,9 +1057,6 @@ type TeamBattleReplay struct {
 	BurstGaugeInitial int                      `json:"burst_gauge_initial"`
 	HoldMax           int                      `json:"hold_max"`
 	EndTurn           int                      `json:"end_turn"`
-	// Retained for one-way compatibility with existing SQLite snapshots. The
-	// Go engine does not consume this historical fixed replay payload.
-	GameStartEnemyResult []string `json:"game_start_enemy_result,omitempty"`
 }
 
 // TeamBattleRecommendation is static publication metadata consumed by the
@@ -1276,9 +1273,11 @@ type PVPResultReceipt struct {
 // contains only server transaction context; native command streams remain in
 // the client and arrive through Continue/End.
 type TeamBattleStartReceipt struct {
-	RoomID int64 `json:"room_id"`
-	BossID int   `json:"boss_id"`
-	BPUse  int   `json:"bp_use"`
+	RoomID      int64 `json:"room_id"`
+	BossID      int   `json:"boss_id"`
+	BPUse       int   `json:"bp_use"`
+	MedalItemID int   `json:"medal_item_id,omitempty"`
+	MedalUse    int   `json:"medal_use,omitempty"`
 }
 
 type TeamBattleActiveState struct {

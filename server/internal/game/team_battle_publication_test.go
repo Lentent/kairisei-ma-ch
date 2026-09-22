@@ -270,7 +270,7 @@ func TestProjectCNTeamBattlePublicationSeparatesCategoriesAndUnlocksNormalAreas(
 }
 
 func TestProjectCNNormalQuestGroupPublishesCompleteLockedTopologyForFreshArea(t *testing.T) {
-	projected, err := projectCNNormalQuestGroup(
+	projected, err := projectNormalQuestGroupForTest(
 		publicationGroupWithBosses(100001, 100001, 0, 10000101, 10000102, 10000103),
 		publicationArea(100001, 0, 0, 0),
 		false,
@@ -306,7 +306,7 @@ func TestProjectCNNormalQuestGroupPublishesCompleteLockedTopologyForFreshArea(t 
 }
 
 func TestProjectCNNormalQuestGroupPublishesOnlyFixedFirstRowDuringTutorial(t *testing.T) {
-	projected, err := projectCNNormalQuestGroup(
+	projected, err := projectNormalQuestGroupForTest(
 		publicationGroupWithBosses(100001, 100001, 0, 10000101, 10000102, 10000103),
 		publicationArea(100001, 0, 0, 0),
 		true,
@@ -366,4 +366,20 @@ func TestProjectCNStageQuestPublicationUnlocksOneStageAtATime(t *testing.T) {
 	if err != nil || found || stageID != 0 || bpUse != 0 {
 		t.Fatalf("locked stage lookup = %d/%d/%t/%v", stageID, bpUse, found, err)
 	}
+}
+
+func projectNormalQuestGroupForTest(group, progress json.RawMessage, tutorial bool) (json.RawMessage, error) {
+	configuration, err := json.Marshal(map[string]any{"9": []json.RawMessage{group}})
+	if err != nil {
+		return nil, err
+	}
+	projected, err := projectCNTeamBattlePublication(configuration, map[int]json.RawMessage{100001: progress}, nil, tutorial, false)
+	if err != nil {
+		return nil, err
+	}
+	var lists map[string][]json.RawMessage
+	if err := json.Unmarshal(projected, &lists); err != nil {
+		return nil, err
+	}
+	return lists["9"][0], nil
 }

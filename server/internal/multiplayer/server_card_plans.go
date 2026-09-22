@@ -5,9 +5,9 @@ import (
 	"maps"
 )
 
-// CPU members submit as soon as input opens. Connected humans, including KO
-// members, use the original client's manual or timeout submission. Use the
-// same atomic engine update, including cost and target RNG consumption.
+// CPU and KO members submit as soon as input opens. Living connected humans
+// retain manual/timeout selection. KO Submit intentionally emits no native
+// rows; their transport acknowledgement must still release the input barrier.
 func automaticRoomCardSubmissionFrames(current *room) ([]battleFrame, error) {
 	engine := roomCardPlayPreview(current.engine)
 	submissions := maps.Clone(current.cardPlaySubmissions)
@@ -20,7 +20,7 @@ func automaticRoomCardSubmissionFrames(current *room) ([]battleFrame, error) {
 		if _, committed := engine.selectedPlays[memberType]; committed {
 			continue
 		}
-		if (!submitted && current.connections[memberType] != nil) ||
+		if (!submitted && current.connections[memberType] != nil && engine.players[memberType-1].HP > 0) ||
 			(submitted && (submission.Automatic || !submission.TimedOut || selectedActionCount(submission) != 0)) {
 			continue
 		}
@@ -52,24 +52,25 @@ func automaticRoomCardSubmissionFrames(current *room) ([]battleFrame, error) {
 
 func (s *Server) submitAutomaticRoomCards(roomID int64) error {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userPhaseStarted ||
 		current.userAttackStarted || len(current.connections) == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return fmt.Errorf("automatic card submission has no battle engine")
 	}
 	frames, err := automaticRoomCardSubmissionFrames(current)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	deliveries := reserveRoomFramesLocked(roomConnections(current), frames...)
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(s, roomID, deliveries)
 	return nil
 }

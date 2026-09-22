@@ -1,6 +1,9 @@
 package multiplayer
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 type RoomActivity struct {
 	RoomID       int64     `json:"room_id"`
@@ -16,24 +19,11 @@ type RoomActivity struct {
 
 // Never expose lobby passwords, comeback tokens or connection credentials.
 func (h *Hub) ActivitySnapshot() []RoomActivity {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	result := make([]RoomActivity, 0, len(h.rooms))
-	for _, room := range h.rooms {
-		if room.State == RoomStateClosed {
-			continue
-		}
-		row := RoomActivity{RoomID: room.RoomID, BossID: room.BossID, State: room.State,
-			GameSpeed: room.GameSpeed, Turn: room.turnNumber, Wave: room.battleIndex + 1, Players: []int{}}
-		for _, member := range room.Members {
-			if room.connections[member.MemberType] != nil && member.UserID > 0 && member.UserID < 1900000000 {
-				row.Players = append(row.Players, member.UserID)
-			} else if _, pending := room.disconnectedUntil[member.MemberType]; pending {
-				row.Disconnected++
-			} else {
-				row.AI++
-			}
-		}
+	views := h.roomViews()
+	result := make([]RoomActivity, 0, len(views))
+	for _, view := range views {
+		row := view.activity
+		row.Players = slices.Clone(row.Players)
 		result = append(result, row)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].RoomID < result[j].RoomID })

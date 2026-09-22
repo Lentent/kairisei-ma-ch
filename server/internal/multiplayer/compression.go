@@ -33,7 +33,7 @@ func (c *clientConn) handlePing(payload string) error {
 	return c.writeFrameLocked("Pong", strconv.FormatInt(time.Now().Unix(), 10))
 }
 
-// One immutable message per broadcast, compressed at most once outside hub.mu.
+// One immutable message per broadcast, compressed at most once outside state locks.
 // Fanout to raw and compressed peers preserves the exact same original frame.
 type preparedBattleFrame struct {
 	frame             battleFrame

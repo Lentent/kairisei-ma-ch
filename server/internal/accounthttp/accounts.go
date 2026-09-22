@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/multiplayer"
 )
 
 const AccountUserHeader = "X-Kairisei-Local-User-ID"
 
 type multiplayerBattleStarter interface {
-	ChargeMultiplayerStart(multiplayer.BattleStart) error
+	ChargeMultiplayerStart(multiplayer.BattleStart, func(gamestate.State) error) error
 }
 
 type multiplayerBattleContinuer interface {
@@ -57,20 +59,22 @@ type Router struct {
 	sequence  uint64
 	idleLimit int
 	// Stable bounded locks also serialize Admin and BattleSv against HTTP.
-	locks   [256]sync.Mutex
-	build   func(int) (http.Handler, error)
-	prepare func(http.Handler)
+	locks         [256]sync.Mutex
+	build         func(int) (http.Handler, error)
+	prepare       func(http.Handler)
+	persistStates func([]gamestate.State) error
 }
 
 type Config struct {
-	Primary   http.Handler
-	Build     func(int) (http.Handler, error)
-	Prepare   func(http.Handler)
-	IdleLimit int
+	Primary       http.Handler
+	Build         func(int) (http.Handler, error)
+	Prepare       func(http.Handler)
+	IdleLimit     int
+	PersistStates func([]gamestate.State) error
 }
 
 func New(config Config) *Router {
-	router := &Router{handlers: make(map[int]*handlerEntry), build: config.Build, prepare: config.Prepare, idleLimit: config.IdleLimit}
+	router := &Router{handlers: make(map[int]*handlerEntry), build: config.Build, prepare: config.Prepare, idleLimit: config.IdleLimit, persistStates: config.PersistStates}
 	if config.Primary != nil {
 		entry := &handlerEntry{handler: config.Primary, active: true}
 		router.handlers[accountstore.PrimaryUserID] = entry
@@ -237,26 +241,66 @@ func (writer *responseWriter) Write(body []byte) (int, error) {
 	return writer.ResponseWriter.Write(body)
 }
 
-// BattleSv never calls this while holding the Hub lock. The same account lock
-// serializes HTTP/Admin mutations and the durable start debit.
+// BattleSv calls without registry/room locks. All participating account stripes
+// stay locked until the single database commit, just as for HTTP/Admin writes.
 func (router *Router) ChargeMultiplayerStart(start multiplayer.BattleStart) error {
-	lock := router.AccountLock(start.OwnerUserID)
-	lock.Lock()
-	defer lock.Unlock()
-	entry, err := router.acquireHandler(start.OwnerUserID)
-	if err != nil {
-		return err
+	users := append([]int{start.OwnerUserID}, start.GuestUserIDs...)
+	if len(users) > 4 || router.persistStates == nil {
+		return errors.New("invalid multiplayer start transaction")
 	}
-	completed := false
-	defer func() { router.releaseHandler(start.OwnerUserID, entry, !completed) }()
-	handler := entry.handler
-	starter, ok := handler.(multiplayerBattleStarter)
-	if !ok {
-		return errors.New("CN account handler has no multiplayer start transaction")
+	stripes := make([]int, 0, len(users))
+	for i, userID := range users {
+		if userID < accountstore.PrimaryUserID || userID >= accountstore.SystemPartnerUserIDBase || slices.Contains(users[:i], userID) {
+			return errors.New("invalid multiplayer start account")
+		}
+		stripes = append(stripes, int(uint(userID)%uint(len(router.locks))))
 	}
-	err = starter.ChargeMultiplayerStart(start)
-	completed = err == nil
-	return err
+	// Sort and deduplicate lock indices, not user IDs: distinct accounts can
+	// share a stripe, and opposite user orders can otherwise deadlock.
+	slices.Sort(stripes)
+	stripes = slices.Compact(stripes)
+	for _, index := range stripes {
+		router.locks[index].Lock()
+	}
+	defer func() {
+		for i := len(stripes) - 1; i >= 0; i-- {
+			router.locks[stripes[i]].Unlock()
+		}
+	}()
+	entries := make([]*handlerEntry, 0, len(users))
+	committed := false
+	defer func() {
+		// An uncommitted in-memory debit is discarded for every participant.
+		// Their next request reloads the unchanged durable snapshot.
+		for i, entry := range entries {
+			router.releaseHandler(users[i], entry, !committed)
+		}
+	}()
+	states := make([]gamestate.State, 0, len(users))
+	for _, userID := range users {
+		entry, err := router.acquireHandler(userID)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry)
+		starter, ok := entry.handler.(multiplayerBattleStarter)
+		if !ok {
+			return errors.New("CN account handler has no multiplayer start transaction")
+		}
+		if err := starter.ChargeMultiplayerStart(start, func(next gamestate.State) error {
+			states = append(states, next)
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	if len(states) > 0 {
+		if err := router.persistStates(states); err != nil {
+			return err
+		}
+	}
+	committed = true
+	return nil
 }
 
 // Called outside hub.mu, under the same per-account transaction lock as HTTP.

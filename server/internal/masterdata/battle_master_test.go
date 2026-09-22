@@ -31,16 +31,3 @@ func TestCollectBattlePersistedStatesMigratesExactDuplicateFamily(t *testing.T) 
 		t.Fatal("duplicate family Boss state was not migrated to its canonical Boss")
 	}
 }
-
-func TestRetiredSeedBattleGroupsAreExplicit(t *testing.T) {
-	for _, groupID := range []int{200000, 200001} {
-		if !isBattleRetiredSeedGroupID(groupID) {
-			t.Fatalf("legacy battle group %d is not retired", groupID)
-		}
-	}
-	for _, groupID := range []int{100001, 700300201} {
-		if isBattleRetiredSeedGroupID(groupID) {
-			t.Fatalf("active battle group %d was retired", groupID)
-		}
-	}
-}

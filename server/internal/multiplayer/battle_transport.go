@@ -13,9 +13,8 @@ type battleFrame struct {
 	payload string
 }
 
-// Reserve while holding hub.mu, in the same order as the state changes. Sending
-// waits only after releasing hub.mu; neither a socket nor another writer may
-// block the global room lock. Each reservation must be sent exactly once.
+// Reserve under the room session, in state-transition order. Send only after
+// releasing the session; each reservation must be sent exactly once.
 type frameDelivery struct {
 	connection *clientConn
 	frames     []battleFrame
@@ -62,10 +61,10 @@ func reserveRoomFramesLocked(connections []*clientConn, frames ...battleFrame) [
 	return deliveries
 }
 
-// Called only for a newly joined connection while holding hub.mu.
-func (c *clientConn) writeInitialRoomFramesAndUnlock(hub *Hub, frames []battleFrame) error {
+// Called only for a newly joined connection while holding its session.
+func (c *clientConn) writeInitialRoomFramesAndUnlock(session *lockedRoomSession, frames []battleFrame) error {
 	delivery := c.reserveFramesLocked(frames)
-	hub.mu.Unlock()
+	session.Unlock()
 	return delivery.send()
 }
 
@@ -153,10 +152,11 @@ func sendRoomFrames(deliveries []frameDelivery) []error {
 	return failures
 }
 
-// completeGoBattleLocked consumes hub.mu and always releases it.
-func (s *Server) completeGoBattleLocked(hub *Hub, current *room) error {
+// completeGoBattleLocked consumes the room lease and always releases it.
+func (s *Server) completeGoBattleLocked(session *lockedRoomSession, current *room) error {
+	current.chaliceInput = roomChaliceInput{}
 	if current.nextBattlePending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	endType := current.engineBattleEnd
@@ -169,17 +169,17 @@ func (s *Server) completeGoBattleLocked(hub *Hub, current *room) error {
 		current.gameNextFinished = make(map[int]bool)
 		payload := joinCSV(strconv.Itoa(next), strconv.Itoa(roomBattleProgress(current, next)))
 		deliveries := reserveRoomFramesLocked(connections, battleFrame{"GameNextStart", payload})
-		hub.mu.Unlock()
+		session.Unlock()
 		broadcastRoomFrames(s, roomID, deliveries)
 		return nil
 	}
-	if err := completeBattleLocked(hub, current, time.Now()); err != nil {
-		hub.mu.Unlock()
+	if err := completeBattleLocked(session.hub, current, time.Now()); err != nil {
+		session.Unlock()
 		return err
 	}
 	deliveries := reserveRoomFramesLocked(connections,
 		battleFrame{"ApiGameEnd", joinCSV("2", strconv.Itoa(endType))}, battleFrame{"GameClose", ""})
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info(
 		"local multiplayer Go battle completed",

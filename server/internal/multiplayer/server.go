@@ -38,12 +38,14 @@ type clientConn struct {
 	server               *Server
 	conn                 net.Conn
 	writeMu              sync.Mutex
-	lastDelivery         <-chan struct{} // protected by hub.mu
+	lastDelivery         <-chan struct{} // protected by the room session, including terminal recovery
+	deadlineMu           sync.Mutex
+	finishingUntil       time.Time // protected by deadlineMu; ping cannot extend completion
 	roomID               int64
 	memberType           int
 	userID               int
 	comebackPending      bool
-	loadingComebackReady bool // protected by hub.mu
+	loadingComebackReady bool // connection gameplay flags are protected by the room session
 	completedComeback    bool
 	retired              bool
 	closed               bool
@@ -127,7 +129,7 @@ func (c *clientConn) serve() {
 	for {
 		// Original TbpClient.PingInterval is 5 seconds. Leave ample room for
 		// mobile stalls, but never retain a silent or partial-frame socket forever.
-		_ = c.conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+		_ = c.conn.SetReadDeadline(c.readDeadline())
 		method, payload, err := readFrame(reader)
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
@@ -182,9 +184,11 @@ func (c *clientConn) handle(method string, payload string) error {
 	case "RoomLoadingFinish":
 		return c.handleLoadingFinish()
 	case "RoomLeaveRequest":
-		c.server.hub.mu.Lock()
-		c.retired = true
-		c.server.hub.mu.Unlock()
+		session := c.server.hub.lockRoomSession(c.roomID)
+		if session.owner != nil {
+			c.retired = true
+		}
+		session.Unlock()
 		return c.close(true)
 	case "RoomMatchingConditionResetRequest":
 		return c.handleRoomMatchingConditionReset(payload)
@@ -248,11 +252,12 @@ func (c *clientConn) handleRoomMatchingConditionReset(payload string) error {
 		return errors.New("RoomMatchingConditionResetRequest payload is not empty")
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	connected := exists && c.memberType >= 1 && c.memberType == current.OwnerMemberType && current.connections[c.memberType] == c && current.State == RoomStateOpen
 	if !connected {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("RoomMatchingConditionResetRequest has no open room owner")
 	}
 	// TeamRoom exposes this for password/friend-only rooms. Its native empty
@@ -265,7 +270,7 @@ func (c *clientConn) handleRoomMatchingConditionReset(payload string) error {
 		current.BossGroup = private
 	}
 	deliveries := reserveRoomFramesLocked(roomConnections(current), battleFrame{"RoomMatchingConditionReset", ""})
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, c.roomID, deliveries)
 	return nil
 }
@@ -280,14 +285,20 @@ func (c *clientConn) handleChat(payload string, useNewFrame bool) error {
 		return err
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
-	if !exists || c.memberType < 1 || current.connections[c.memberType] != c {
-		hub.mu.Unlock()
-		return errors.New("Chat has no active room member")
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
+	var connections []*clientConn
+	if exists && c.memberType >= 1 && current.connections[c.memberType] == c && !c.comebackPending {
+		connections = roomConnections(current)
+	} else if completed := c.completedInteractionLocked(session.completed, time.Now()); completed != nil {
+		connections = completedInteractionPeers(completed, time.Now())
+	} else {
+		session.Unlock()
+		return errors.New("Chat has no connected room member")
 	}
-	peers := make([]*clientConn, 0, len(current.connections)-1)
-	for _, connection := range roomConnections(current) {
+	peers := make([]*clientConn, 0, len(connections))
+	for _, connection := range connections {
 		if connection != c {
 			peers = append(peers, connection)
 		}
@@ -300,7 +311,7 @@ func (c *clientConn) handleChat(payload string, useNewFrame bool) error {
 	}
 	response := strconv.Itoa(memberType) + "," + strconv.Itoa(messageID)
 	deliveries := reserveRoomFramesLocked(peers, battleFrame{method, response})
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, c.roomID, deliveries)
 	return nil
 }
@@ -310,10 +321,11 @@ func (c *clientConn) handleOwnerNotLeave(payload string) error {
 		return errors.New("OwnerNotLeave payload is not empty")
 	}
 	hub := c.server.hub
-	hub.mu.RLock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	valid := exists && current.State == RoomStateOpen && c.memberType == current.OwnerMemberType && current.connections[c.memberType] == c
-	hub.mu.RUnlock()
+	session.Unlock()
 	if !valid {
 		return errors.New("OwnerNotLeave has no open owner connection")
 	}
@@ -383,6 +395,8 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	if pending.Spec.AutoStart != autoStart {
 		return rejectLocked(errors.New("room start mode does not match HTTP authorization"))
 	}
+	speedSource := hub.gameSpeed
+	hub.mu.Unlock()
 	member := cloneMember(pending.Member)
 	member.UserID = userID
 	member.ArthurType = arthurType
@@ -393,17 +407,12 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	}
 	comebackToken, err := newComebackToken()
 	if err != nil {
-		hub.mu.Unlock()
 		return err
 	}
-	roomID := hub.nextRoomID
-	if hub.repository != nil {
-		roomID, err = hub.repository.NextRoomID(roomID)
-		if err != nil {
-			return rejectLocked(fmt.Errorf("reserve room identity: %w", err))
-		}
+	roomID, err := hub.reserveRoomID()
+	if err != nil {
+		return c.writeRoomRequestRejected(responseMethod, fmt.Errorf("reserve room identity: %w", err))
 	}
-	hub.nextRoomID = roomID + 1
 	startMembers := pending.Spec.GameStartMemberNum
 	if startMembers == 0 {
 		startMembers = defaultMemberCount
@@ -412,8 +421,8 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		startMembers = max(defaultMemberCount, startMembers)
 	}
 	speed := DefaultGameSpeed
-	if hub.gameSpeed != nil {
-		speed = hub.gameSpeed()
+	if speedSource != nil {
+		speed = speedSource()
 	}
 	created := &room{
 		RoomSnapshot: RoomSnapshot{
@@ -469,13 +478,19 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	}
 	if autoStart {
 		if _, err := fillOwnerFallbackPartyLocked(created); err != nil {
-			hub.mu.Unlock()
 			return err
 		}
 		created.State = RoomStateBattle
 	}
-	hub.rooms[roomID] = created
+	created.session = &roomSession{}
+	created.session.mu.Lock()
+	session := &lockedRoomSession{hub: hub, owner: created.session, room: created}
+	defer session.Unlock()
 	c.roomID, c.memberType, c.userID = roomID, 1, userID
+	created.session.publish(created)
+	hub.mu.Lock()
+	hub.rooms[roomID] = created
+	hub.mu.Unlock()
 
 	frames := []battleFrame{{method: responseMethod, payload: joinCSV(
 		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), "1", strconv.Itoa(created.GameSpeed), comebackToken, strconv.Itoa(startMembers),
@@ -488,7 +503,7 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		countdownPayload := roomCountdownPayload(created)
 		frames = append(frames, battleFrame{method: "RoomCountdownFinish", payload: countdownPayload})
 	}
-	if err := c.writeInitialRoomFramesAndUnlock(hub, frames); err != nil {
+	if err := c.writeInitialRoomFramesAndUnlock(session, frames); err != nil {
 		_ = c.close(true)
 		return err
 	}
@@ -536,7 +551,14 @@ func (c *clientConn) handleEnter(payload string) error {
 		return rejectLocked(errors.New("RoomEnterRequest does not match HTTP authorization"))
 	}
 	delete(hub.pending, token)
-	current, exists := hub.rooms[roomID]
+	hub.mu.Unlock()
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	rejectLocked = func(cause error) error {
+		session.Unlock()
+		return c.writeRoomRequestRejected("RoomEnterRequestResult", cause)
+	}
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateOpen {
 		return rejectLocked(ErrRoomUnavailable)
 	}
@@ -572,7 +594,6 @@ func (c *clientConn) handleEnter(payload string) error {
 	member.MemberType = memberType
 	comebackToken, err := newComebackToken()
 	if err != nil {
-		hub.mu.Unlock()
 		return err
 	}
 	current.Members = append(current.Members, member)
@@ -601,7 +622,7 @@ func (c *clientConn) handleEnter(payload string) error {
 	updates = append(updates, roomVacancyFrames(current)...)
 	updates = append(updates, roomReservationFrames(current, time.Now())...)
 	deliveries := reserveRoomFramesLocked(peers, updates...)
-	initialErr := c.writeInitialRoomFramesAndUnlock(hub, frames)
+	initialErr := c.writeInitialRoomFramesAndUnlock(session, frames)
 	// Deliver every reservation even when the new socket failed. Its later
 	// disconnect notification must follow the membership update for peers.
 	broadcastRoomFrames(c.server, roomID, deliveries)
@@ -615,10 +636,11 @@ func (c *clientConn) handleEnter(payload string) error {
 
 func (c *clientConn) handleLoadingFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || c.memberType == 0 || current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("RoomLoadingFinish has no active room")
 	}
 	for index := range current.Members {
@@ -635,52 +657,69 @@ func (c *clientConn) handleLoadingFinish() error {
 			if current.State == RoomStateOpen {
 				if frames := roomReservationFrames(current, time.Now()); len(frames) > 0 {
 					delivery := c.reserveFramesLocked(frames)
-					hub.mu.Unlock()
+					session.Unlock()
 					return delivery.send()
 				}
 			}
-			hub.mu.Unlock()
+			session.Unlock()
 			return nil
 		}
 	}
-	hub.mu.Unlock()
+	session.Unlock()
 	return errors.New("RoomLoadingFinish member is unavailable")
 }
 
 func (c *clientConn) handleCountdownStart() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || c.memberType != current.OwnerMemberType || current.connections[c.memberType] != c {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("RoomCountdownStartRequest is not allowed")
 	}
 	if current.State == RoomStateCountdown {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomCountdownStartRequestRes", "0")
 	}
 	if current.State != RoomStateOpen {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomCountdownStartRequestRes", "1")
 	}
 	if len(current.connections) < max(defaultMemberCount, current.GameStartMemberNum) || !allMembersReady(current) ||
 		len(roomReservationFrames(current, time.Now())) > 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		// Managed TeamRoom enters Wait only for flag 0. A rejected start must
 		// return nonzero so the room remains interactive.
 		return c.writeFrame("RoomCountdownStartRequestRes", "1")
 	}
 	fallbacks, err := fillOwnerFallbackPartyLocked(current)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		c.server.logger.Info("multiplayer start needs configured owner decks or more players", "room_id", c.roomID, "error", err)
 		return c.writeFrame("RoomCountdownStartRequestRes", "1")
 	}
 	current.State = RoomStateCountdown
+	current.countdownChecking = true
 	current.countdownDeadline = time.Now().Add(roomCountdownSeconds * time.Second)
 	current.countdownFinishPending = false
-	connections := append([]*clientConn(nil), roomConnections(current)...)
 	roomID := current.RoomID
+	session.Unlock()
+	// Check only at the owner's Start click. The account callback runs outside
+	// room locks; the countdown remains cancellable and does not charge yet.
+	if err := c.server.authorizeBattleStart(roomID, RoomStateCountdown, true); err != nil {
+		c.server.logger.Info("multiplayer start check rejected", "room_id", roomID, "error", err)
+		return c.writeFrame("RoomCountdownStartRequestRes", "1")
+	}
+	session = session.relock()
+	defer session.Unlock()
+	if session.room != current || current.State != RoomStateCountdown || current.connections[c.memberType] != c {
+		session.Unlock()
+		return c.writeFrame("RoomCountdownStartRequestRes", "1")
+	}
+	current.countdownChecking = false
+	current.countdownDeadline = time.Now().Add(roomCountdownSeconds * time.Second)
+	connections := append([]*clientConn(nil), roomConnections(current)...)
 	frames := make([]battleFrame, 0, len(fallbacks)+1)
 	for _, fallback := range fallbacks {
 		frames = append(frames, battleFrame{"RoomMember", memberCSV(fallback)})
@@ -694,7 +733,7 @@ func (c *clientConn) handleCountdownStart() error {
 		}
 		deliveries = append(deliveries, connection.reserveFramesLocked(peerFrames))
 	}
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	c.server.logger.Info(
 		"local multiplayer room countdown started",
@@ -713,28 +752,29 @@ func (c *clientConn) handleCountdownStart() error {
 }
 
 func (s *Server) finishCountdown(roomID int64) {
-	if err := s.authorizeBattleStart(roomID, RoomStateCountdown); err != nil {
+	if err := s.authorizeBattleStart(roomID, RoomStateCountdown, false); err != nil {
 		s.logger.Warn("multiplayer start rejected", "room_id", roomID, "error", err)
 		return
 	}
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
-	if !exists || current.State != RoomStateCountdown {
-		hub.mu.Unlock()
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
+	if !exists || current.State != RoomStateCountdown || current.countdownChecking {
+		session.Unlock()
 		return
 	}
 	if time.Now().Before(current.countdownDeadline) {
-		hub.mu.Unlock()
+		session.Unlock()
 		return // A cancelled countdown's timer must not finish a newer countdown.
 	}
 	if current.countdownSyncs > 0 {
 		current.countdownFinishPending = true
-		hub.mu.Unlock()
+		session.Unlock()
 		return
 	}
 	if (current.startCommitting || hub.startAuthorizer != nil) && !current.hostCostPaid {
-		hub.mu.Unlock()
+		session.Unlock()
 		return
 	}
 	current.State = RoomStateBattle
@@ -743,7 +783,7 @@ func (s *Server) finishCountdown(roomID int64) {
 	payload := roomCountdownPayload(current)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"RoomCountdownFinish", payload})
 	finishStartCommitLocked(current)
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(s, roomID, deliveries)
 	s.logger.Info("local multiplayer room entered battle loading", "room_id", roomID)
@@ -751,55 +791,58 @@ func (s *Server) finishCountdown(roomID int64) {
 
 func (c *clientConn) handleBattleLoadingFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("LoadingFinish has no active battle")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("LoadingFinish member is unavailable")
 	}
 	current.battleLoading[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryStartLoadedBattle(roomID)
 }
 
 func (c *clientConn) handleGameStartFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.gameStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("GameStartFinish has no active battle")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("GameStartFinish member is unavailable")
 	}
 	current.gameStartFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceGameStart(roomID)
 }
 
 func (c *clientConn) handleTurnPhaseFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.turnPhaseStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("TurnPhaseFinish has no active turn phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("TurnPhaseFinish member is unavailable")
 	}
 	current.turnPhaseFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceTurnPhase(roomID)
 }
 
@@ -809,27 +852,28 @@ func (c *clientConn) handleCardPlayPlan(payload string) error {
 		return err
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userPhaseStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("CardPlayPlan has no active input phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("CardPlayPlan member is unavailable")
 	}
 	if current.userAttackStarted {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if _, submitted := current.cardPlaySubmissions[c.memberType]; submitted {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	result, err := cardPlayPlanResult(current.engine, c.memberType, submission)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	current.cardPlayPlans[c.memberType] = submission
@@ -839,7 +883,7 @@ func (c *clientConn) handleCardPlayPlan(payload string) error {
 	if result != "" {
 		deliveries = reserveRoomFramesLocked(connections, battleFrame{"ApiCardPlayPlanR", result})
 	}
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(c.server, roomID, deliveries)
 
@@ -862,46 +906,58 @@ func (c *clientConn) handleCardPlay(payload string, timedOut bool) error {
 		return err
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
-	if !exists || current.State != RoomStateBattle || !current.userPhaseStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
+	if !exists || current.State != RoomStateBattle || c.memberType == 0 {
+		session.Unlock()
 		return errors.New("CardPlay has no active input phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("CardPlay member is unavailable")
 	}
+	// The stock KO UI can still send its old timeout after the room has
+	// advanced. Empty dead-member input is already automatic and must not
+	// disconnect the spectator or acknowledge a later animation phase.
+	if current.engine != nil && current.engine.players[c.memberType-1].HP <= 0 && selectedActionCount(submission) == 0 {
+		session.Unlock()
+		return nil
+	}
+	if !current.userPhaseStarted {
+		session.Unlock()
+		return errors.New("CardPlay has no active input phase")
+	}
 	if current.userAttackStarted {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("CardPlay Go battle engine is unavailable")
 	}
 	if _, submitted := current.cardPlaySubmissions[c.memberType]; submitted {
 		// A repeated request cannot replace a confirmed human or CPU choice,
 		// including a KO member whose native Submit produces no result rows.
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	preview := roomCardPlayPreview(current.engine)
 	if timedOut && selectedActionCount(submission) == 0 {
 		submission, err = preview.AutoSubmission(c.memberType)
 		if err != nil {
-			hub.mu.Unlock()
+			session.Unlock()
 			return err
 		}
 	}
 	results, err := submitRoomCardPlay(&preview, c.memberType, submission)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	result, err := encodeOptionalBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	// Submit is final when received; only UserAttack waits for the team.
@@ -926,7 +982,7 @@ func (c *clientConn) handleCardPlay(payload string, timedOut bool) error {
 		"timed_out", timedOut,
 		"result_rows", len(results),
 	)
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	return c.server.tryAdvanceCardPlay(roomID)
 }
@@ -941,42 +997,43 @@ func (c *clientConn) handleBurstSkillExec(payload string) error {
 		return err
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userPhaseStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("BurstSkillExec has no active input phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("BurstSkillExec member is unavailable")
 	}
 	if current.userAttackStarted {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if _, submitted := current.cardPlaySubmissions[c.memberType]; submitted {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("BurstSkillExec member already submitted cards")
 	}
 	if current.engine == nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("BurstSkillExec Go battle engine is unavailable")
 	}
 	results, err := current.engine.ExecuteBurst(c.memberType, submission)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	roomID := current.RoomID
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiBurstSkillExecR", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	c.server.logger.Info(
@@ -1001,52 +1058,33 @@ func (c *clientConn) handleChaliceSphrReserve(payload string) error {
 		return fmt.Errorf("ChaliceSphrReserve slot is invalid: %w", err)
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
-	if !exists || current.State != RoomStateBattle || c.memberType == 0 || current.engine == nil {
-		hub.mu.Unlock()
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
+	if !exists && c.completedInteractionLocked(session.completed, time.Now()) != nil {
+		// GameClose has already been queued and the original UI closes its
+		// reservation window. Drain in-flight input without touching the result.
+		session.Unlock()
+		return nil
+	}
+	if !exists || current.State != RoomStateBattle || c.memberType < 1 || c.memberType > maxRoomMembers || current.engine == nil {
+		session.Unlock()
 		return errors.New("ChaliceSphrReserve has no active battle member")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrReserve member is unavailable")
 	}
-	var results []BattleResult
-	settledAnimation := current.engineBattleEnd != 0 && current.engine.phase == battlePhaseEnded
-	nextWaveOpening := current.battleIndex > 0 && current.engine.phase <= battlePhaseTurn
-	if settledAnimation || current.nextBattlePending || nextWaveOpening {
-		// The engine computes the full phase before clients animate it. A
-		// terminal result can therefore precede a legitimate on-screen click
-		// by seconds. The click may also arrive during GameNextStart or after
-		// the new wave starts, before its user input phase. Acknowledge an
-		// empty reservation throughout those transition barriers;
-		// never revive a finished engine or spend a sphere on a dead target.
-		results = []BattleResult{{Command: resultChaliceSphereReserve, Args: []int64{int64(c.memberType), 0}}}
-	} else {
-		results, err = current.engine.ReserveChaliceSphere(c.memberType, slot)
-		if errors.Is(err, errChaliceSphereUnavailable) {
-			// A rendered button can outlive its eligibility, including after
-			// awakening resets the gate. Keep the native rejection and return
-			// the actual reservation without treating a stale click as a
-			// transport failure or overwriting another valid reservation.
-			reserved := current.engine.players[c.memberType-1].ReservedChalice
-			results = []BattleResult{{Command: resultChaliceSphereReserve, Args: []int64{int64(c.memberType), int64(reserved)}}}
-			err = nil
-		}
-	}
-	if err != nil {
-		hub.mu.Unlock()
-		return err
-	}
+	results := []BattleResult{current.reserveChaliceInput(c.memberType, slot)}
 	result, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	roomID := current.RoomID
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ApiChaliceSphrReserve", result})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	return nil
@@ -1057,122 +1095,108 @@ func (c *clientConn) handleChaliceSphrSkip(payload string) error {
 		return errors.New("ChaliceSphrSkip payload is not empty")
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
+	if !exists {
+		completed := c.completedInteractionLocked(session.completed, time.Now())
+		if completed != nil && completed.OwnerMemberType == c.memberType {
+			// Drain an owner's in-flight skip after the original movie has ended;
+			// do not broadcast another movie operation into the closed phase.
+			session.Unlock()
+			return nil
+		}
+	}
 	if !exists || current.State != RoomStateBattle || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrSkip has no active battle member")
 	}
 	// The original client only lets the room owner skip the shared movie.
 	if current.OwnerMemberType != c.memberType || current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrSkip is not allowed")
 	}
 	roomID := current.RoomID
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, battleFrame{"ChaliceSphrSkipExec", ""})
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, roomID, deliveries)
 	return nil
 }
 
 func (c *clientConn) handleUserAttackFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.userAttackStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("UserAttackFinish has no active user attack")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("UserAttackFinish member is unavailable")
 	}
 	current.userAttackFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceUserAttack(roomID)
 }
 
 func (c *clientConn) handleChaliceSphrExecUserPhaseFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.chaliceUserStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecUserPhaseFinish has no active chalice phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecUserPhaseFinish member is unavailable")
 	}
 	current.chaliceUserFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceChaliceUser(roomID)
-}
-
-// battleContractRows keeps the exact transport rows that materially change an
-// enemy object graph. It is diagnostic only: clients still receive the full
-// encoded result group through the normal BattleSv frame.
-func battleContractRows(results []BattleResult) string {
-	rows := make([]string, 0, len(results))
-	for _, result := range results {
-		switch result.Command {
-		case 50, resultRevive, resultBuff, resultSkillRevive, resultPartsBreak, resultEnemyBreak, 94:
-			row, err := result.CSV()
-			if err == nil {
-				rows = append(rows, row)
-			}
-		}
-	}
-	return strings.Join(rows, "|")
-}
-
-func battleResultRows(results []BattleResult) string {
-	rows := make([]string, 0, len(results))
-	for _, result := range results {
-		row, err := result.CSV()
-		if err == nil {
-			rows = append(rows, row)
-		}
-	}
-	return strings.Join(rows, "|")
 }
 
 func (c *clientConn) handleEnemyPhaseFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.enemyPhaseStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("EnemyPhaseFinish has no active enemy phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("EnemyPhaseFinish member is unavailable")
 	}
 	current.enemyPhaseFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceEnemyPhase(roomID)
 }
 
 func (c *clientConn) handleChaliceSphrExecEnemyPhaseFinish() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || !current.chaliceEnemyStarted || c.memberType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecEnemyPhaseFinish has no active chalice phase")
 	}
 	if current.connections[c.memberType] != c || c.comebackPending {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("ChaliceSphrExecEnemyPhaseFinish member is unavailable")
 	}
 	current.chaliceEnemyFinished[c.memberType] = true
 	roomID := current.RoomID
-	hub.mu.Unlock()
+	session.Unlock()
 	return c.server.tryAdvanceChaliceEnemy(roomID)
 }
 
@@ -1181,17 +1205,18 @@ func (c *clientConn) handleRetire(payload string) error {
 		return errors.New("Retire payload must be empty")
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	activeBattle := exists && current.State == RoomStateBattle && c.memberType != 0 && current.connections[c.memberType] == c
 	if !activeBattle {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("Retire has no active battle")
 	}
 	c.retired = true
 	delete(current.comebackTokens, c.memberType)
 	delete(current.disconnectedUntil, c.memberType)
-	hub.mu.Unlock()
+	session.Unlock()
 	// Retire is one-way. Release participation as soon as it is received;
 	// the client's subsequent socket close may be delayed in transit.
 	c.server.logger.Info(
@@ -1222,13 +1247,13 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		}
 		onlineUserIDs = append(onlineUserIDs, connection.userID)
 		claimed[connection.userID] = false
+		completedConnections[memberType] = connection
 		// Completion is committed before terminal frames are written. Retain
 		// active peers too: a final-frame disconnect still needs RoomComeback.
 		// The live connection prevents another socket from taking this slot.
 		if token := current.comebackTokens[memberType]; token != "" {
 			completedTokens[memberType] = token
 			completedDeadlines[memberType] = now.Add(comebackLifetime)
-			completedConnections[memberType] = connection
 		}
 	}
 	for _, member := range current.Members {
@@ -1288,7 +1313,11 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		}
 	}
 	current.State = RoomStateClosed
-	hub.completed[current.RoomID] = &completedBattle{
+	for _, connection := range completedConnections {
+		connection.setFinishingDeadline(now.Add(battleInteractionLifetime))
+	}
+	completed := &completedBattle{
+		session:               current.session,
 		CompletedBattle:       projection,
 		claimed:               claimed,
 		expiresAt:             expiresAt,
@@ -1298,11 +1327,11 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		terminalEngine:        current.engine,
 		terminalBattleEndType: current.engineBattleEnd,
 	}
-	for index := range hub.completed[current.RoomID].Members {
-		hub.completed[current.RoomID].Members[index] = cloneMember(hub.completed[current.RoomID].Members[index])
-	}
+	hub.mu.Lock()
+	hub.completed[current.RoomID] = completed
 	delete(hub.rooms, current.RoomID)
 	hub.pruneCompletedLocked(now)
+	hub.mu.Unlock()
 	return nil
 }
 
@@ -1383,28 +1412,29 @@ func selectedActionCount(submission cardPlaySubmission) int {
 
 func (c *clientConn) handleCountdownCancel() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || c.memberType != current.OwnerMemberType || current.connections[c.memberType] != c {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("RoomCountdownCancelRequest is not allowed")
 	}
 	if current.State == RoomStateOpen {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.State == RoomStateBattle || current.startCommitting {
-		hub.mu.Unlock()
+		session.Unlock()
 		return nil
 	}
 	if current.State != RoomStateCountdown {
-		hub.mu.Unlock()
+		session.Unlock()
 		return errors.New("RoomCountdownCancelRequest has no pending countdown")
 	}
 	frames := reopenCountdownFramesLocked(current)
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	deliveries := reserveRoomFramesLocked(connections, frames...)
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, c.roomID, deliveries)
 	return nil
 }
@@ -1431,8 +1461,9 @@ func (c *clientConn) close(updateHub bool) error {
 	var memberUpdates []Member
 	var cancelCountdownFrames []battleFrame
 	var completeCountdownSync bool
-	hub.mu.Lock()
-	current, exists := hub.rooms[c.roomID]
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if exists {
 		// The socket is already closed. Wait without either socket or Hub lock
 		// so a pending debit resolves before choosing lobby vs battle cleanup.
@@ -1441,10 +1472,11 @@ func (c *clientConn) close(updateHub bool) error {
 			if done == nil {
 				done = current.continueDone
 			}
-			hub.mu.Unlock()
+			session.Unlock()
 			<-done
-			hub.mu.Lock()
-			current, exists = hub.rooms[c.roomID]
+			session = hub.lockRoomSession(c.roomID)
+			defer session.Unlock()
+			current, exists = session.room, session.room != nil
 		}
 	}
 	if exists {
@@ -1481,7 +1513,7 @@ func (c *clientConn) close(updateHub bool) error {
 				// AI never owns a room. Comeback reservations matter only while
 				// another human connection remains to keep the battle alive.
 				if len(current.connections) == 0 {
-					delete(hub.rooms, c.roomID)
+					hub.removeRoom(current)
 				} else if !current.gameStarted && len(current.connections) > 0 &&
 					len(current.battleLoading) == len(current.connections) {
 					startLoadedRoomID = current.RoomID
@@ -1497,7 +1529,7 @@ func (c *clientConn) close(updateHub bool) error {
 				)
 			}
 		} else if c.memberType == current.OwnerMemberType {
-			delete(hub.rooms, c.roomID)
+			hub.removeRoom(current)
 			for memberType, connection := range current.connections {
 				if memberType == c.memberType {
 					continue
@@ -1546,7 +1578,7 @@ func (c *clientConn) close(updateHub bool) error {
 	} else {
 		// Also detach an original battle socket that disconnected after the
 		// room moved to completed; it may not have received ApiGameEnd yet.
-		if completed, completedExists := hub.completed[c.roomID]; completedExists &&
+		if completed := session.completed; completed != nil &&
 			completed.comebackConnections[c.memberType] == c {
 			delete(completed.comebackConnections, c.memberType)
 		}
@@ -1558,7 +1590,7 @@ func (c *clientConn) close(updateHub bool) error {
 	}
 	frames = append(frames, cancelCountdownFrames...)
 	deliveries = append(deliveries, reserveRoomFramesLocked(memberUpdatePeers, frames...)...)
-	hub.mu.Unlock()
+	session.Unlock()
 	broadcastRoomFrames(c.server, c.roomID, deliveries)
 	for _, connection := range dissolvedPeers {
 		_ = connection.close(false)
@@ -1584,10 +1616,11 @@ func (c *clientConn) close(updateHub bool) error {
 
 func (s *Server) completeCountdownMemberSync(roomID int64) {
 	hub := s.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	current, exists := session.room, session.room != nil
 	if !exists || current.countdownSyncs <= 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return
 	}
 	current.countdownSyncs--
@@ -1595,7 +1628,7 @@ func (s *Server) completeCountdownMemberSync(roomID int64) {
 	if finishPending {
 		current.countdownFinishPending = false
 	}
-	hub.mu.Unlock()
+	session.Unlock()
 	if finishPending {
 		s.finishCountdown(roomID)
 	}
@@ -1740,15 +1773,6 @@ func parseRangeInt(value string, minimum int, maximum int) (int, error) {
 	return parsed, nil
 }
 
-func firstFreeMemberType(current *room) int {
-	for memberType := 1; memberType <= maxRoomMembers; memberType++ {
-		if !roomMemberTypeOccupied(current, memberType) {
-			return memberType
-		}
-	}
-	return 0
-}
-
 func roomMemberTypeOccupied(current *room, memberType int) bool {
 	if current == nil || memberType < 1 || memberType > maxRoomMembers {
 		return false
@@ -1816,6 +1840,7 @@ func roomVacancyFrames(current *room) []battleFrame {
 // Publish their vacancies before cancellation makes the client interactive.
 func reopenCountdownFramesLocked(current *room) []battleFrame {
 	current.State = RoomStateOpen
+	current.countdownChecking = false
 	current.countdownFinishPending = false
 	for index := 0; index < len(current.Members); {
 		memberType := current.Members[index].MemberType

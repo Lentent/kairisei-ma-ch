@@ -439,22 +439,6 @@ func ApplyItemRuntimeMaster(state *gamestate.State, master ItemRuntimeMaster) (b
 	}
 	changed := false
 	if state.LocalAccountConfigVersion < master.LocalAccountConfigVersion {
-		existing := make(map[int]struct{}, len(state.Items))
-		for _, item := range state.Items {
-			existing[item.ItemID] = struct{}{}
-		}
-		// The local initial-item grant is a QA convenience for established
-		// profiles. A clean original-flow account must earn its currencies and
-		// entry items through the onboarding/gameplay chain instead.
-		if state.Onboarding.ConfigVersion == 0 {
-			for _, item := range master.LocalAccountInitialItems {
-				if _, exists := existing[item.ItemID]; exists {
-					continue
-				}
-				state.Items = append(state.Items, item)
-				existing[item.ItemID] = struct{}{}
-			}
-		}
 		state.LocalAccountConfigVersion = master.LocalAccountConfigVersion
 		changed = true
 	}

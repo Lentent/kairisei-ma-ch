@@ -43,9 +43,9 @@ func TestRetireReleasesParticipationBeforeClientCloses(t *testing.T) {
 	// respect the retirement decision made under Hub lock.
 	current.connections[1] = retiring
 	current.engineBattleEnd = 1
-	hub.mu.Lock()
+	session := hub.lockRoomSession(current.RoomID)
 	err := completeBattleLocked(hub, current, time.Now())
-	hub.mu.Unlock()
+	session.Unlock()
 	if err != nil {
 		t.Fatal(err)
 	}

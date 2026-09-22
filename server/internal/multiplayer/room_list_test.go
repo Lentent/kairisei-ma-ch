@@ -38,7 +38,9 @@ func TestRoomListOnlyReturnsRealOpenNonFullMatchingRooms(t *testing.T) {
 			t.Errorf("password %q returned %v, want room %d", query.password, got, query.roomID)
 		}
 	}
-	h.rooms[1].State = RoomStateClosed
+	session := h.lockRoomSession(1)
+	session.room.State = RoomStateClosed
+	session.Unlock()
 	if got := h.List(RoomSearch{BossID: 11}); len(got) != 0 {
 		t.Fatalf("closed room remains visible: %v", got)
 	}

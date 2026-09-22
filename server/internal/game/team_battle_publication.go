@@ -14,19 +14,6 @@ const (
 	cnGeneratedGroupMax  = 800000000
 )
 
-type teamBattlePublicationGroup struct {
-	GroupID          int `json:"0"`
-	StageType        int `json:"1"`
-	StageQuestAreaID int `json:"9"`
-	Bosses           []struct {
-		BossID     int    `json:"0"`
-		Difficulty string `json:"4"`
-		State      int    `json:"10"`
-		IsModel    int    `json:"14"`
-		IsLock     int    `json:"26"`
-	} `json:"10"`
-}
-
 type stageQuestPublicationProgress struct {
 	StageQuest struct {
 		AreaID int `json:"areaid"`
@@ -37,13 +24,8 @@ type stageQuestPublicationProgress struct {
 	} `json:"stage_quest"`
 }
 
-// projectCNTeamBattlePublication keeps the original client's four list
-// contracts distinct. Normal StageQuest routes are unlocked in account order;
-// local activity archives are all published and split by their official 2D/3D
-// render contract. Normal quests use their official area order. Activity
-// archives use the earliest official boss identity in each group: the CN
-// master allocates those identities by content batch, while pict_id is only a
-// reusable visual identity and cannot represent first publication order.
+// projectCNTeamBattlePublication is the JSON boundary for callers that need the
+// complete stock DTO. Publication itself works on a single decoded catalog.
 func projectCNTeamBattlePublication(
 	configuration json.RawMessage,
 	stageQuests map[int]json.RawMessage,
@@ -51,314 +33,216 @@ func projectCNTeamBattlePublication(
 	tutorialNormalQuest bool,
 	tutorialActivity bool,
 ) (json.RawMessage, error) {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(configuration, &top); err != nil {
-		return nil, fmt.Errorf("decode team battle publication: %w", err)
-	}
-	var source []json.RawMessage
-	if err := json.Unmarshal(top["9"], &source); err != nil {
-		return nil, fmt.Errorf("decode team battle normal groups: %w", err)
-	}
-	unlocked, hasNormalQuest, err := unlockedCNNormalQuestAreas(stageQuests)
+	catalog, err := decodeTeamBattleCatalog(configuration)
 	if err != nil {
 		return nil, err
 	}
+	if err := catalog.project(stageQuests, limitedGroupIDs, tutorialNormalQuest, tutorialActivity); err != nil {
+		return nil, err
+	}
+	return catalog.MarshalJSON()
+}
 
-	normal := make([]json.RawMessage, 0, len(source))
-	activity2D := make([]json.RawMessage, 0, len(source))
-	activity3D := make([]json.RawMessage, 0, len(source))
-	limited := make([]json.RawMessage, 0, len(limitedGroupIDs))
+// Keep the stock client's four list contracts distinct: account-progression
+// normal quests, 3D activities, limited/key 2D activities and ordinary 2D
+// activities. Assemble and validate the plan before changing catalog contents.
+func (catalog *TeamBattleCatalog) project(
+	stageQuests map[int]json.RawMessage,
+	limitedGroupIDs []int,
+	tutorialNormalQuest bool,
+	tutorialActivity bool,
+) error {
+	unlocked, hasNormalQuest, err := unlockedCNNormalQuestAreas(stageQuests)
+	if err != nil {
+		return err
+	}
 	limitedIDs := make(map[int]struct{}, len(limitedGroupIDs))
 	for _, groupID := range limitedGroupIDs {
 		if groupID <= 0 {
-			return nil, errors.New("team battle publication contains an invalid limited group")
+			return errors.New("team battle publication contains an invalid limited group")
 		}
 		limitedIDs[groupID] = struct{}{}
 	}
-	seen := make(map[int]struct{}, len(source))
-	for _, raw := range source {
-		var group teamBattlePublicationGroup
-		if err := json.Unmarshal(raw, &group); err != nil {
-			return nil, fmt.Errorf("decode team battle group: %w", err)
+	groups := make(map[string][]teamBattleCatalogGroup, 4)
+	seen := make(map[int]struct{})
+	for _, group := range catalog.groups["9"] {
+		if group.id <= 0 {
+			return errors.New("team battle publication contains an invalid group")
 		}
-		if group.GroupID <= 0 {
-			return nil, errors.New("team battle publication contains an invalid group")
-		}
-		seen[group.GroupID] = struct{}{}
+		seen[group.id] = struct{}{}
 		switch {
-		case group.StageQuestAreaID >= cnNormalQuestAreaMin &&
-			group.StageQuestAreaID <= cnNormalQuestAreaMax:
-			if _, available := unlocked[group.StageQuestAreaID]; available {
-				projected, projectErr := projectCNNormalQuestGroup(
-					raw, stageQuests[group.StageQuestAreaID],
-					tutorialNormalQuest && group.StageQuestAreaID == cnNormalQuestAreaMin,
-				)
-				if projectErr != nil {
-					return nil, projectErr
+		case group.areaID >= cnNormalQuestAreaMin && group.areaID <= cnNormalQuestAreaMax:
+			if progress, available := unlocked[group.areaID]; available {
+				if err := group.validateNormalProgress(progress, tutorialNormalQuest && group.areaID == cnNormalQuestAreaMin); err != nil {
+					return err
 				}
-				normal = append(normal, projected)
+				groups["9"] = append(groups["9"], group)
 			}
-		case group.GroupID > cnGeneratedGroupMin && group.GroupID < cnGeneratedGroupMax:
-			is3D, modeErr := teamBattleGroupIs3D(group)
-			if modeErr != nil {
-				return nil, modeErr
+		case group.id > cnGeneratedGroupMin && group.id < cnGeneratedGroupMax:
+			is3D, err := group.is3D()
+			if err != nil {
+				return err
 			}
-			// The stock client gives 3D activities their own list even when the
-			// historical event was time-limited. The local archive keeps every
-			// activity open, so only 2D strengthening-material families use the
-			// separate limited/key list.
+			// Historical limited 3D activities still belong to the 3D list.
+			key := "12"
 			if is3D {
-				activity3D = append(activity3D, append(json.RawMessage(nil), raw...))
-			} else if _, isLimited := limitedIDs[group.GroupID]; isLimited {
-				limited = append(limited, append(json.RawMessage(nil), raw...))
-			} else {
-				activity2D = append(activity2D, append(json.RawMessage(nil), raw...))
+				key = "10"
+			} else if _, limited := limitedIDs[group.id]; limited {
+				key = "11"
 			}
+			groups[key] = append(groups[key], group)
 		case !hasNormalQuest:
-			// Retain the small bootstrap group only when the complete normal
-			// quest catalog has not been installed.
-			normal = append(normal, append(json.RawMessage(nil), raw...))
+			groups["9"] = append(groups["9"], group)
 		}
 	}
-
-	// Preserve any future explicitly categorized official groups without
-	// duplicating the generated archive groups projected above.
-	for key, destination := range map[string]*[]json.RawMessage{
-		"10": &activity3D,
-		"11": &limited,
-		"12": &activity2D,
-	} {
-		var groups []json.RawMessage
-		if raw, exists := top[key]; exists {
-			if err := json.Unmarshal(raw, &groups); err != nil {
-				return nil, fmt.Errorf("decode team battle category %s: %w", key, err)
+	// Retain explicitly categorized groups without duplicating generated ones.
+	for _, key := range teamBattleCategoryKeys[1:] {
+		for _, group := range catalog.groups[key] {
+			if group.id <= 0 {
+				return fmt.Errorf("decode team battle category %s identity", key)
 			}
-		}
-		for _, raw := range groups {
-			var identity struct {
-				GroupID int `json:"0"`
-			}
-			if err := json.Unmarshal(raw, &identity); err != nil || identity.GroupID <= 0 {
-				return nil, fmt.Errorf("decode team battle category %s identity", key)
-			}
-			if _, duplicate := seen[identity.GroupID]; duplicate {
+			if _, duplicate := seen[group.id]; duplicate {
 				continue
 			}
-			seen[identity.GroupID] = struct{}{}
-			*destination = append(*destination, append(json.RawMessage(nil), raw...))
+			seen[group.id] = struct{}{}
+			groups[key] = append(groups[key], group)
 		}
 	}
-	if err := sortCNTeamBattleGroupsByFirstPublication(normal, true); err != nil {
-		return nil, err
-	}
-	if err := sortCNTeamBattleGroupsByFirstPublication(activity3D, false); err != nil {
-		return nil, err
-	}
-	if err := sortCNTeamBattleGroupsByFirstPublication(activity2D, false); err != nil {
-		return nil, err
-	}
-	if err := sortCNTeamBattleGroupsByFirstPublication(limited, false); err != nil {
-		return nil, err
+	for _, key := range teamBattleCategoryKeys {
+		if err := sortCNTeamBattleGroupsByFirstPublication(groups[key], key == "9"); err != nil {
+			return err
+		}
 	}
 	if tutorialActivity {
-		if len(activity3D) == 0 || len(activity2D) == 0 {
-			return nil, errors.New("CN activity tutorial categories are unavailable")
-		}
-		activity3D[0], err = projectCNTutorialActivityGroup(activity3D[0])
-		if err != nil {
-			return nil, err
-		}
-		activity2D[0], err = projectCNTutorialActivityGroup(activity2D[0])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	encoded, err := json.Marshal(normal)
-	if err != nil {
-		return nil, err
-	}
-	top["9"] = encoded
-	encoded, err = json.Marshal(activity3D)
-	if err != nil {
-		return nil, err
-	}
-	top["10"] = encoded
-	encoded, err = json.Marshal(limited)
-	if err != nil {
-		return nil, err
-	}
-	top["11"] = encoded
-	encoded, err = json.Marshal(activity2D)
-	if err != nil {
-		return nil, err
-	}
-	top["12"] = encoded
-	return json.Marshal(top)
-}
-
-// projectCNNormalQuestGroup publishes a permanent account-progression area
-// through the client's regular TeamSlSt difficulty-list contract. The
-// StageQuest DTO remains server-internal state for sequential clear tracking;
-// publishing stage type 11/15 would route the stock client into its
-// conquest/occupation UI instead.
-func projectCNNormalQuestGroup(
-	raw json.RawMessage,
-	areaRaw json.RawMessage,
-	tutorial bool,
-) (json.RawMessage, error) {
-	var group map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &group); err != nil {
-		return nil, fmt.Errorf("decode normal quest group: %w", err)
-	}
-	var identity teamBattlePublicationGroup
-	if err := json.Unmarshal(raw, &identity); err != nil || identity.GroupID <= 0 {
-		return nil, errors.New("decode normal quest group identity")
-	}
-	var progress stageQuestPublicationProgress
-	if err := json.Unmarshal(areaRaw, &progress); err != nil ||
-		progress.StageQuest.AreaID != identity.StageQuestAreaID ||
-		len(progress.StageQuest.Stages) != len(identity.Bosses) {
-		return nil, fmt.Errorf("decode normal quest area %d progress", identity.StageQuestAreaID)
-	}
-	var bosses []map[string]json.RawMessage
-	if err := json.Unmarshal(group["10"], &bosses); err != nil || len(bosses) != len(identity.Bosses) {
-		return nil, fmt.Errorf("decode normal quest area %d bosses", identity.StageQuestAreaID)
-	}
-
-	firstUncleared := len(bosses)
-	for index, stage := range progress.StageQuest.Stages {
-		if stage.StageID != identity.Bosses[index].BossID || stage.IsClearDone < 0 || stage.IsClearDone > 1 {
-			return nil, fmt.Errorf("normal quest area %d progression differs from its group", identity.StageQuestAreaID)
-		}
-		if stage.IsClearDone == 0 && firstUncleared == len(bosses) {
-			firstUncleared = index
-		}
-	}
-	for index := range bosses {
-		clear := progress.StageQuest.Stages[index].IsClearDone != 0
-		state := 0
-		if clear {
-			state = 2
-		}
-		isLock := 0
-		if index > firstUncleared {
-			isLock = 1
-		}
-		bosses[index]["10"], _ = json.Marshal(state)
-		bosses[index]["26"], _ = json.Marshal(isLock)
-	}
-	// The client's first onboarding guide targets row zero of the difficulty
-	// list and cannot scroll. Its fixed "first step" quest therefore receives
-	// only the first stage. As soon as that battle advances onboarding, the
-	// complete area topology is published again for ordinary progression.
-	if tutorial {
-		if identity.StageQuestAreaID != cnNormalQuestAreaMin || firstUncleared != 0 {
-			return nil, errors.New("normal quest tutorial does not target the fresh first area")
-		}
-		bosses = bosses[:1]
-	}
-	encoded, err := json.Marshal(bosses)
-	if err != nil {
-		return nil, err
-	}
-	group["1"] = json.RawMessage("0")
-	group["10"] = encoded
-	return json.Marshal(group)
-}
-
-// projectCNTutorialActivityGroup adapts the inferred local archive topology to
-// the stock quest guide. The retained service data does not include historical
-// activity grouping, so the archive groups several official difficulty
-// identities under one visual family. The client sorts those identities by
-// boss ID descending and its fixed guide accepts only row zero. During quest
-// 1047, publish the earliest/easiest retained identity for the first family;
-// the complete family returns immediately after the tutorial is cleared.
-func projectCNTutorialActivityGroup(raw json.RawMessage) (json.RawMessage, error) {
-	var group map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &group); err != nil {
-		return nil, fmt.Errorf("decode activity tutorial group: %w", err)
-	}
-	var bosses []json.RawMessage
-	if err := json.Unmarshal(group["10"], &bosses); err != nil || len(bosses) == 0 {
-		return nil, errors.New("decode activity tutorial bosses")
-	}
-	selected := bosses[0]
-	selectedID := 0
-	for _, boss := range bosses {
-		var identity struct {
-			BossID int `json:"0"`
-		}
-		if err := json.Unmarshal(boss, &identity); err != nil || identity.BossID <= 0 {
-			return nil, errors.New("decode activity tutorial boss identity")
-		}
-		if selectedID == 0 || identity.BossID < selectedID {
-			selected = boss
-			selectedID = identity.BossID
-		}
-	}
-	encoded, err := json.Marshal([]json.RawMessage{selected})
-	if err != nil {
-		return nil, err
-	}
-	group["10"] = encoded
-	return json.Marshal(group)
-}
-
-// sortCNTeamBattleGroupsByFirstPublication is an INFERRED chronology contract
-// derived from official CN master identities. It deliberately does not invent
-// wall-clock release dates that are absent from the retained service data.
-func sortCNTeamBattleGroupsByFirstPublication(groups []json.RawMessage, normal bool) error {
-	type sortableGroup struct {
-		raw       json.RawMessage
-		groupID   int
-		primaryID int
-	}
-	values := make([]sortableGroup, len(groups))
-	for index, raw := range groups {
-		var group teamBattlePublicationGroup
-		if err := json.Unmarshal(raw, &group); err != nil || group.GroupID <= 0 {
-			return errors.New("decode team battle publication order")
-		}
-		primaryID := group.StageQuestAreaID
-		if !normal {
-			primaryID = 0
-			for _, boss := range group.Bosses {
-				if boss.BossID > 0 && (primaryID == 0 || boss.BossID < primaryID) {
-					primaryID = boss.BossID
-				}
+		for _, key := range []string{"10", "12"} {
+			if len(groups[key]) == 0 {
+				return errors.New("CN activity tutorial categories are unavailable")
+			}
+			group := &groups[key][0]
+			if err := group.selectTutorialBoss(); err != nil {
+				return err
 			}
 		}
-		if primaryID <= 0 {
-			return fmt.Errorf("team battle group %d has no publication identity", group.GroupID)
-		}
-		values[index] = sortableGroup{
-			raw: append(json.RawMessage(nil), raw...), groupID: group.GroupID, primaryID: primaryID,
+	}
+	for index := range groups["9"] {
+		group := &groups["9"][index]
+		if progress, available := unlocked[group.areaID]; available {
+			group.applyNormalProgress(progress, tutorialNormalQuest && group.areaID == cnNormalQuestAreaMin)
 		}
 	}
-	sort.SliceStable(values, func(left, right int) bool {
-		if values[left].primaryID != values[right].primaryID {
-			return values[left].primaryID < values[right].primaryID
+	catalog.groups = groups
+	return nil
+}
+
+func (group teamBattleCatalogGroup) validateNormalProgress(progress stageQuestPublicationProgress, tutorial bool) error {
+	if progress.StageQuest.AreaID != group.areaID || len(progress.StageQuest.Stages) != len(group.bosses) {
+		return fmt.Errorf("decode normal quest area %d progress", group.areaID)
+	}
+	for index, stage := range progress.StageQuest.Stages {
+		if stage.StageID != group.bosses[index].id || stage.IsClearDone < 0 || stage.IsClearDone > 1 {
+			return fmt.Errorf("normal quest area %d progression differs from its group", group.areaID)
 		}
-		return values[left].groupID < values[right].groupID
-	})
-	for index := range values {
-		groups[index] = values[index].raw
+	}
+	if tutorial && (group.areaID != cnNormalQuestAreaMin || len(group.bosses) == 0 || progress.StageQuest.Stages[0].IsClearDone != 0) {
+		return errors.New("normal quest tutorial does not target the fresh first area")
 	}
 	return nil
 }
 
-func teamBattleGroupIs3D(group teamBattlePublicationGroup) (bool, error) {
-	if len(group.Bosses) == 0 {
-		return false, fmt.Errorf("team battle group %d has no bosses", group.GroupID)
-	}
-	is3D := group.Bosses[0].IsModel == 1
-	for _, boss := range group.Bosses {
-		if boss.IsModel != 0 && boss.IsModel != 1 {
-			return false, fmt.Errorf("team battle group %d has an invalid render mode", group.GroupID)
+// StageQuest tracks clears internally; publishing stock stage type 11/15 would
+// open conquest/occupation UI. Regular TeamSlSt uses type 0 and per-boss locks.
+func (group *teamBattleCatalogGroup) applyNormalProgress(progress stageQuestPublicationProgress, tutorial bool) {
+	firstUncleared := len(group.bosses)
+	for index, stage := range progress.StageQuest.Stages {
+		if stage.IsClearDone == 0 && firstUncleared == len(group.bosses) {
+			firstUncleared = index
 		}
-		if (boss.IsModel == 1) != is3D {
-			return false, fmt.Errorf("team battle group %d mixes 2D and 3D bosses", group.GroupID)
+		state, lock := json.Number("0"), json.Number("0")
+		if stage.IsClearDone != 0 {
+			state = json.Number("2")
+		}
+		if index > firstUncleared {
+			lock = json.Number("1")
+		}
+		group.bosses[index].fields["10"] = state
+		group.bosses[index].fields["26"] = lock
+	}
+	// The first onboarding guide targets row zero and cannot scroll.
+	if tutorial {
+		group.bosses = group.bosses[:1]
+	}
+	group.fields["1"] = json.Number("0")
+}
+
+// Quest 1047 targets row zero. The local archive groups official difficulties
+// by visual family, so publish its earliest/easiest identity for that guide.
+func (group *teamBattleCatalogGroup) selectTutorialBoss() error {
+	if len(group.bosses) == 0 {
+		return errors.New("decode activity tutorial bosses")
+	}
+	selected := group.bosses[0]
+	for _, boss := range group.bosses {
+		if boss.id <= 0 {
+			return errors.New("decode activity tutorial boss identity")
+		}
+		if boss.id < selected.id {
+			selected = boss
+		}
+	}
+	group.bosses = []teamBattleCatalogBoss{selected}
+	return nil
+}
+
+// INFERRED chronology from official master identities, not invented dates.
+// pict_id is a reusable visual identity and cannot represent publication order.
+func sortCNTeamBattleGroupsByFirstPublication(groups []teamBattleCatalogGroup, normal bool) error {
+	primary := func(group teamBattleCatalogGroup) int {
+		if normal {
+			return group.areaID
+		}
+		first := 0
+		for _, boss := range group.bosses {
+			if boss.id > 0 && (first == 0 || boss.id < first) {
+				first = boss.id
+			}
+		}
+		return first
+	}
+	type orderedGroup struct {
+		group     teamBattleCatalogGroup
+		primaryID int
+	}
+	ordered := make([]orderedGroup, len(groups))
+	for index, group := range groups {
+		primaryID := primary(group)
+		if group.id <= 0 || primaryID <= 0 {
+			return fmt.Errorf("team battle group %d has no publication identity", group.id)
+		}
+		ordered[index] = orderedGroup{group, primaryID}
+	}
+	sort.SliceStable(ordered, func(left, right int) bool {
+		if ordered[left].primaryID != ordered[right].primaryID {
+			return ordered[left].primaryID < ordered[right].primaryID
+		}
+		return ordered[left].group.id < ordered[right].group.id
+	})
+	for index := range ordered {
+		groups[index] = ordered[index].group
+	}
+	return nil
+}
+
+func (group teamBattleCatalogGroup) is3D() (bool, error) {
+	if len(group.bosses) == 0 {
+		return false, fmt.Errorf("team battle group %d has no bosses", group.id)
+	}
+	is3D := group.bosses[0].model == 1
+	for _, boss := range group.bosses {
+		if boss.model != 0 && boss.model != 1 {
+			return false, fmt.Errorf("team battle group %d has an invalid render mode", group.id)
+		}
+		if (boss.model == 1) != is3D {
+			return false, fmt.Errorf("team battle group %d mixes 2D and 3D bosses", group.id)
 		}
 	}
 	return is3D, nil
@@ -366,7 +250,7 @@ func teamBattleGroupIs3D(group teamBattlePublicationGroup) (bool, error) {
 
 func unlockedCNNormalQuestAreas(
 	stageQuests map[int]json.RawMessage,
-) (map[int]struct{}, bool, error) {
+) (map[int]stageQuestPublicationProgress, bool, error) {
 	areaIDs := make([]int, 0, len(stageQuests))
 	progress := make(map[int]stageQuestPublicationProgress, len(stageQuests))
 	for areaID, raw := range stageQuests {
@@ -382,16 +266,16 @@ func unlockedCNNormalQuestAreas(
 		progress[areaID] = area
 	}
 	if len(areaIDs) == 0 {
-		return map[int]struct{}{}, false, nil
+		return map[int]stageQuestPublicationProgress{}, false, nil
 	}
 	sort.Ints(areaIDs)
-	unlocked := make(map[int]struct{}, len(areaIDs))
+	unlocked := make(map[int]stageQuestPublicationProgress, len(areaIDs))
 	previousComplete := true
 	for _, areaID := range areaIDs {
 		if !previousComplete {
 			break
 		}
-		unlocked[areaID] = struct{}{}
+		unlocked[areaID] = progress[areaID]
 		previousComplete = true
 		for _, stage := range progress[areaID].StageQuest.Stages {
 			if stage.IsClearDone == 0 {

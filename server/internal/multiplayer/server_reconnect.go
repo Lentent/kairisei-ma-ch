@@ -34,10 +34,11 @@ func (c *clientConn) handleComeback(payload string) error {
 		return c.writeComebackRejected()
 	}
 
-	now := time.Now()
 	hub := c.server.hub
-	hub.mu.Lock()
-	current, exists := hub.rooms[roomID]
+	session := hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	now := time.Now()
+	current, exists := session.room, session.room != nil
 	memberType := roomMemberTypeForUser(current, userID)
 	deadline, disconnected := time.Time{}, false
 	if exists && current != nil {
@@ -56,7 +57,7 @@ func (c *clientConn) handleComeback(payload string) error {
 		c.comebackPending = true
 		c.completedComeback = false
 		delivery := c.reserveFramesLocked([]battleFrame{{"ComebackResult", joinCSV("0", "")}})
-		hub.mu.Unlock()
+		session.Unlock()
 
 		c.server.logger.Info(
 			"local multiplayer comeback credential accepted",
@@ -67,19 +68,18 @@ func (c *clientConn) handleComeback(payload string) error {
 		return delivery.send()
 	}
 
-	hub.pruneCompletedLocked(now)
-	completed, completedExists := hub.completed[roomID]
+	completed, completedExists := session.completed, session.completed != nil
 	memberType = completedMemberTypeForUser(completed, userID)
 	deadline = time.Time{}
 	disconnected = false
 	if completedExists && completed != nil {
 		deadline, disconnected = completed.disconnectedUntil[memberType]
 	}
-	completedValid := completedExists && completed != nil && completed.terminalEngine != nil &&
+	completedValid := completedExists && completed.expiresAt.After(now) && completed.terminalEngine != nil &&
 		completed.terminalBattleEndType != 0 && memberType >= 1 && disconnected && deadline.After(now) &&
 		completed.comebackConnections[memberType] == nil && completed.comebackTokens[memberType] == fields[2]
 	if !completedValid {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeComebackRejected()
 	}
 	completed.comebackConnections[memberType] = c
@@ -89,7 +89,7 @@ func (c *clientConn) handleComeback(payload string) error {
 	c.comebackPending = true
 	c.completedComeback = true
 	delivery := c.reserveFramesLocked([]battleFrame{{"ComebackResult", joinCSV("0", "")}})
-	hub.mu.Unlock()
+	session.Unlock()
 
 	c.server.logger.Info(
 		"local multiplayer completed battle comeback credential accepted",
@@ -111,19 +111,20 @@ func (c *clientConn) handleReadyToComeback(payload string) error {
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local room comeback payload is invalid"))
 	}
 	hub := c.server.hub
-	hub.mu.Lock()
-	if !c.comebackPending {
-		hub.mu.Unlock()
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	if session.owner == nil || !c.comebackPending {
+		session.Unlock()
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local room comeback is not pending"))
 	}
 	if c.completedComeback {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.handleReadyToCompletedComeback()
 	}
 
-	current, exists := hub.rooms[c.roomID]
+	current, exists := session.room, session.room != nil
 	if !exists || current.State != RoomStateBattle || current.connections[c.memberType] != c {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local room comeback state is unavailable"))
 	}
 	if current.engine == nil {
@@ -133,22 +134,23 @@ func (c *clientConn) handleReadyToComeback(payload string) error {
 		c.loadingComebackReady = true
 		current.battleLoading[c.memberType] = true
 		roomID := current.RoomID
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.server.tryStartLoadedBattle(roomID)
 	}
 	results, err := current.engine.ResumeResults(priorWaveResumeDrops(current.releasedDrops, current.battleIndex)...)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local battle resume snapshot failed"))
 	}
+	results = current.chaliceResumeResults(results)
 	resultPayload, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	rotatedToken, err := newComebackToken()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	acknowledgement := comebackAcknowledgement(current)
@@ -187,7 +189,7 @@ func (c *clientConn) handleReadyToComeback(payload string) error {
 			}
 			payload, err := cardPlayPlanResult(current.engine, slot, plan)
 			if err != nil {
-				hub.mu.Unlock()
+				session.Unlock()
 				return err
 			}
 			frames = append(frames, battleFrame{"ApiCardPlayPlanR", payload})
@@ -202,14 +204,15 @@ func (c *clientConn) handleReadyToComeback(payload string) error {
 	// snapshot. Later state changes must reach it after RoomComeback.
 	c.comebackPending = false
 	c.loadingComebackReady = false
-	hub.mu.Unlock()
+	session.Unlock()
 	snapshotErr := delivery.send()
 	if snapshotErr == nil {
-		hub.mu.Lock()
-		if latest, latestExists := hub.rooms[roomID]; latestExists && latest.connections[memberType] == c {
+		session = hub.lockRoomSession(roomID)
+		defer session.Unlock()
+		if latest := session.room; latest != nil && latest.connections[memberType] == c {
 			latest.comebackTokens[memberType] = rotatedToken
 		}
-		hub.mu.Unlock()
+		session.Unlock()
 	}
 	if nextPending {
 		// The client must rebuild the next scene before acknowledging. A resume
@@ -256,26 +259,27 @@ func (c *clientConn) handleReadyToComeback(payload string) error {
 
 func (c *clientConn) handleReadyToCompletedComeback() error {
 	hub := c.server.hub
-	hub.mu.Lock()
-	completed, exists := hub.completed[c.roomID]
-	if !exists || completed.comebackConnections[c.memberType] != c || completed.terminalEngine == nil ||
+	session := hub.lockRoomSession(c.roomID)
+	defer session.Unlock()
+	completed, exists := session.completed, session.completed != nil
+	if !exists || !completed.expiresAt.After(time.Now()) || completed.comebackConnections[c.memberType] != c || completed.terminalEngine == nil ||
 		completed.terminalBattleEndType == 0 {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local completed battle comeback is unavailable"))
 	}
 	results, err := completed.terminalEngine.ResumeResults(priorWaveResumeDrops(completed.ReleasedDrops, completed.BattleIndex)...)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return c.writeFrame("RoomComebackFailed", joinCSV("-1", "local completed battle snapshot failed"))
 	}
 	resultPayload, err := encodeBattleResults(results)
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	rotatedToken, err := newComebackToken()
 	if err != nil {
-		hub.mu.Unlock()
+		session.Unlock()
 		return err
 	}
 	roomID := c.roomID
@@ -289,14 +293,15 @@ func (c *clientConn) handleReadyToCompletedComeback() error {
 	delivery := c.reserveFramesLocked([]battleFrame{{"RoomComeback", response}})
 	terminalDelivery := c.reserveFramesLocked([]battleFrame{
 		{"ApiGameEnd", joinCSV("2", strconv.Itoa(endType))}, {"GameClose", ""}})
-	hub.mu.Unlock()
+	session.Unlock()
 	snapshotErr := delivery.send()
 	if snapshotErr == nil {
-		hub.mu.Lock()
-		if latest, latestExists := hub.completed[roomID]; latestExists && latest.comebackConnections[memberType] == c {
+		session = hub.lockRoomSession(roomID)
+		defer session.Unlock()
+		if latest := session.completed; latest != nil && latest.comebackConnections[memberType] == c {
 			latest.comebackTokens[memberType] = rotatedToken
 		}
-		hub.mu.Unlock()
+		session.Unlock()
 	}
 	terminalErr := terminalDelivery.send()
 	if snapshotErr != nil {
@@ -306,15 +311,18 @@ func (c *clientConn) handleReadyToCompletedComeback() error {
 		return terminalErr
 	}
 
-	hub.mu.Lock()
-	if latest, latestExists := hub.completed[roomID]; latestExists && latest.comebackConnections[memberType] == c {
-		delete(latest.comebackConnections, memberType)
+	session = hub.lockRoomSession(roomID)
+	defer session.Unlock()
+	if latest := session.completed; latest != nil && latest.comebackConnections[memberType] == c {
+		// The restored client can still be in the final direction. Retain only
+		// its live interaction identity until it closes or reaches the deadline.
+		c.setFinishingDeadline(time.Now().Add(battleInteractionLifetime))
 		delete(latest.comebackTokens, memberType)
 		delete(latest.disconnectedUntil, memberType)
+		c.comebackPending = false
+		c.completedComeback = false
 	}
-	hub.mu.Unlock()
-	c.comebackPending = false
-	c.completedComeback = false
+	session.Unlock()
 	c.server.logger.Info(
 		"local multiplayer completed battle comeback delivered",
 		"room_id", roomID,
@@ -381,19 +389,20 @@ func (s *Server) scheduleComebackExpiry(roomID int64, memberType int, deadline t
 	}
 	time.AfterFunc(delay, func() {
 		hub := s.hub
-		hub.mu.Lock()
-		current, exists := hub.rooms[roomID]
+		session := hub.lockRoomSession(roomID)
+		defer session.Unlock()
+		current, exists := session.room, session.room != nil
 		if !exists || current.connections[memberType] != nil || !current.disconnectedUntil[memberType].Equal(deadline) {
-			hub.mu.Unlock()
+			session.Unlock()
 			return
 		}
 		delete(current.disconnectedUntil, memberType)
 		delete(current.comebackTokens, memberType)
 		released := len(current.connections) == 0 && len(current.disconnectedUntil) == 0
 		if released {
-			delete(hub.rooms, roomID)
+			hub.removeRoom(current)
 		}
-		hub.mu.Unlock()
+		session.Unlock()
 		if released {
 			s.logger.Info("local multiplayer expired abandoned battle released", "room_id", roomID)
 		} else {

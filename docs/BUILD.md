@@ -21,6 +21,7 @@ sh tools/sh/Build-Server.sh linux-arm64 --skip-tests
 输出均在 `_local/bin/`：`kairi-server.exe`、`kairi-server-linux-amd64`、`kairi-server-linux-arm64`。
 构建会覆盖该目录中上次的同名编译结果；PowerShell 加 `-DryRun`、shell 加 `--dry-run` 可预览。
 二进制内已包含运营后台网页、SQLite、可选 S3/R2 同步功能，不需要单独构建前端或安装 Python。
+运行 `kairi-server.exe -version`（Linux 使用对应程序）可查看服务端版本；此命令直接退出，不启动服务或打开存档。
 
 也可直接执行：
 

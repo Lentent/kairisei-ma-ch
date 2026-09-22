@@ -70,7 +70,6 @@ func loadCNRuntimeStatePreparer(masters MastersConfig, pvpConfig game.PVPConfig,
 		runtimeState.User.InviteID = accountstore.InviteID(runtimeState.User.UserID)
 		runtimeState.User.SphereMax = max(runtimeState.User.SphereMax, gamestate.SphereCapacityDefault)
 		runtimeState.User.BuddyMax = max(runtimeState.User.BuddyMax, gamestate.BuddyCapacityDefault)
-		normalizeCNLegacyStaticFriends(&runtimeState)
 		_, err = masterdata.ApplyPlayerProgressionRuntimeMaster(&runtimeState, playerProgression)
 		if err != nil {
 			return gamestate.State{}, err
