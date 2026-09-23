@@ -28,7 +28,7 @@ import (
 func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 	t.Helper()
 	savePath := testfixture.WriteTestSave(t, root)
-	// These transport fixtures model an established QA account. Seed SQLite
+	// These transport fixtures model an established account. Seed SQLite
 	// explicitly; JSON is configuration, no longer an account-import path.
 	storage, err := accountstore.OpenDatabase(savePath, savePath, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
@@ -46,6 +46,7 @@ func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture.User.UnlockedFeatureIDs = append(fixture.User.UnlockedFeatureIDs, 15, 30)
 	if err := storage.Persist(fixture); err != nil {
 		t.Fatal(err)
 	}

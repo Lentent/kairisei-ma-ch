@@ -52,7 +52,7 @@ func TestFirstAccountUsesOnboardingAndPreservesProgressOnReload(t *testing.T) {
 	}
 }
 
-func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
+func TestInitializeCNOnboardingSnapshot(t *testing.T) {
 	state, err := accountstore.LoadSaveState(filepath.Join("..", "..", "config", "cn602-save-template.json"))
 	if err != nil {
 		t.Fatalf("load seed: %v", err)
@@ -104,11 +104,11 @@ func TestInitializeCNOnboardingSnapshotRemovesQAAccountState(t *testing.T) {
 		}
 	}
 	if len(state.Buddies) != 0 || state.Buddy.UniqueID != 0 {
-		t.Fatalf("QA buddy state survived onboarding initialization: legacy=%+v buddies=%+v", state.Buddy, state.Buddies)
+		t.Fatalf("fresh account buddy inventory is not empty: buddy=%+v buddies=%+v", state.Buddy, state.Buddies)
 	}
 	if len(state.Engagement.Missions) != 0 || len(state.Engagement.Presents) != 0 ||
 		len(state.TeamBattleResultReceipts) != 0 || state.ActiveTeamBattle != nil {
-		t.Fatal("QA engagement/battle state survived onboarding initialization")
+		t.Fatal("fresh account has engagement or battle progress")
 	}
 	foundTutorialGacha := false
 	foundTutorialMultiGacha := false

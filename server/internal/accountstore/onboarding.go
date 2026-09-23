@@ -28,8 +28,8 @@ var DefaultDeckNameByArthur = map[int8]string{
 	4: "歌姬卡组1",
 }
 
-// initializeCNOnboardingSnapshot turns the broad QA seed into a clean account
-// creation snapshot. The ten-card identity is INFERRED from the retained seed
+// InitializeOnboardingSnapshot selects starter cards from the shared catalog
+// and initializes player-owned state. The ten-card identity is INFERRED from the seed
 // and the user-provided original-flow screenshot; the quest IDs, ticket 2001
 // and first draw card 10002001 come from the official CN client/master contract.
 func InitializeOnboardingSnapshot(state *gamestate.State, userID int) error {
@@ -163,7 +163,7 @@ func InitializeOnboardingSnapshot(state *gamestate.State, userID int) error {
 	if err != nil {
 		return err
 	}
-	// QA seed clear flags and reward claims must not become new-player progress.
+	// New accounts start with no quest clears or reward claims.
 	for i := range progress.Areas {
 		area := &progress.Areas[i]
 		area.StageClear, area.NewClearStage = []byte("[]"), []byte("[]")
