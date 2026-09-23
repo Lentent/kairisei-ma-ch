@@ -148,6 +148,7 @@ func assembleApplication(config Config) (*application, error) {
 	buildBusinessHandler := func(userID int, state gamestate.State) (http.Handler, error) {
 		return newCNBusinessHandler(httpapi.Config{
 			InitialState:        state,
+			BannerPaths:         resources.BannerAssets.paths,
 			BaseURL:             "http://" + config.Network.AdvertiseHost + ":" + strconv.Itoa(config.Network.HTTPPort),
 			Logger:              config.Logger,
 			PersistState:        func(next gamestate.State) error { return accountStore.PersistState(userID, next) },

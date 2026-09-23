@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"slices"
 	"strings"
@@ -15,12 +14,6 @@ import (
 )
 
 const playerPolicyKey = "player-policy"
-
-type noticePolicy struct {
-	Enabled bool   `json:"enabled"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-}
 
 type loginRewards struct {
 	Cycle    []gamestate.LoginBonusDay `json:"cycle"`
@@ -106,6 +99,7 @@ func (o *Operations) playerSnapshot(p PlayerPolicy, revision int) *playerPolicyS
 	return &playerPolicySnapshot{Value: p, Revision: revision, Runtime: game.PlayerConfiguration{
 		Revision: uint64(revision) + 1, LoginBonus: login, StoryCrystals: p.StoryCrystals, Navigators: p.Navigators,
 		TutorialMail: p.TutorialMail,
+		Notice:       game.NoticePublication{Revision: max(1, p.Notice.PublicationRevision), Enabled: p.Notice.publicContent() != "[]", SigningKey: o.noticeSigningKey},
 	}}
 }
 
@@ -117,11 +111,8 @@ func (o *Operations) validatePlayerPolicy(p PlayerPolicy) error {
 	if o.playerDefaults == nil {
 		return errors.New("运营目录尚未载入")
 	}
-	if strings.TrimSpace(p.Notice.Title) == "" || len([]rune(p.Notice.Title)) > 80 || len([]rune(p.Notice.Body)) > 8000 {
-		return errors.New("公告标题须为1至80字，正文最多8000字")
-	}
-	if p.Notice.Enabled && strings.TrimSpace(p.Notice.Body) == "" {
-		return errors.New("显示公告时正文不能为空")
+	if err := validateNoticePolicy(p.Notice); err != nil {
+		return err
 	}
 	mail := p.TutorialMail
 	if len([]rune(mail.Title)) > 40 || len([]rune(mail.Message)) > 200 || len(mail.Rewards) > 120 {
@@ -210,7 +201,8 @@ func (a *API) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 		Expected *int          `json:"expected_revision"`
 		Config   *PlayerPolicy `json:"config"`
 	}
-	if err := DecodeAdminJSONLimit(r, &body, 256*1024); err != nil || body.Expected == nil || body.Config == nil {
+	// Fifty full notices can exceed 2 MB when JSON escapes Unicode or HTML.
+	if err := DecodeAdminJSONLimit(r, &body, 4*1024*1024); err != nil || body.Expected == nil || body.Config == nil {
 		WriteAdminError(w, 400, "请提交完整配置和页面版本")
 		return
 	}
@@ -226,6 +218,11 @@ func (a *API) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 	// Stable order makes diffs and audit records easy to compare.
 	slices.SortFunc(body.Config.Navigators, func(a, b game.NaviSetting) int { return int(a.NaviID) - int(b.NaviID) })
 	o.configMu.Lock()
+	previous := o.playerPolicy.Load().Value.Notice
+	body.Config.Notice.PublicationRevision = max(1, previous.PublicationRevision)
+	if previous.publicContent() != body.Config.Notice.publicContent() {
+		body.Config.Notice.PublicationRevision = *body.Expected + 2
+	}
 	doc, err := o.writeDocument(playerPolicyKey, *body.Expected, *body.Config)
 	if err == nil {
 		o.playerPolicy.Store(o.playerSnapshot(*body.Config, doc.Revision))
@@ -236,18 +233,4 @@ func (a *API) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.playerPolicy(w, r)
-}
-
-var noticeTemplate = template.Must(template.New("notice").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{.Title}}</title><style>body{margin:0;background:#17130d;color:#f4e7bd;font-family:sans-serif}main{max-width:760px;margin:auto;padding:28px}h1{color:#ffd66b;border-bottom:1px solid #8b6a2c;padding-bottom:14px}section{background:#282116;border:1px solid #8b6a2c;border-radius:10px;padding:18px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body><main><h1>{{.Title}}</h1><section>{{.Body}}</section></main></body></html>`))
-
-func (o *Operations) LocalNotice(w http.ResponseWriter, r *http.Request) {
-	notice := noticePolicy{Title: "公告", Body: "暂无公告。"}
-	if p := o.playerPolicy.Load(); p != nil && p.Value.Notice.Enabled {
-		notice = p.Value.Notice
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_ = noticeTemplate.Execute(w, notice)
 }

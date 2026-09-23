@@ -94,6 +94,7 @@ type Account struct {
 	presents                    []gamestate.Present
 	presentHistories            []gamestate.Present
 	popupReadIDs                map[int]struct{}
+	noticePublication           NoticePublication
 	loginBonusPolicy            gamestate.LoginBonusPolicy
 	tutorialCompletionMail      TutorialCompletionMail
 	loginBonusState             gamestate.LoginBonusState

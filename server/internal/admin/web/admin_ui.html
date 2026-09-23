@@ -159,10 +159,10 @@
         <div class="toolbar"><button class="primary" id="player-policy-save" disabled>保存配置</button><button class="secondary" id="player-policy-default">载入包内默认值</button><span class="sub" id="player-policy-state"></span></div>
       </div></div>
       <div class="panel"><div class="panel-head"><h2>游戏公告</h2><a href="/api/player-policy/notice-preview" target="_blank" rel="noopener">查看已发布公告</a></div><div class="panel-body">
-        <div class="checks"><label><input id="player-notice-enabled" type="checkbox"> 显示公告内容</label></div>
-        <div class="field"><label for="player-notice-title">标题</label><input id="player-notice-title" maxlength="80"></div>
-        <div class="field"><label for="player-notice-body">正文（纯文字，支持换行）</label><textarea id="player-notice-body" maxlength="8000" rows="6"></textarea></div>
-        <p class="sub">关闭时公告页显示“暂无公告”，游戏入口保留。</p>
+        <div class="checks"><label><input id="player-notice-enabled" type="checkbox"> 显示公告内容（总开关）</label></div>
+        <div class="toolbar"><button type="button" class="secondary" id="player-notice-add">新增公告</button><span class="sub" id="player-notice-count"></span></div>
+        <p class="sub">游戏内直接展开全部已上架公告的正文。置顶公告优先，同类公告按下方顺序显示；修改后点击上方“保存配置”生效。已发布内容更新后，玩家下次进入主页自动打开公告，打开后不重复提示；新手训练期间暂不弹出。仅调整置顶、顺序或未发布草稿不触发。总开关关闭时显示“暂无公告”，已有内容保留。</p>
+        <div id="player-notices"></div>
       </div></div>
       <div class="panel"><div class="panel-head"><h2>新手毕业邮件</h2><span class="sub" id="player-mail-count"></span></div><div class="panel-body">
         <div class="checks"><label><input id="player-mail-enabled" type="checkbox"> 全部新手训练完成后发送</label></div>

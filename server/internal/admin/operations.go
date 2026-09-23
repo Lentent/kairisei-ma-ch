@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,6 +71,7 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 }
 
 type Operations struct {
+	noticeSigningKey        [32]byte
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
@@ -122,6 +124,9 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 	operations := &Operations{
 		storage: storage, managedGachaGroups: managedGroups,
 		managedGachaGroupByID: groupByID, defaultGachaPublication: defaults, gachaBases: bases,
+	}
+	if _, err := rand.Read(operations.noticeSigningKey[:]); err != nil {
+		return nil, fmt.Errorf("initialize notice signing key: %w", err)
 	}
 	catalog, err := storage.CatalogState()
 	if err != nil {

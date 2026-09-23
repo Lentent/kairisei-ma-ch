@@ -65,6 +65,9 @@ func (r *recorder) middleware(logger *slog.Logger) func(http.Handler) http.Handl
 					BodySHA:   hex.EncodeToString(digest[:]),
 					Body:      redactCNRequestBody(request.URL.Path, body),
 				}
+				if strings.TrimLeft(request.URL.Path, "/") == "disabled/web/auto" {
+					entry.Query = "" // Do not capture notice acknowledgement tokens.
+				}
 				if strings.HasPrefix(request.URL.Path, "/local/account/") {
 					// Even a raw SHA-256/length would expose a fast password
 					// guessing oracle. Account captures contain routing only.

@@ -24,7 +24,7 @@ func (a *API) homeShow(writer http.ResponseWriter, _ *http.Request) {
 		a.account.FeatureUnlocked(20) && !a.account.OnboardingInProgress() {
 		homeBanners = append(homeBanners, map[string]any{
 			"home_banner_type": 12,
-			"image_url":        a.baseURL + "/local/home/banner.png",
+			"image_url":        a.bannerURL("/local/home/banner.png"),
 			"open_url":         "gacha:" + strconv.Itoa(gachaID),
 			"infomation":       []string{},
 			"eventid":          0,
@@ -97,7 +97,7 @@ func (a *API) homeShow(writer http.ResponseWriter, _ *http.Request) {
 		a.account.FeatureUnlocked(13) && !a.account.OnboardingInProgress() {
 		homeBanners = append(homeBanners, map[string]any{
 			"home_banner_type": 13,
-			"image_url":        a.baseURL + "/local/home/event-banner.png",
+			"image_url":        a.bannerURL("/local/home/event-banner.png"),
 			"open_url":         "eventpage",
 			"infomation":       []string{},
 			"eventid":          0,
@@ -119,12 +119,15 @@ func (a *API) homeShow(writer http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	homePopups := []gamestate.PopupProfile{}
+	updateInfoURL := ""
 	if !a.account.OnboardingInProgress() {
 		homePopups = a.account.UnreadPopupState(a.initialState.PopupProfile)
+		updateInfoURL = a.account.UnreadNoticePath(a.initialState.User.UserID)
 	}
 	cardFlags := a.account.LocalCardPayload(now)
 	a.writeProtocolWithPopups(writer, map[string]any{
 		"user":                      userPayload,
+		"update_info_url":           updateInfoURL,
 		"login_bonus_daily":         dailyBonuses,
 		"login_bonus_beginner":      beginnerBonuses,
 		"login_bonus_total":         totalBonuses,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ type API struct {
 	initialState gamestate.State
 	account      *game.Account
 	baseURL      string
+	bannerPaths  map[string]string
 
 	logger              *slog.Logger
 	persistState        game.StatePersister
@@ -37,6 +39,7 @@ type API struct {
 type Config struct {
 	InitialState        gamestate.State
 	BaseURL             string
+	BannerPaths         map[string]string
 	Logger              *slog.Logger
 	PersistState        game.StatePersister
 	Multiplayer         *multiplayer.Hub
@@ -66,6 +69,7 @@ func New(config Config) (http.Handler, error) {
 		initialState:        config.InitialState,
 		account:             cardStore,
 		baseURL:             baseURL,
+		bannerPaths:         maps.Clone(config.BannerPaths),
 		logger:              logger,
 		persistState:        config.PersistState,
 		multiplayer:         config.Multiplayer,

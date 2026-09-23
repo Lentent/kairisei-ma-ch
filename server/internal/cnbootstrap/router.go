@@ -43,38 +43,7 @@ func (app *application) router() chi.Router {
 	for _, name := range []string{"default", "apple-review", "qa"} {
 		router.Get("/local/server/"+name+".list", cnBootstrapServerList(app.config.Network.AdvertiseHost, app.config.Network.HTTPPort))
 	}
-	router.Get("/local/gacha/banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.GachaBanner)
-	})
-	router.Get("/local/gacha/five-star-banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.FiveStarGachaBanner)
-	})
-	for key, bannerPath := range app.resources.GachaBanners {
-		if key == "five_star_ticket" {
-			continue
-		}
-		key := key
-		bannerPath := bannerPath
-		router.Get("/local/gacha/"+key+".png", func(writer http.ResponseWriter, request *http.Request) {
-			writer.Header().Set("Content-Type", "image/png")
-			writer.Header().Set("Cache-Control", "no-store")
-			http.ServeFile(writer, request, bannerPath)
-		})
-	}
-	router.Get("/local/home/banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.HomeBanner)
-	})
-	router.Get("/local/home/event-banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.HomeEventBanner)
-	})
+	app.resources.BannerAssets.register(router)
 	emptyJSON := func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		writer.Header().Set("Cache-Control", "no-store")
@@ -108,6 +77,7 @@ func (app *application) router() chi.Router {
 	app.registerGameRoutes(router)
 	router.Get("/disabled/products", cnBootstrapProducts)
 	router.Get("/disabled/web", app.operations.LocalNotice)
+	router.Get("/disabled/web/auto", app.autoNotice)
 	router.Get("/disabled/web/deck-guide", cnBootstrapDeckGuide)
 	router.Get("/disabled/web/information/2015/7/kechengbiao", cnBootstrapDungeonSchedule)
 	introHandler, err := newCNIntroHandler(app.resources.GachaBanner)
