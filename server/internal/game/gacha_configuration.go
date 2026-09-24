@@ -29,12 +29,17 @@ func (s *Account) ApplyGachaConfiguration(revision uint64, configs []GachaConfig
 	}
 	for _, config := range configs {
 		current := findGachaProfile(s.gachas, config.Profile.GachaID)
-		if current == nil || isOnboardingGachaID(current.GachaID) {
+		if isOnboardingGachaID(config.Profile.GachaID) {
 			continue
 		}
 		profile := CloneGachaProfiles([]gamestate.GachaProfile{config.Profile})[0]
-		profile.PlayCount = current.PlayCount
-		*current = profile
+		if current == nil {
+			profile.PlayCount = 0
+			s.gachas = append(s.gachas, profile)
+		} else {
+			profile.PlayCount = current.PlayCount
+			*current = profile
+		}
 		if validateGachaSelection(profile, s.gachaSelections[profile.GachaID]) != nil {
 			delete(s.gachaSelections, profile.GachaID)
 		}

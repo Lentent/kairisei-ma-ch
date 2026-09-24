@@ -985,7 +985,7 @@ func New(state gamestate.State) (*Account, error) {
 			return nil, err
 		}
 		if gacha.PayType == 4 {
-			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || definition.ItemType != "GACHA_TICKET" {
+			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || (gacha.PublicationKey != "custom" && definition.ItemType != "GACHA_TICKET") {
 				return nil, fmt.Errorf("gacha %d references an invalid ticket item", gacha.GachaID)
 			}
 		}

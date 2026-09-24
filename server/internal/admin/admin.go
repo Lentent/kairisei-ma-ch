@@ -1239,6 +1239,7 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 	admin.operations.configMu.RLock()
 	defer admin.operations.configMu.RUnlock()
 	presets := append([]AdminGachaPreset(nil), admin.gachaPresets...)
+	presets = append(presets, admin.customGachaPresets()...)
 	for i := range presets {
 		for _, config := range admin.operations.gachaConfigurations {
 			if len(presets[i].GachaIDs) > 0 && presets[i].GachaIDs[0] == config.Profile.GachaID {
@@ -1255,6 +1256,10 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (admin *API) gachaAsset(writer http.ResponseWriter, request *http.Request) {
+	if strings.HasPrefix(chi.URLParam(request, "file"), "custom_") {
+		admin.operations.CustomGachaBanner(writer, request)
+		return
+	}
 	fileName := chi.URLParam(request, "file")
 	if filepath.Base(fileName) != fileName || filepath.Ext(fileName) != ".png" {
 		WriteAdminError(writer, http.StatusNotFound, "gacha asset not found")
@@ -1293,6 +1298,8 @@ func (admin *API) gachaPublicationFromDocument(doc accountstore.Document) (admin
 }
 
 func (admin *API) gachaPolicy(writer http.ResponseWriter, _ *http.Request) {
+	admin.operations.configMu.RLock()
+	defer admin.operations.configMu.RUnlock()
 	policy, err := admin.gachaPublicationState()
 	if err != nil {
 		WriteAdminError(writer, http.StatusInternalServerError, err.Error())
@@ -1311,8 +1318,10 @@ func (admin *API) setGachaPolicy(writer http.ResponseWriter, request *http.Reque
 		WriteAdminError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
+	admin.operations.configMu.Lock()
+	defer admin.operations.configMu.Unlock()
 	for _, groupID := range publication.GroupIDs {
-		if _, exists := admin.knownGachaGroups[groupID]; !exists {
+		if _, exists := admin.operations.managedGachaGroups[groupID]; !exists {
 			WriteAdminError(writer, http.StatusBadRequest, fmt.Sprintf("unknown gacha group ID %d", groupID))
 			return
 		}

@@ -849,6 +849,7 @@ type ItemShopTab struct {
 // card master. BannerKey selects an explicitly published loopback presentation
 // asset; the empty value retains the official cached default banner.
 type GachaProfile struct {
+ FixedDrawCount bool `json:"fixed_draw_count,omitempty"`
 	GachaID                   int              `json:"gachaid"`
 	Name                      string           `json:"gacha_name"`
 	BuyMessage                string           `json:"buymsg"`

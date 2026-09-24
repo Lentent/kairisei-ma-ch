@@ -315,6 +315,22 @@ func (storage *Database) decodeAccount(tx *sql.Tx, content []byte) (gamestate.St
 	if err := snapshot.Progress.apply(&state); err != nil {
 		return gamestate.State{}, err
 	}
+	// A custom pool can change while this account is offline. Match the live
+	// account configurator: discard only obsolete selections, never play counts.
+	custom := make(map[int]gamestate.GachaProfile)
+	for _, p := range state.Gachas {
+		if p.PublicationKey == "custom" {
+			custom[p.GachaID] = p
+		}
+	}
+	selections := make([]gamestate.GachaSelection, 0, len(state.GachaSelections))
+	for _, selection := range state.GachaSelections {
+		if p, ok := custom[selection.GachaID]; ok && validateGachaSelection(p, selection.Rewards) != nil {
+			continue
+		}
+		selections = append(selections, selection)
+	}
+	state.GachaSelections = selections
 	if err := ValidateSave(SaveFromState(state)); err != nil {
 		return gamestate.State{}, fmt.Errorf("validate CN account data: %w", err)
 	}
@@ -322,8 +338,24 @@ func (storage *Database) decodeAccount(tx *sql.Tx, content []byte) (gamestate.St
 }
 
 func (storage *Database) CatalogState() (gamestate.State, error) {
+	var state gamestate.State
+	var err error
 	if storage.catalog != nil {
-		return *storage.catalog, nil
+		state = *storage.catalog
+	} else {
+		state, err = LoadSaveState(storage.seedPath)
 	}
-	return LoadSaveState(storage.seedPath)
+	if err != nil {
+		return state, err
+	}
+	if extra := storage.operationGachas.Load(); extra != nil {
+		state.Gachas = append(gamestate.CloneGachas(state.Gachas), gamestate.CloneGachas(*extra)...)
+	}
+	return state, nil
+}
+
+// SetOperationGachas publishes an immutable catalog extension before accounts restore progress.
+func (storage *Database) SetOperationGachas(profiles []gamestate.GachaProfile) {
+	copy := gamestate.CloneGachas(profiles)
+	storage.operationGachas.Store(&copy)
 }

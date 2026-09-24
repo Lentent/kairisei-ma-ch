@@ -7,6 +7,64 @@ import (
 	"kairisei.local/server/internal/gamestate"
 )
 
+func TestCustomThreeEntryGroupTicketFallbackAndTenDraw(t *testing.T) {
+	profiles := []gamestate.GachaProfile{
+		{GachaID: 70000001, GroupID: 70000001, PayType: 4, PayTypeID: 2000, Price: 1, CardNum: 1, CardNumMax: 1},
+		{GachaID: 70000002, GroupID: 70000001, PayType: 3, Price: 50, CardNum: 1, CardNumMax: 1},
+		{GachaID: 70000003, GroupID: 70000001, PayType: 3, Price: 500, CardNum: 10, CardNumMax: 10},
+	}
+	s := &Account{items: map[int]gamestate.Item{}, gachaSelections: map[int][]gamestate.Reward{}}
+	configs := []GachaConfiguration{}
+	for _, p := range profiles {
+		configs = append(configs, GachaConfiguration{Profile: p})
+	}
+	s.ApplyGachaConfiguration(1, configs)
+	visible := s.VisibleGachasLocked()
+	if len(visible) != 2 || visible[0].GachaID != 70000002 || visible[1].GachaID != 70000003 {
+		t.Fatal("without ticket must show crystal single and ten draw")
+	}
+	s.items[2000] = gamestate.Item{ItemID: 2000, Num: 1}
+	visible = s.VisibleGachasLocked()
+	if len(visible) != 2 || visible[0].GachaID != 70000001 || visible[1].GachaID != 70000003 {
+		t.Fatal("with ticket must show ticket single and ten draw")
+	}
+}
+
+func TestNewGachaConfigurationDrawAndIndependentProgress(t *testing.T) {
+	reward := gamestate.Reward{Type: 8, RewardTypeID: 10, Num: 1, CardSkillLevels: []int16{}}
+	pool := []gamestate.WeightedReward{{Reward: reward, Weight: 1}}
+	p := gamestate.GachaProfile{GachaID: 70000001, GroupID: 70000001, PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1, RewardPool: pool,
+		Steps: []gamestate.GachaStep{{Price: 1, RewardPool: pool}, {Price: 2, RewardPool: pool}},
+		Gifts: []gamestate.GachaGiftRule{{FromPlay: 1, ToPlay: 1, Rewards: []gamestate.Reward{reward}}}}
+	s := &Account{coinFree: 10, items: map[int]gamestate.Item{}, itemDefinitions: map[int]gamestate.ItemDefinition{10: {ItemID: 10, MaxOwned: 100}}, gachaSelections: map[int][]gamestate.Reward{}}
+	s.ApplyGachaConfiguration(1, []GachaConfiguration{{Profile: p}})
+	if len(s.gachas) != 1 {
+		t.Fatal("new pool was skipped for an existing account")
+	}
+	result, err := s.PlayGacha(p.GachaID, 3, nil)
+	if err != nil || len(result.Gifts) != 1 {
+		t.Fatal("new pool draw/gift failed", err)
+	}
+	p2 := gamestate.CloneGachas([]gamestate.GachaProfile{p})[0]
+	p2.GachaID, p2.GroupID = 70000002, 70000002
+	s.ApplyGachaConfiguration(2, []GachaConfiguration{{Profile: p}, {Profile: p2}})
+	if s.gachas[0].PlayCount != 1 || s.gachas[1].PlayCount != 0 {
+		t.Fatal("copy shared player progress")
+	}
+	result, err = s.PlayGacha(p.GachaID, 3, nil)
+	if err != nil || len(result.Gifts) != 0 || s.coinFree != 7 {
+		t.Fatal("republish reset steps or gifts", err)
+	}
+	result, err = s.PlayGacha(p2.GachaID, 3, nil)
+	if err != nil || len(result.Gifts) != 1 || s.coinFree != 6 {
+		t.Fatal("copy did not start independently", err)
+	}
+	s.ApplyGachaConfiguration(3, []GachaConfiguration{{Profile: p}, {Profile: p2, Disabled: true}})
+	if _, err := s.PlayGacha(p2.GachaID, 3, nil); err == nil || s.coinFree != 6 {
+		t.Fatal("disabled pool accepted payment")
+	}
+}
+
 func TestGachaConfigurationPreservesPlayerStateAndScheduledPaymentFallback(t *testing.T) {
 	profiles := []gamestate.GachaProfile{
 		{GachaID: 11, GroupID: 1, PayType: 4, PayTypeID: 99, Price: 1, PlayCount: 7, CardNum: 1, CardNumMax: 1, CardIDs: []int{100}, CardWeights: []int{1}},

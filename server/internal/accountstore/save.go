@@ -2,6 +2,7 @@ package accountstore
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -663,9 +664,16 @@ func ValidateSave(save saveState) error {
 			if err := gamestate.ValidateGachaRules(gacha); err != nil {
 				return err
 			}
-			if !validGachaBannerKey(gacha.BannerKey) ||
-				!validGachaPublicationKey(gacha.PublicationKey) ||
-				(gacha.PublicationKey != "" && gacha.BannerKey == "") {
+			validBanner := validGachaBannerKey(gacha.BannerKey)
+			validPublication := validGachaPublicationKey(gacha.PublicationKey)
+			if gacha.PublicationKey == "custom" {
+				validPublication = gacha.GachaID >= 70000000 && gacha.GachaID < 80000000 && gacha.GroupID >= 70000000 && gacha.GroupID < 80000000 && gacha.CardNum <= 11
+				if strings.HasPrefix(gacha.BannerKey, "custom_") && len(gacha.BannerKey) == 71 {
+					_, err := hex.DecodeString(gacha.BannerKey[7:])
+					validBanner = err == nil
+				}
+			}
+			if !validBanner || !validPublication || (gacha.PublicationKey != "" && gacha.BannerKey == "") {
 				return errors.New("CN save gacha banner policy is invalid")
 			}
 			if gacha.DailyFirstFree {

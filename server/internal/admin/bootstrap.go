@@ -142,7 +142,7 @@ func New(config Config) (http.Handler, error) {
 	presetsByGroup := make(map[int]*AdminGachaPreset)
 	knownGachaGroups := make(map[int]struct{}, len(config.Operations.managedGachaGroups))
 	for _, gacha := range primaryState.Gachas {
-		if gacha.GachaID == 90000100 || gacha.GachaID == 90000200 {
+		if gacha.GachaID == 90000100 || gacha.GachaID == 90000200 || config.Operations.customGachas[gacha.GachaID] {
 			continue
 		}
 		bannerPath, exists := config.GachaBanners[gacha.BannerKey]
@@ -373,6 +373,8 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/boss-policy", admin.bossPolicy)
 	router.Put("/api/boss-policy", admin.setBossPolicy)
 	router.Get("/api/gacha-editor", admin.gachaEditorList)
+	router.Post("/api/gacha-create", admin.gachaCreate)
+	router.Post("/api/gacha-banner", admin.gachaBannerUpload)
 	router.Post("/api/gacha-editor/{action}", admin.gachaEditorAction)
 	router.Get("/api/gacha-presets", admin.gachaPresetList)
 	router.Get("/api/gacha-policy", admin.gachaPolicy)

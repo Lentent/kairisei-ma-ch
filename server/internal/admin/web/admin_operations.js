@@ -11,6 +11,7 @@ const paymentName = profile => {
 function updatePoolControls() {
   const busy=policyBusy('pool-editor')||!poolEditor.row;
   $('#pool-save-preview').disabled=busy;
+  $('#pool-new').disabled=policyBusy('pool-editor');$('#pool-clone').disabled=busy;
   $('#pool-export').disabled=busy;$('#pool-import').disabled=busy;
   $('#pool-publish').disabled=busy||poolEditor.dirty||!poolEditor.preview?.publishable||
     (!!poolEditor.row?.live.sha256&&poolEditor.row.live.sha256===poolEditor.row.draft.sha256);
@@ -35,7 +36,7 @@ async function loadPoolEditor() {
     }
   }
   const previous = poolEditor.row?.gacha_id;
-  poolEditor.rows=data.pools;poolEditor.catalog=cards;poolEditor.cards=cards.filter(c=>c.kind==='card');
+  poolEditor.banners=data.banners||[];poolEditor.rows=data.pools;poolEditor.catalog=cards;poolEditor.cards=cards.filter(c=>c.kind==='card');
   renderPoolSelect();
   selectPool(data.pools.some(row=>row.gacha_id===previous)?previous:Number($('#pool-select').value));
 }
@@ -46,7 +47,7 @@ function selectPool(id=Number($('#pool-select').value)) {
   poolEditor.row = poolEditor.rows.find(row=>row.gacha_id===id);
   const row=poolEditor.row;
   if (!row) {poolEditor.preview=null;$('#pool-current').textContent='请先选择一个卡池';updatePoolControls();return;}
-  $('#pool-select').value=id;$('#pool-current').textContent=`正在编辑：${row.config.name} · ${id}`;
+  $('#pool-select').value=id;$('#pool-current').textContent=`正在编辑：${row.config.name} · ${id} · 分组 ${row.base.groupid}（${poolEditor.rows.filter(r=>r.base.groupid===row.base.groupid).length} 个入口）`;
   const config = row.draft.payload || row.config;
   $('#pool-name').value=config.name; $('#pool-price').value=config.price;
   $('#pool-start').value=localTimeInput(config.start_unix); $('#pool-end').value=localTimeInput(config.end_unix);
@@ -56,7 +57,7 @@ function selectPool(id=Number($('#pool-select').value)) {
   $('#pool-version').textContent=`草稿 v${row.draft.revision} · 已发布 v${row.live.revision}`;
   $('#pool-contract').textContent=`${paymentName(row.base)} · 每次 ${row.base.card_num} 抽 · 最多 ${row.base.card_num_max} 抽${row.base.user_select_max ? ` · 自选 ${row.base.user_select_max} 张` : ''} · 需在「扭蛋发布」启用该组`;
   setPoolPayment(config);
-  setupMixedPool(config); renderPoolCards(); renderSelectedCards();updatePoolControls();
+  setupCustomPool(config);setupMixedPool(config); renderPoolCards(); renderSelectedCards();updatePoolControls();
 }
 
 function poolPaymentProfile() {
@@ -89,12 +90,15 @@ function rewardLabel(r) {return poolEditor.catalog?.find(c=>c.reward_type===r.ty
 function setupMixedPool(config) {
   const mixed=!!poolEditor.row?.base.reward_pool?.length;
   poolEditor.mixed=mixed?structuredClone({reward_pool:config.reward_pool||poolEditor.row.base.reward_pool,steps:config.steps||poolEditor.row.base.steps||[]}):null;
+  $('#pool-custom-mixed').hidden=!poolEditor.row?.custom;
+  if(mixed&&poolEditor.row.custom&&poolEditor.mixed.reward_pool.length===1&&!poolEditor.mixed.reward_pool[0].reward.type)poolEditor.mixed.reward_pool=[];
   $('#pool-card-editor').style.display=mixed?'none':'';$('#pool-mixed-editor').style.display=mixed?'':'none';
   $('#pool-price').disabled=mixed&&!!poolEditor.mixed.steps.length;
   poolEditor.mixedPage=0;
   if(!mixed)return;
   $('#pool-stage').innerHTML=(poolEditor.mixed.steps.length?poolEditor.mixed.steps:[{}]).map((_,i)=>`<option value="${i}">第${i+1}阶段</option>`).join('');
   $('#pool-mixed-search').value='';
+  $('#pool-mixed-gifts').hidden=!!poolEditor.row.custom;
   $('#pool-mixed-gifts').textContent=(poolEditor.row.base.gift_rules||[]).map(g=>`第${g.from_play}至${g.to_play||'以后'}次赠送：${g.rewards.map(r=>`${rewardLabel(r)} × ${r.num}`).join('、')}`).join('；')||'无额外赠礼';
   renderMixedPool();
 }
@@ -106,8 +110,10 @@ function renderMixedPool() {
   const pages=Math.max(1,Math.ceil(rows.length/100));poolEditor.mixedPage=Math.max(0,Math.min(poolEditor.mixedPage,pages-1));
   $('#pool-mixed-page').textContent=`${rows.length}项 · ${poolEditor.mixedPage+1}/${pages}页`;
   $('#pool-mixed-prev').disabled=poolEditor.mixedPage===0;$('#pool-mixed-next').disabled=poolEditor.mixedPage===pages-1;
-  $('#pool-mixed-rows').innerHTML=rows.slice(poolEditor.mixedPage*100,(poolEditor.mixedPage+1)*100).map(r=>`<tr><td>${esc(rewardLabel(r.reward))}</td><td>${r.reward.num}</td><td><input type="number" min="1" max="1000000" value="${r.weight}" data-mixed-weight="${r.index}"></td></tr>`).join('');
-  $$('#pool-mixed-rows input').forEach(input=>input.oninput=()=>{pool[Number(input.dataset.mixedWeight)].weight=Number(input.value);poolChanged()});
+  $('#pool-mixed-rows').innerHTML=rows.slice(poolEditor.mixedPage*100,(poolEditor.mixedPage+1)*100).map(r=>`<tr><td>${esc(rewardLabel(r.reward))}</td><td>${poolEditor.row.custom?`<input type="number" min="1" max="9999" value="${r.reward.num}" data-mixed-num="${r.index}" aria-label="奖励数量">`:r.reward.num}</td><td><input type="number" min="1" max="1000000" value="${r.weight}" data-mixed-weight="${r.index}" aria-label="奖励权重"></td><td>${poolEditor.row.custom?`<button class="secondary" data-mixed-remove="${r.index}">移除</button>`:""}</td></tr>`).join('');
+  $$('#pool-mixed-rows [data-mixed-num]').forEach(input=>input.oninput=()=>{pool[Number(input.dataset.mixedNum)].reward.num=Number(input.value);poolChanged()});
+  $$('#pool-mixed-rows [data-mixed-remove]').forEach(button=>button.onclick=()=>{pool.splice(Number(button.dataset.mixedRemove),1);renderMixedPool();poolChanged()});
+  $$('#pool-mixed-rows [data-mixed-weight]').forEach(input=>input.oninput=()=>{pool[Number(input.dataset.mixedWeight)].weight=Number(input.value);poolChanged()});
 }
 $('#pool-stage').onchange=()=>{poolEditor.mixedPage=0;renderMixedPool()};
 $('#pool-stage-price').oninput=()=>{const i=Number($('#pool-stage').value);poolEditor.mixed.steps[i].price=Number($('#pool-stage-price').value);if(!i)$('#pool-price').value=$('#pool-stage-price').value;poolChanged()};
@@ -143,13 +149,13 @@ function poolConfig() {
   const entries=[...poolEditor.selected].sort((a,b)=>a[0]-b[0]);
   const extra=poolEditor.mixed ? {reward_pool:poolEditor.mixed.steps?.length?poolEditor.mixed.steps[0].reward_pool:poolEditor.mixed.reward_pool,steps:poolEditor.mixed.steps||[]} : {};
   const payment=poolPaymentProfile();
-  return {...extra,pay_type:payment.pay_type,pay_typeid:payment.pay_typeid,gacha_id:poolEditor.row.gacha_id,name:$('#pool-name').value.trim(),price:poolEditor.mixed?.steps?.length?poolEditor.mixed.steps[0].price:Number($('#pool-price').value),start_unix:unixInput('#pool-start'),end_unix:unixInput('#pool-end'),card_ids:entries.map(e=>e[0]),weights:entries.map(e=>e[1])};
+  return {...extra,...customPoolConfig(),pay_type:payment.pay_type,pay_typeid:payment.pay_typeid,gacha_id:poolEditor.row.gacha_id,name:$('#pool-name').value.trim(),price:poolEditor.mixed?.steps?.length?poolEditor.mixed.steps[0].price:Number($('#pool-price').value),start_unix:unixInput('#pool-start'),end_unix:unixInput('#pool-end'),card_ids:entries.map(e=>e[0]),weights:entries.map(e=>e[1])};
 }
 function renderPoolPreview(preview) {
   const c=preview.config, b=preview.base, ready=preview.publishable;
   const names=new Map(poolEditor.cards.map(card=>[card.reward_type_id,card.name]));
   const distributions=preview.stages.length?preview.stages:[{draw_count:b.card_num,card_ids:c.card_ids,odds_scaled:preview.odds_scaled}];
-  $('#pool-preview').innerHTML=`<h3>${esc(c.name)}</h3><p>${esc(paymentName(b))} × ${c.price} · ${b.card_num} 抽${b.daily_first_free?' · 每日首次免费':''}</p><p>开始：${describeTime(c.start_unix)}<br>结束：${describeTime(c.end_unix)}</p><p>开放由「扭蛋发布」统一控制，并须处于排期内。</p><p>${preview.warnings.map(esc).join('<br>')}</p>${ready?'':'<p>未闭包卡牌：'+preview.blocked_card_ids.join(', ')+'</p>'}${distributions.map(stage=>`<details><summary>${esc(stage.name||'')} · ${esc(paymentName(b))} · ${stage.draw_count} 抽${stage.rarity?` · 稀有度 ${stage.rarity}`:''} · ${(stage.card_ids||stage.rewards||[]).length} 项 · 展开概率</summary><div class="table-wrap" style="max-height:280px"><table><thead><tr><th>卡牌</th><th>单次概率</th></tr></thead><tbody>${(stage.rewards||stage.card_ids||[]).map((r,i)=>`<tr><td>${esc(typeof r==='number'?(names.get(r)||r):rewardLabel(r))}${typeof r==='number'?'':` × ${r.num}`}</td><td>${(stage.odds_scaled[i]/preview.odds_scale).toFixed(5)}%</td></tr>`).join('')}</tbody></table></div></details>`).join('')}<p class="sub">这些是本地运营配置概率。</p>`;
+  $('#pool-preview').innerHTML=`<h3>${esc(c.name)}</h3><p>${esc(paymentName(b))} × ${c.price} · ${b.card_num} 抽${b.daily_first_free?' · 每日首次免费':''}</p><p>开始：${describeTime(c.start_unix)}<br>结束：${describeTime(c.end_unix)}</p><p>开放由「扭蛋发布」统一控制，并须处于排期内。</p><p>${preview.warnings.map(esc).join('<br>')}</p>${ready?'':'<p>未闭包卡牌：'+preview.blocked_card_ids.join(', ')+'</p>'}${distributions.map(stage=>`<details><summary>${esc(stage.name||'')} · ${esc(paymentName(b))} · ${stage.draw_count} 抽${stage.rarity?` · 稀有度 ${stage.rarity}`:''} · ${(stage.card_ids||stage.rewards||[]).length} 项 · 展开概率</summary><div class="table-wrap" style="max-height:280px"><table><thead><tr><th>卡牌</th><th>单次概率</th></tr></thead><tbody>${(stage.rewards||stage.card_ids||[]).map((r,i)=>`<tr><td>${esc(typeof r==='number'?(names.get(r)||r):rewardLabel(r))}${typeof r==='number'?'':` × ${r.num}`}</td><td>${(stage.odds_scaled[i]/preview.odds_scale).toFixed(5)}%</td></tr>`).join('')}</tbody></table></div></details>`).join('')}<h4>累计抽取赠礼</h4><p>${(b.gift_rules||[]).map(g=>`第${g.from_play}至${g.to_play||'以后'}次：${g.rewards.map(r=>esc(rewardLabel(r))+' × '+r.num).join('、')}`).join('<br>')||'无'}</p><p class="sub">这些是本地运营配置概率。</p>`;
   updatePoolControls();
 }
 $('#pool-select').onchange=()=>{if(!$('#pool-select').value)return;if(policyBusy('pool-editor')){$('#pool-select').value=poolEditor.row?.gacha_id||'';return}if(poolEditor.dirty&&!confirm('切换卡池将放弃未保存的编辑，是否继续？')){$('#pool-select').value=poolEditor.row.gacha_id;return}selectPool()};
@@ -172,7 +178,7 @@ $('#pool-import').onchange=event=>runPoolEdit(async()=>{
     const start=localTimeInput(c.start_unix),end=localTimeInput(c.end_unix),selected=new Map(c.card_ids.map((id,i)=>[id,c.weights[i]]));
     if(!confirm('以导入文件替换当前编辑内容？'))return;
     $('#pool-name').value=c.name;$('#pool-price').value=c.price;$('#pool-start').value=start;$('#pool-end').value=end;
-    poolEditor.selected=selected;setPoolPayment(c);setupMixedPool(c);poolChanged();renderPoolCards();renderSelectedCards();
+    poolEditor.selected=selected;setPoolPayment(c);setupCustomPool(c);setupMixedPool(c);poolChanged();renderPoolCards();renderSelectedCards();
   }finally{event.target.value=''}
 });
 $('#pool-save-preview').onclick=()=>runPoolEdit(async()=>{
@@ -200,3 +206,84 @@ $('#pool-publish').onclick=()=>{
 
 // A pending reward job keeps the same immutable payload and keys across
 // network errors and page reloads. Retry only unacknowledged recipients.
+
+// Operator-created pools share draft/preview/publication with built-in pools.
+function setupCustomPool(c) {
+  const custom=!!poolEditor.row.custom;
+  $('#pool-custom-settings').hidden=$('#pool-custom-gifts').hidden=!custom;
+  poolEditor.gifts=structuredClone(c.gift_rules||poolEditor.row.base.gift_rules||[]);
+  if(!custom)return;
+  $('#pool-draw-count').disabled=!!poolEditor.row.base.fixed_draw_count;
+  $('#pool-draw-count').value=poolEditor.row.base.fixed_draw_count?poolEditor.row.base.card_num:(c.card_num||poolEditor.row.base.card_num);
+  const key=c.banner_key||poolEditor.row.base.banner_key;
+  $('#pool-banner').innerHTML=[...new Set([...(poolEditor.banners||[]),key].filter(Boolean))].map(k=>`<option value="${esc(k)}">${esc(k.startsWith('custom_')?'已上传横幅 '+k.slice(7,15):k)}</option>`).join('');
+  $('#pool-banner').value=key;$('#pool-banner-upload').value='';showPoolBanner();renderPoolGifts();
+}
+function customPoolConfig(){return poolEditor.row.custom?{card_num:Number($('#pool-draw-count').value),banner_key:$('#pool-banner').value,gift_rules:structuredClone(poolEditor.gifts||[])}:{}}
+function showPoolBanner(){$('#pool-banner-preview').src='/gacha-assets/'+encodeURIComponent($('#pool-banner').value)+'.png'}
+$('#pool-banner').onchange=()=>{showPoolBanner();poolChanged()};$('#pool-draw-count').oninput=poolChanged;
+$('#pool-banner-upload').onchange=()=>runPoolEdit(async()=>{
+  const file=$('#pool-banner-upload').files[0];if(!file)return;
+  try{
+    if(file.size>4*1024*1024)throw new Error('PNG横幅不能超过4 MiB');
+    const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('读取图片失败'));reader.readAsDataURL(file)});
+    const data=await api('/api/gacha-banner',{method:'POST',body:JSON.stringify({content})});
+    if(!Array.from($('#pool-banner').options).some(o=>o.value===data.banner_key))$('#pool-banner').add(new Option('已上传横幅 '+data.banner_key.slice(7,15),data.banner_key));
+    $('#pool-banner').value=data.banner_key;showPoolBanner();poolChanged();toast('横幅已上传；保存草稿并发布后生效');
+  }finally{$('#pool-banner-upload').value=''}
+});
+let poolCreateSource=0;
+function showCreatePool(copy){
+  if(policyBusy('pool-editor'))return;
+  if(poolEditor.dirty&&!confirm('创建后将切换到新池，未保存的修改会放弃，继续？'))return;
+  poolCreateSource=copy?poolEditor.row.gacha_id:0;
+  $('#pool-create-title').textContent=copy?'整组复制为新卡池':'新增卡池';
+  $('#pool-create-name').value=copy?(poolEditor.row.config.name+' 副本').slice(0,60):'新卡池';
+  $('#pool-create-mode-field').hidden=copy;$('#pool-create-dialog').classList.add('open');
+}
+$('#pool-new').onclick=()=>showCreatePool(false);$('#pool-clone').onclick=()=>showCreatePool(true);
+$('#pool-create-cancel').onclick=()=>$('#pool-create-dialog').classList.remove('open');
+$('#pool-create-confirm').onclick=async()=>{
+  if(policyBusy('pool-editor'))return;
+  state.publishing.add('pool-editor');updatePolicyControls();$('#pool-create-confirm').disabled=$('#pool-create-cancel').disabled=true;
+  try{
+    const data=await api('/api/gacha-create',{method:'POST',body:JSON.stringify({source_id:poolCreateSource,name:$('#pool-create-name').value.trim(),mode:$('#pool-create-mode').value})});
+    poolEditor.dirty=false;$('#pool-create-dialog').classList.remove('open');$('#pool-name-search').value='';$('#pool-config-status').value='';await loadPoolEditor();selectPool(data.gacha_id);
+    if(!poolCreateSource&&poolEditor.mixed){poolEditor.mixed.reward_pool=[];renderMixedPool()}
+    state.loaded.delete('gachas');state.loaded.delete('audit');toast(`已创建分组 ${data.group_id}，共 ${data.gacha_ids.length} 个入口；分别配置发布后统一开放`);
+  }catch(e){toast(e.message,true)}finally{state.publishing.delete('pool-editor');$('#pool-create-confirm').disabled=$('#pool-create-cancel').disabled=false;updatePolicyControls()}
+};
+function activeCustomRewardPool(){return poolEditor.mixed.steps[Number($('#pool-stage').value)]?.reward_pool||poolEditor.mixed.reward_pool}
+$('#pool-reward-add').onclick=()=>{
+  const row=poolEditor.row,pool=activeCustomRewardPool();
+  openContentPicker(entries=>{if(poolEditor.row!==row)throw new Error('卡池已切换，请重新选择');if(pool.length+entries.length>6000)throw new Error('每阶段最多6000项');pool.push(...entries.map(c=>({reward:contentReward(c),weight:1})));poolChanged();renderMixedPool()},['card','material','item','sphere','buddy']);
+};
+function refreshCustomStages(index=0){
+  const steps=poolEditor.mixed.steps;
+  $('#pool-stage').innerHTML=(steps.length?steps:[{}]).map((_,i)=>`<option value="${i}">第${i+1}阶段</option>`).join('');
+  $('#pool-stage').value=Math.min(index,Math.max(0,steps.length-1));
+  $('#pool-price').disabled=!!steps.length;
+  if(steps.length)$('#pool-price').value=steps[0].price;
+  poolChanged();renderMixedPool();
+}
+$('#pool-stage-add').onclick=()=>{
+  const m=poolEditor.mixed;if(m.steps.length>=20){toast('最多20个阶段',true);return}
+  if(!m.steps.length)m.steps.push({price:Number($('#pool-price').value),reward_pool:structuredClone(m.reward_pool)});
+  m.steps.push(structuredClone(m.steps[m.steps.length-1]));refreshCustomStages(m.steps.length-1);
+};
+$('#pool-stage-delete').onclick=()=>{
+  const m=poolEditor.mixed;if(!m.steps.length)return;
+  if(!confirm('删除当前阶段？已上线池的累计抽取次数不会重置。'))return;
+  const removed=m.steps.splice(Number($('#pool-stage').value),1)[0];
+  if(!m.steps.length){m.reward_pool=removed.reward_pool;$('#pool-price').value=removed.price}
+  refreshCustomStages();
+};
+function renderPoolGifts(){
+  $('#pool-gift-rows').innerHTML=(poolEditor.gifts||[]).map((g,i)=>`<div class="panel panel-body"><div class="toolbar"><label>开始次数 <input type="number" min="1" value="${g.from_play}" data-gift-from="${i}"></label><label>结束次数（0为不限） <input type="number" min="0" value="${g.to_play}" data-gift-to="${i}"></label><button class="secondary" data-gift-add="${i}">添加赠礼</button><button class="secondary" data-gift-delete="${i}">删除规则</button></div>${g.rewards.map((r,j)=>`<div class="toolbar"><span>${esc(rewardLabel(r))}</span><input aria-label="赠礼数量" type="number" min="1" max="${r.type===8?1:9999}" value="${r.num}" data-gift-num="${i}:${j}"><button class="secondary" data-gift-remove="${i}:${j}">移除</button></div>`).join('')}</div>`).join('')||'<p class="sub">无额外赠礼</p>';
+  for(const [attribute,field] of [['from','from_play'],['to','to_play']])$$(`[data-gift-${attribute}]`).forEach(input=>input.oninput=()=>{poolEditor.gifts[Number(input.dataset[attribute==='from'?'giftFrom':'giftTo'])][field]=Number(input.value);poolChanged()});
+  $$('[data-gift-num]').forEach(input=>input.oninput=()=>{const[i,j]=input.dataset.giftNum.split(':').map(Number);poolEditor.gifts[i].rewards[j].num=Number(input.value);poolChanged()});
+  $$('[data-gift-remove]').forEach(b=>b.onclick=()=>{const[i,j]=b.dataset.giftRemove.split(':').map(Number);poolEditor.gifts[i].rewards.splice(j,1);poolChanged();renderPoolGifts()});
+  $$('[data-gift-delete]').forEach(b=>b.onclick=()=>{poolEditor.gifts.splice(Number(b.dataset.giftDelete),1);poolChanged();renderPoolGifts()});
+  $$('[data-gift-add]').forEach(b=>b.onclick=()=>{const row=poolEditor.row,g=poolEditor.gifts[Number(b.dataset.giftAdd)];openContentPicker(entries=>{if(row!==poolEditor.row)throw new Error('卡池已切换');if(g.rewards.length+entries.length>120)throw new Error('每条规则最多120项');g.rewards.push(...entries.map(contentReward));poolChanged();renderPoolGifts()},['card','material','item','sphere','buddy'])});
+}
+$('#pool-gift-add').onclick=()=>{if(poolEditor.gifts.length>=120){toast('最多120条规则',true);return}poolEditor.gifts.push({from_play:1,to_play:1,rewards:[]});poolChanged();renderPoolGifts()};

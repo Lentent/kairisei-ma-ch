@@ -44,6 +44,8 @@ func (app *application) router() chi.Router {
 		router.Get("/local/server/"+name+".list", cnBootstrapServerList(app.config.Network.AdvertiseHost, app.config.Network.HTTPPort))
 	}
 	app.resources.BannerAssets.register(router)
+	router.Get("/local/gacha/{file}", app.operations.CustomGachaBanner)
+	router.Head("/local/gacha/{file}", app.operations.CustomGachaBanner)
 	emptyJSON := func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		writer.Header().Set("Cache-Control", "no-store")

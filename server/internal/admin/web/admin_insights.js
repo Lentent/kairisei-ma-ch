@@ -156,7 +156,7 @@ function renderPoolSelect(){
   const id=poolEditor.row?.gacha_id,status=$('#pool-config-status').value,now=Date.now()/1000;
   const rows=poolEditor.rows.filter(row=>{const c=row.config,open=(!c.start_unix||now>=c.start_unix)&&(!c.end_unix||now<c.end_unix);return matchesWords(`${c.name} ${row.gacha_id}`,$('#pool-name-search').value)&&(!status||(status==='draft'?!!row.draft.revision&&row.draft.sha256!==row.live.sha256:open===(status==='open'))) });
   const placeholder=id||!rows.length?`<option value="">${rows.length?'请选择卡池（当前草稿保留）':'没有匹配的卡池'}</option>`:'';
-  $('#pool-select').innerHTML=placeholder+rows.map(row=>`<option value="${row.gacha_id}">${esc(row.config.name)} · ${row.gacha_id}</option>`).join('');
+  $('#pool-select').innerHTML=placeholder+rows.map(row=>`<option value="${row.gacha_id}">${esc(row.config.name)} · ${row.gacha_id} · ${(row.config.pay_type||row.base.pay_type)===4?"道具":(row.config.pay_type||row.base.pay_type)===2?"友情点":"水晶"}${row.config.card_num||row.base.card_num}抽</option>`).join('');
   if(id)$('#pool-select').value=id;
   $('#pool-filter-count').textContent=`匹配 ${rows.length}/${poolEditor.rows.length} 个卡池${id&&!rows.some(row=>row.gacha_id===id)?'；当前编辑对象不在筛选结果中':''}`;
 }
