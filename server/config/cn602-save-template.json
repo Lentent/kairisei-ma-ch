@@ -45,7 +45,7 @@
   "user": {
     "user_id": 1000001,
     "invite_id": "000000001",
-    "name": "本地亚瑟",
+    "name": "",
     "comment": "请多关照！",
     "active_arthur_type": 1,
     "leader_card_unique_id": 1,
@@ -56,7 +56,7 @@
     "selectable_navi_ids": [
       0
     ],
-    "arthur_rank": 1,
+    "arthur_rank": 0,
     "level": 1,
     "experience": 0,
     "now_level_experience": 0,
@@ -106,41 +106,17 @@
     "deck_max_alchemist": 10,
     "deck_rank": 1,
     "pvp_point": 0,
-    "gold": 30000,
+    "gold": 0,
     "fp": 0,
     "coin": 0,
-    "coin_free": 1000000,
-    "tutorial_flag": 67108863,
+    "coin_free": 0,
+    "tutorial_flag": 0,
     "unlocked_feature_ids": [
-      0,
-      1,
-      2,
-      3,
       4,
       5,
       6,
       7,
-      8,
-      11,
-      12,
-      13,
-      14,
-      15,
-      16,
-      17,
-      18,
-      19,
-      20,
-      21,
-      22,
-      23,
-      24,
-      25,
-      27,
-      28,
-      29,
-      30,
-      31
+      12
     ]
   },
   "cards": [
@@ -342,46 +318,6 @@
       "next_level_experience": 100,
       "add_experience": 10,
       "base_add_price": 1000,
-      "fame": 1
-    },
-    {
-      "unique_id": 11,
-      "card_id": 10000054,
-      "name": "第二型珀西瓦尔",
-      "level": 30,
-      "level_max": 30,
-      "experience": 0,
-      "love": 0,
-      "skill_levels": [
-        1
-      ],
-      "hp": 440,
-      "attack": 0,
-      "magic": 73,
-      "mind": 0,
-      "next_level_experience": 0,
-      "add_experience": 10,
-      "base_add_price": 1000,
-      "fame": 1
-    },
-    {
-      "unique_id": 12,
-      "card_id": 10000010,
-      "name": "第二型加荷里斯",
-      "level": 1,
-      "level_max": 20,
-      "experience": 0,
-      "love": 0,
-      "skill_levels": [
-        1
-      ],
-      "hp": 130,
-      "attack": 22,
-      "magic": 0,
-      "mind": 0,
-      "next_level_experience": 14,
-      "add_experience": 10,
-      "base_add_price": 500,
       "fame": 1
     },
     {
@@ -785,20 +721,7 @@
       "fame": 100
     }
   ],
-  "stack_cards": [
-    {
-      "cardid": 20000006,
-      "num": 1
-    },
-    {
-      "cardid": 20000011,
-      "num": 3
-    },
-    {
-      "cardid": 20000016,
-      "num": 1
-    }
-  ],
+  "stack_cards": [],
   "decks": [
     {
       "arthur_type": 1,
@@ -831,7 +754,11 @@
       ],
       "sphere_unique_ids": [],
       "buddy_unique_ids": [
-        1
+        0,
+        0,
+        0,
+        0,
+        0
       ],
       "name": "佣兵卡组1",
       "is_active": 1,
@@ -869,7 +796,11 @@
       ],
       "sphere_unique_ids": [],
       "buddy_unique_ids": [
-        1
+        0,
+        0,
+        0,
+        0,
+        0
       ],
       "name": "富豪卡组1",
       "is_active": 1,
@@ -907,7 +838,11 @@
       ],
       "sphere_unique_ids": [],
       "buddy_unique_ids": [
-        1
+        0,
+        0,
+        0,
+        0,
+        0
       ],
       "name": "盗贼卡组1",
       "is_active": 1,
@@ -945,7 +880,11 @@
       ],
       "sphere_unique_ids": [],
       "buddy_unique_ids": [
-        1
+        0,
+        0,
+        0,
+        0,
+        0
       ],
       "name": "歌姬卡组1",
       "is_active": 1,
@@ -1003,13 +942,6 @@
       ]
     }
   ],
-  "buddy": {
-    "unique_id": 1,
-    "buddy_id": 1000010,
-    "level": 80,
-    "next_level_experience": 0,
-    "base_add_price": 0
-  },
   "profiles": [],
   "friends": {
     "follow_max": 50,
@@ -1042,27 +974,7 @@
     "honorids": []
   },
   "story": {
-    "main_parts": [
-      {
-        "story_main_partid": 1,
-        "name": "主线剧情",
-        "sections": [
-          {
-            "story_main_sectionid": 100,
-            "section_title": "序章",
-            "stories": [
-              {
-                "story_mainid": 10001,
-                "state_flag": 2,
-                "title": "主线 10001",
-                "unlock_text": "",
-                "reward_type_flag": 0
-              }
-            ]
-          }
-        ]
-      }
-    ],
+    "main_parts": [],
     "cn_main_parts": [],
     "sub_characters": [],
     "events": []
@@ -1089,136 +1001,8 @@
   },
   "engagement": {
     "initialized": true,
-    "missions": [
-      {
-        "info": {
-          "missionid": 602001,
-          "tab_type": 0,
-          "view_prio": 1,
-          "title": "完成本地启动",
-          "description": "进入国服客户端首页",
-          "rewards": [
-            {
-              "type": 4,
-              "num": 500,
-              "reward_typeid": 0,
-              "card_lv": 0,
-              "card_fame": 0,
-              "card_love": 0,
-              "card_skill_lv": []
-            }
-          ],
-          "state": 1,
-          "progress_show_type": 1,
-          "progress_now": 1,
-          "progress_max": 1,
-          "clear_limit_time": 0,
-          "open_url": "",
-          "level_sort_1": 1,
-          "level_sort_2": 1
-        },
-        "reward_present": {
-          "presentid": 602000002,
-          "add_elapsed_sec": 0,
-          "limit_tm": 0,
-          "reward": {
-            "type": 4,
-            "num": 500,
-            "reward_typeid": 0,
-            "card_lv": 0,
-            "card_fame": 0,
-            "card_love": 0,
-            "card_skill_lv": []
-          },
-          "reward0": {
-            "type": 0,
-            "num": 0,
-            "reward_typeid": 0,
-            "card_lv": 0,
-            "card_fame": 0,
-            "card_love": 0,
-            "card_skill_lv": []
-          },
-          "reward1": {
-            "type": 0,
-            "num": 0,
-            "reward_typeid": 0,
-            "card_lv": 0,
-            "card_fame": 0,
-            "card_love": 0,
-            "card_skill_lv": []
-          },
-          "reward2": {
-            "type": 0,
-            "num": 0,
-            "reward_typeid": 0,
-            "card_lv": 0,
-            "card_fame": 0,
-            "card_love": 0,
-            "card_skill_lv": []
-          },
-          "comment": "完成本地启动任务",
-          "reason": 0,
-          "state": 0,
-          "title": "任务奖励",
-          "url": "",
-          "auto_fusion_used": 0,
-          "auto_loveup_used": 0
-        }
-      }
-    ],
-    "presents": [
-      {
-        "presentid": 602000001,
-        "add_elapsed_sec": 0,
-        "limit_tm": 0,
-        "reward": {
-          "type": 6,
-          "num": 1,
-          "reward_typeid": 10000010,
-          "card_lv": 1,
-          "card_fame": 1,
-          "card_love": 0,
-          "card_skill_lv": [
-            1
-          ]
-        },
-        "reward0": {
-          "type": 0,
-          "num": 0,
-          "reward_typeid": 0,
-          "card_lv": 0,
-          "card_fame": 0,
-          "card_love": 0,
-          "card_skill_lv": []
-        },
-        "reward1": {
-          "type": 0,
-          "num": 0,
-          "reward_typeid": 0,
-          "card_lv": 0,
-          "card_fame": 0,
-          "card_love": 0,
-          "card_skill_lv": []
-        },
-        "reward2": {
-          "type": 0,
-          "num": 0,
-          "reward_typeid": 0,
-          "card_lv": 0,
-          "card_fame": 0,
-          "card_love": 0,
-          "card_skill_lv": []
-        },
-        "comment": "国服本地离线启动赠礼",
-        "reason": 0,
-        "state": 0,
-        "title": "本地启动赠礼",
-        "url": "",
-        "auto_fusion_used": 0,
-        "auto_loveup_used": 0
-      }
-    ],
+    "missions": [],
+    "presents": [],
     "histories": []
   },
   "options": {

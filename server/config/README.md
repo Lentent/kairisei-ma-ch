@@ -2,13 +2,19 @@
 
 | 文件 | 实际用途 |
 | --- | --- |
-| `cn602-save-template.json` | 新账号初始数据和版本化业务目录 |
+| `cn602-save-template.json` | 新账号初始化原料、四职业系统助战卡组，以及默认卡池／商店等业务目录 |
 | `cn602-player-progression-runtime.json` | 经验／等级、BP／好友上限、职业基础属性和助战友情点 |
 | `cn602-login-bonus-runtime.json` | 登录日界及每日、新手、累计奖励的默认表 |
-| `cn602-pvp-runtime.json` | PVP 场地、段位、挑战和结算规则；`server_replay` 专用字段不影响 `client_native_local` 模式 |
+| `cn602-pvp-runtime.json` | PVP 场地、段位、挑战和结算规则；`client_native_local` 与 `server_replay` 分别采用对应模式的规则 |
 
 升级补满 AP／BP 并重置恢复计时。`config_version` 控制业务数据更新。
 签到／抽卡奖励和经验曲线采用本地运营策略。
+
+`cn602-save-template.json` 提供账号初始化和默认业务配置。创建账号时，
+`InitializeOnboardingSnapshot` 从中选择十张初始卡，将货币和额外物品设为零，
+并初始化新手流程；角色名称由玩家创建角色时填写，系统助战使用四职业卡组。
+卡牌、剧情、探索和副本的完整定义由配套 master 加载，玩家持有量与进度保存在 SQLite。
+文件体积主要来自 26 个默认卡池及分阶段奖励权重，每个阶段独立配置价格与奖励概率。
 
 ## 修改后何时生效
 
