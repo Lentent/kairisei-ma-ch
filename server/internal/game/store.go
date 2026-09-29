@@ -282,6 +282,11 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 }
 
 func New(state gamestate.State) (*Account, error) {
+	// Upgrade the original capacity when loading existing accounts or older seeds.
+	// Follow and follower capacity share this value; mutual friends have a separate cap.
+	if state.Friends.FollowMax == 50 {
+		state.Friends.FollowMax = 500
+	}
 	if state.PlayerProgressionPolicy.ConfigVersion > 0 {
 		policy := state.PlayerProgressionPolicy
 		if state.PlayerProgressionConfigVersion != policy.ConfigVersion ||
