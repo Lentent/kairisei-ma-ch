@@ -5,6 +5,7 @@ const cardStars=card=>card.rarity?`${card.rarity} 星`:'';
 const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={'player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
+titles.collections='称号与礼盒';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>Number(v||0).toLocaleString('zh-CN');
@@ -27,6 +28,7 @@ async function loadView(name,force=false){
       state.gachaSelected=new Set(state.gachaPolicy.group_ids||[]);renderGachas();
     }
     else if(name==='pool-editor')await loadPoolEditor();
+    else if(name==='collections')await loadCollections();
     else if(name==='audit')await loadAuditPage();
     else if(name==='settings')await loadRuntimeSettings();
     else if(name==='drops')await loadDropEditor();
@@ -72,7 +74,7 @@ $$('#boss-kinds button').forEach(b=>b.onclick=()=>{state.bossKind=b.dataset.kind
 $('#mode-all').onclick=()=>{state.mode='all';renderBosses()};$('#mode-selected').onclick=()=>{state.mode='allowlist';renderBosses()};$('#select-visible').onclick=()=>{filteredGroups().forEach(g=>state.selected.add(g.group_id));state.mode='allowlist';renderBosses()};$('#clear-selected').onclick=()=>{state.selected.clear();state.mode='allowlist';renderBosses()};
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
-  for(const name of ['bosses','gachas','pool-editor','settings','drops','exchanges','player-policy'])$('#'+name).inert=policyBusy(name);
+  for(const name of ['bosses','gachas','pool-editor','settings','drops','exchanges','player-policy','collections'])$('#'+name).inert=policyBusy(name);
   if(typeof updatePoolControls==='function')updatePoolControls();
   $('#save-policy').disabled=policyBusy('bosses')||!state.policy;
   $('#gacha-save').disabled=policyBusy('gachas')||!state.gachaPolicy;

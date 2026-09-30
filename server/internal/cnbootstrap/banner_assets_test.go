@@ -99,7 +99,8 @@ func TestBannerWireURLsDownloadMatchingContent(t *testing.T) {
 	if err := os.WriteFile(log, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	handler := newTestHandler(t, root, log)
+	// HomeShow only advertises gacha banners after the gacha feature is unlocked.
+	handler := newTestHandler(t, root, log, 20)
 	for _, tc := range []struct {
 		route, body, list string
 		fields            []string

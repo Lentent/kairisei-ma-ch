@@ -172,7 +172,7 @@ func validateItemRuntimeMaster(master ItemRuntimeMaster) error {
 		definition, exists := definitions[profile.ItemID]
 		if !exists || definition.ItemType != "GACHA" || definition.Function != "GACHA_EXEC" ||
 			definition.FunctionValue != profile.FunctionValue || (len(profile.Rewards) == 0 && len(profile.RewardPool) == 0) ||
-			(profile.Evidence != "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE" && profile.Evidence != "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION" && profile.Evidence != "USER_LOCAL_CUSTOM_BOX_20260930_TEMPLATE_8887") {
+			!gamestate.ValidItemGachaEvidence(profile.Evidence) {
 			return fmt.Errorf("invalid CN item gacha profile %d", profile.ItemID)
 		}
 		if _, duplicate := coveredGachaItems[profile.ItemID]; duplicate {

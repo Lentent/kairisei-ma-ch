@@ -287,6 +287,9 @@ func New(config Config) (http.Handler, error) {
 			return nil, errors.New("published gacha card resources are unavailable")
 		}
 	}
+	if len(config.AssetMaps) > 0 {
+		admin.collectionResourceRoot = filepath.Dir(config.AssetMaps[0])
+	}
 	if policy := config.Operations.playerPolicy.Load(); policy != nil {
 		if err := admin.validateTutorialMail(policy.Value.TutorialMail); err != nil {
 			return nil, fmt.Errorf("validate saved tutorial mail: %w", err)
@@ -309,6 +312,13 @@ func New(config Config) (http.Handler, error) {
 	}
 	router := chi.NewRouter()
 	router.Use(adminSecurityHeaders)
+	router.Get("/api/collections", admin.collections)
+	router.Put("/api/collections", admin.saveCollections)
+	router.Post("/api/collections/export", admin.exportCollections)
+	router.Get("/collections.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminCollectionsJS)
+	})
 	router.Get("/api/player-policy", admin.playerPolicy)
 	router.Get("/api/player-policy/notice-preview", admin.operations.LocalNotice)
 	router.Put("/api/player-policy", admin.savePlayerPolicy)

@@ -18,6 +18,7 @@
       <button data-view="drops">◇　<span>Boss 掉落</span></button>
       <button data-view="exchanges">⇄　<span>兑换所配置</span></button>
       <button data-view="pool-editor">▦　<span>卡池配置</span></button>
+      <button data-view="collections">◇　<span>称号与礼盒</span></button>
       <button data-view="gachas">✦　<span>扭蛋发布</span></button>
       <button data-view="player-policy">◇　<span>公告与奖励</span></button>
       <button data-view="settings">⚙　<span>运营设置</span></button>
@@ -27,6 +28,33 @@
   </aside>
   <main>
     <header class="topbar"><div><h1 id="view-title">运行概览</h1><p>本地国服兼容服务 · 账号、奖励与活动管理</p></div><button class="refresh" id="refresh">↻ 刷新数据</button></header>
+
+    <section class="view content-editor" id="collections">
+      <div class="panel"><div class="panel-head"><h2>称号与礼盒</h2><span class="pill gold" id="collection-version">配置 v0</span></div><div class="panel-body">
+        <p class="sub">新增称号、礼盒及开箱奖励。保存后生成资源更新包，停服覆盖并重启，再让客户端下载更新资源。无需修改 APK。</p>
+        <div class="toolbar"><button class="primary" id="collection-save">保存配置</button><button class="secondary" id="collection-package">生成资源更新包</button><button class="secondary" id="collection-json">导出配置 JSON</button><label class="secondary">导入配置 <input type="file" id="collection-import" accept="application/json,.json" hidden></label></div>
+        <p class="sub" id="collection-status" aria-live="polite">配置保存为草稿，覆盖资源并重启后在游戏中生效。</p>
+      </div></div>
+      <div class="grid2" style="margin-top:20px">
+        <div class="panel"><div class="panel-head"><h2>自定义称号</h2><button class="secondary" id="honor-new">新增称号</button></div><div class="panel-body">
+          <div class="field"><label for="honor-select">选择称号</label><select id="honor-select"></select></div>
+          <fieldset class="editor-fields" id="honor-fields"><div class="field"><label for="honor-id">称号 ID（自动分配）</label><input id="honor-id" readonly></div><div class="field"><label for="honor-name">称号名称</label><input id="honor-name" maxlength="60"></div>
+          <div class="field"><label>可佩戴位置</label><div class="toolbar" id="honor-slots"><label><input type="checkbox" value="1"> A</label><label><input type="checkbox" value="2"> B</label><label><input type="checkbox" value="4"> C</label><label><input type="checkbox" value="8"> 特殊称号</label></div></div></fieldset>
+          <p class="sub">新增称号不会自动授予玩家。可放入礼盒奖池，应用资源更新后也可通过礼物发放。</p>
+        </div></div>
+        <div class="panel"><div class="panel-head"><h2>自定义礼盒</h2><button class="secondary" id="box-new">新增礼盒</button></div><div class="panel-body">
+          <div class="field"><label for="box-select">选择礼盒</label><select id="box-select"></select></div>
+          <fieldset class="editor-fields" id="box-fields"><div class="field"><label for="box-id">道具 ID（自动分配）</label><input id="box-id" readonly></div><div class="field"><label for="box-name">礼盒名称</label><input id="box-name" maxlength="60"></div><div class="field"><label for="box-description">客户端说明</label><textarea id="box-description" maxlength="500" rows="3"></textarea></div>
+          <div class="toolbar"><div class="field"><label for="box-icon">复用已有礼盒图标</label><select id="box-icon"></select></div><div class="field"><label for="box-maximum">最大持有数量</label><input id="box-maximum" type="number" min="1" max="99999"></div></div></fieldset>
+          <p class="sub">每次开箱扣除一个礼盒，按奖池概率随机发放一项。新增礼盒需另行配置发放或掉落。</p>
+        </div></div>
+      </div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2>当前礼盒奖池</h2><span class="pill" id="box-pool-summary">请选择礼盒</span></div><div class="panel-body">
+        <div class="toolbar"><button class="secondary" id="box-add-rewards">从奖励目录添加</button><select id="box-custom-honor" aria-label="自定义称号"></select><button class="secondary" id="box-add-honor">添加自定义称号</button></div>
+        <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>权重</th><th>概率</th><th>卡牌等级</th><th>操作</th></tr></thead><tbody id="box-reward-rows"></tbody></table></div>
+        <p class="sub">概率 = 当前权重 ÷ 全部权重。例：五项素材各188，皮肤和称号各30，总权重1000，对应18.8%和3%。收藏类奖励数量固定为1。</p>
+      </div>
+    </section>
 
     <section class="view active" id="dashboard">
       <div class="cards">
@@ -223,6 +251,7 @@
 <script defer src="/mail.js"></script>
 <script defer src="/settings.js"></script>
 <script defer src="/content.js"></script>
+<script defer src="/collections.js"></script>
 <script defer src="/player-policy.js"></script>
 <script defer src="/insights.js"></script>
 </body>
