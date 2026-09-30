@@ -59,12 +59,29 @@ func (admin *API) accountList(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, "未知账号类型")
 		return
 	}
-	if filter.Sort != "" && filter.Sort != "id" && filter.Sort != "created" && filter.Sort != "login" {
+	if filter.Sort != "" && filter.Sort != "id" && filter.Sort != "created" && filter.Sort != "login" && filter.Sort != "level" {
 		WriteAdminError(w, 400, "未知排序方式")
 		return
 	}
 	if filter.Binding == "system" {
 		filter.IncludeSystem = true
+	}
+	for key, spec := range map[string]struct {
+		target   *int
+		min, max int
+	}{"level_min": {&filter.LevelMin, 1, 9999}, "level_max": {&filter.LevelMax, 1, 9999}, "arthur_type": {&filter.ArthurType, 1, 4}} {
+		if raw := q.Get(key); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < spec.min || value > spec.max {
+				WriteAdminError(w, 400, fmt.Sprintf("%s 须为%d–%d的整数", key, spec.min, spec.max))
+				return
+			}
+			*spec.target = value
+		}
+	}
+	if filter.LevelMin > 0 && filter.LevelMax > 0 && filter.LevelMin > filter.LevelMax {
+		WriteAdminError(w, 400, "最低等级不能高于最高等级")
+		return
 	}
 	for key, target := range map[string]*string{"created_after": &filter.CreatedAfter, "created_before": &filter.CreatedBefore, "login_after": &filter.LoginAfter, "login_before": &filter.LoginBefore} {
 		if value := q.Get(key); value != "" {

@@ -74,16 +74,18 @@ type DropBoss struct {
 }
 
 type contentStore struct {
-	base          gamestate.State
-	bosses        map[int]DropBoss
-	drops         map[int]BossDrops
-	shops         map[int]exchangeShop
-	dropRevision  int
-	shopRevision  int
-	rules         map[int]BossRules
-	ruleRevision  int
-	ruleBases     map[int]bossRuleEntry
-	configuration game.ContentConfiguration
+	activities       activityRewards
+	activityRevision int
+	base             gamestate.State
+	bosses           map[int]DropBoss
+	drops            map[int]BossDrops
+	shops            map[int]exchangeShop
+	dropRevision     int
+	shopRevision     int
+	rules            map[int]BossRules
+	ruleRevision     int
+	ruleBases        map[int]bossRuleEntry
+	configuration    game.ContentConfiguration
 }
 
 type exchangeShop struct {
@@ -240,9 +242,29 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 			if id != rule.BossID {
 				return errors.New("BOSS规则身份不一致")
 			}
+			// Cups previously published as ordinary bosses may have a saved
+			// continue override. Preserve their publication, but adopt the new
+			// finite-turn score contract when loading that historical override.
+			for _, p := range c.base.TeamBattleRewards {
+				if p.BossID == id && p.ScorePolicy != nil {
+					rule.Continue = false
+					c.rules[id] = rule
+					break
+				}
+			}
 			if err := c.validateBossRules(rule); err != nil {
 				return err
 			}
+		}
+	}
+	doc, err = o.storage.ReadDocument(activityRewardsKey)
+	if err != nil {
+		return err
+	}
+	c.activityRevision = doc.Revision
+	if doc.Revision > 0 {
+		if err = json.Unmarshal(doc.Payload, &c.activities); err != nil {
+			return err
 		}
 	}
 	state, err := c.project(c.drops, c.shops, c.rules)
@@ -327,6 +349,9 @@ func (c *contentStore) project(drops map[int]BossDrops, shops map[int]exchangeSh
 		state.TradeShopProfiles = append(state.TradeShopProfiles, merged[id])
 	}
 	err := c.projectBossRules(&state, rules)
+	if err == nil {
+		err = c.projectActivityRewards(&state)
+	}
 	return state, err
 }
 
@@ -572,6 +597,9 @@ func (a *API) exchangeEditor(w http.ResponseWriter, _ *http.Request) {
 func (a *API) validateExchange(s gamestate.TradeShopProfile, others []gamestate.TradeShopProfile) error {
 	if s.TradeShopID <= 0 || len([]rune(strings.TrimSpace(s.Name))) < 1 || len([]rune(s.Name)) > 40 || len([]rune(s.Text)) > 250 || s.ShopType != 1 || s.TabType < 0 || s.TabType > 1 || s.EndTime < 0 || s.EndTime > 2147483647 || s.PictID != 0 || s.IsNew != 0 || len(s.Lineups) == 0 || len(s.Lineups) > 500 {
 		return errors.New("兑换所名称、分类、时间或商品数无效（最多500项）")
+	}
+	if s.StartTime < 0 || s.StartTime > 2147483647 || s.StartTime > 0 && s.EndTime > 0 && s.EndTime < 2147483647 && s.StartTime >= s.EndTime {
+		return errors.New("兑换所开始时间须早于结束时间")
 	}
 	ids := map[int]bool{}
 	old := map[int]gamestate.TradeShopLineupProfile{}

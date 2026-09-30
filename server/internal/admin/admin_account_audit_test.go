@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -123,6 +124,18 @@ func TestAdminAccountMutationAndAuditCommitTogether(t *testing.T) {
 					t.Fatalf("audits=%d err=%v", audits, err)
 				}
 			})
+		}
+	}
+	hour := time.Now().UTC().Add(time.Hour)
+	for _, c := range []struct {
+		filter accountstore.AuditFilter
+		want   int
+	}{
+		{accountstore.AuditFilter{Operation: "account-grant", After: hour.Add(-2 * time.Hour).Format(time.RFC3339), Before: hour.Format(time.RFC3339)}, 2},
+		{accountstore.AuditFilter{After: hour.Format(time.RFC3339)}, 0},
+	} {
+		if records, total, err := accounts.QueryAuditRecords(c.filter, 50, 0); err != nil || total != c.want || len(records) != c.want {
+			t.Fatalf("audit range %+v: total=%d err=%v", c.filter, total, err)
 		}
 	}
 }

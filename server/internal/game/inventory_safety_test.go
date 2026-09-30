@@ -257,6 +257,8 @@ func TestCardEvolutionRecipes(t *testing.T) {
 		keep, container, rejected bool
 	}{
 		{"normal resets level", 0, 3, 0, false, false, false},
+		{"operator closes direct edge", 0, 3, 0, false, false, true},
+		{"closed reverse leaves forward open", 0, 3, 0, false, false, false},
 		{"limit keeps level with 25+25+3 materials", 3, 53, 0, true, false, false},
 		{"limit consumes last mixed materials", 3, 53, 0, true, false, false},
 		{"limit insufficient materials", 3, 53, 0, true, false, true},
@@ -313,6 +315,12 @@ func TestCardEvolutionRecipes(t *testing.T) {
 			beforeGold := s.gold
 			beforeStacks := slices.Clone(s.stackCards)
 			beforeCards := len(s.cards) + len(s.containerCards)
+			if input.name == "operator closes direct edge" {
+				s.ApplyEvolutionRestrictions(NewEvolutionRestrictions([]EvolutionPath{{FromCardID: 10, ToCardID: 11}}))
+			}
+			if input.name == "closed reverse leaves forward open" {
+				s.ApplyEvolutionRestrictions(NewEvolutionRestrictions([]EvolutionPath{{FromCardID: 11, ToCardID: 10}}))
+			}
 			_, _, _, err := s.EvolveCard(1, 11, uniqueIDs, containerIDs, materialIDs)
 			if input.rejected {
 				wantCode := -1

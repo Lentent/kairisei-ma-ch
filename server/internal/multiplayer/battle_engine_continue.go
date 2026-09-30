@@ -5,6 +5,20 @@ import "errors"
 // settlePlayerDeaths is the native 65010/61d60 boundary. A KO remains a
 // participant while continuation is offered; only GameOver retires it.
 func (engine *BattleEngine) settlePlayerDeaths(results []BattleResult) []BattleResult {
+	// Original member_dead_end ends at the phase settlement boundary, after
+	// the current enemy queue and GUTS processing. It does not retire the KO
+	// member or offer continuation; all participants retain score eligibility.
+	if engine.memberDeadEnd {
+		for _, player := range engine.players {
+			if player.MemberType != 0 && player.HP <= 0 {
+				if engine.endType == 0 {
+					engine.endType = 2
+				}
+				engine.continuePending = false
+				return results
+			}
+		}
+	}
 	if engine.continueAllowed && (engine.endType == 0 || engine.endType == 2) {
 		for _, player := range engine.players {
 			if player.MemberType != 0 && player.HP <= 0 && !player.GameOver {

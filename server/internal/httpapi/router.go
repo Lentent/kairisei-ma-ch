@@ -28,6 +28,7 @@ type API struct {
 	pvpAccounts         game.PVPAccountRepository
 	pvpConfig           game.PVPConfig
 	friendPointAccounts game.FriendPointAccountRepository
+	battleHistory       game.BattleHistoryRepository
 	teamBattleResultMu  sync.Mutex
 	clientResultMu      sync.Mutex
 }
@@ -44,6 +45,7 @@ type Config struct {
 	PVPAccounts         game.PVPAccountRepository
 	PVP                 game.PVPConfig
 	FriendPointAccounts game.FriendPointAccountRepository
+	BattleHistory       game.BattleHistoryRepository
 }
 
 func New(config Config) (http.Handler, error) {
@@ -73,6 +75,7 @@ func New(config Config) (http.Handler, error) {
 		pvpAccounts:         config.PVPAccounts,
 		pvpConfig:           config.PVP,
 		friendPointAccounts: config.FriendPointAccounts,
+		battleHistory:       config.BattleHistory,
 	}
 	if cardStore.RequiresInitialSave() && config.PersistState != nil {
 		if err := config.PersistState(cardStore.Snapshot(config.InitialState)); err != nil {

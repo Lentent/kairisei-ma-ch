@@ -345,6 +345,13 @@ func (a *API) gachaInfos(gachas []gamestate.GachaProfile) []any {
 		} else if gacha.BannerKey != "" {
 			bannerPath = "/local/gacha/" + gacha.BannerKey + ".png"
 		}
+		bannerURL := a.baseURL + bannerPath
+		if gacha.CoverPath != "" {
+			bannerURL = a.baseURL + "/local/" + gacha.CoverPath
+			if base := a.account.GachaCoverBaseURL(); base != "" {
+				bannerURL = base + gacha.CoverPath
+			}
+		}
 		price := gacha.Price
 		buyMessage := gacha.BuyMessage
 		dailyFirst := int8(0)
@@ -357,6 +364,16 @@ func (a *API) gachaInfos(gachas []gamestate.GachaProfile) []any {
 			playCountOneDay = 1
 		}
 		stepCount, isStep, isLast := 0, 0, 0
+		playCount := gacha.PlayCount
+		playCountMax := gacha.PlayCountMax
+		if gacha.PlayCountMax > 0 {
+			playCount = gacha.GroupPlayCount
+		}
+		// Native variable-count pools interpret this wire limit as card count.
+		// Their request quota is enforced by the server without reducing batch size.
+		if gacha.CardNum != gacha.CardNumMax {
+			playCountMax = 0
+		}
 		if len(gacha.Steps) > 0 {
 			stepCount, isStep = min(gacha.PlayCount+1, len(gacha.Steps)), 1
 			if stepCount == len(gacha.Steps) {
@@ -379,16 +396,16 @@ func (a *API) gachaInfos(gachas []gamestate.GachaProfile) []any {
 			"price":                     price,
 			"card_num":                  gacha.CardNum,
 			"card_num_max":              gacha.CardNumMax,
-			"play_count":                gacha.PlayCount,
+			"play_count":                playCount,
 			"play_count_priority_price": 0,
 			"play_count_1day":           playCountOneDay,
-			"play_count_max":            0,
+			"play_count_max":            playCountMax,
 			"play_count_1day_max":       0,
 			"user_select_max":           gacha.UserSelectMax,
 			"is_stepup_price":           isStep,
 			"is_daily_first":            dailyFirst,
-			"image_l_url":               a.baseURL + bannerPath,
-			"image_s_url":               a.baseURL + bannerPath,
+			"image_l_url":               bannerURL,
+			"image_s_url":               bannerURL,
 			"info_url":                  "",
 			"end_time":                  gacha.EndTime,
 			"gifts":                     gachaGiftsWire(gacha),

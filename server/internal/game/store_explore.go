@@ -94,7 +94,7 @@ func (s *Account) ApState() apStatus {
 	return s.apStatusLocked(time.Now())
 }
 
-func (s *Account) BeginExplore(arthurType, deckIndex int8) (apStatus, int, gamestate.Avatar, gamestate.ExploreStage, bool) {
+func (s *Account) BeginExplore(arthurType, deckIndex int8, acceptedRewards ...[]gamestate.Reward) (apStatus, int, gamestate.Avatar, gamestate.ExploreStage, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -107,6 +107,15 @@ func (s *Account) BeginExplore(arthurType, deckIndex int8) (apStatus, int, games
 		return s.apStatusLocked(now), 0, gamestate.Avatar{}, gamestate.ExploreStage{}, false
 	}
 	stage := cloneExploreStages(s.exploreStages[s.exploreStageCursor : s.exploreStageCursor+1])[0]
+	var frozen *[]gamestate.Reward
+	if len(acceptedRewards) > 0 {
+		if s.validateSettlementRewardsLocked(acceptedRewards[0]) != nil {
+			return s.apStatusLocked(now), 0, gamestate.Avatar{}, gamestate.ExploreStage{}, false
+		}
+		copy := cloneRewards(acceptedRewards[0])
+		frozen = &copy
+	}
+	s.exploreActiveRewards = frozen
 	s.exploreStageCursor = (s.exploreStageCursor + 1) % len(s.exploreStages)
 	s.exploreActiveStage = stage.ExploreStageID
 	s.ap--
@@ -157,6 +166,9 @@ func (s *Account) EndExplore(rewards []gamestate.Reward) (PresentReceiveResult, 
 	if !completed {
 		return PresentReceiveResult{}, nil, false, 0, nil
 	}
+	if s.exploreActiveRewards != nil {
+		rewards = *s.exploreActiveRewards
+	}
 	if err := s.validateSettlementRewardsLocked(rewards); err != nil {
 		return PresentReceiveResult{}, nil, false, 0, err
 	}
@@ -168,6 +180,7 @@ func (s *Account) EndExplore(rewards []gamestate.Reward) (PresentReceiveResult, 
 		}
 	}
 	s.exploreActive = false
+	s.exploreActiveRewards = nil
 	arthurType := s.exploreArthurType
 	deckIndex := s.exploreDeckIndex
 	s.exploreArthurType = 0

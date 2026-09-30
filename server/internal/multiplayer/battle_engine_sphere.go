@@ -344,6 +344,12 @@ func (engine *BattleEngine) ExecuteChaliceEnemyPhase() ([]BattleResult, error) {
 	if engine.endType != 0 {
 		return results, nil
 	}
+	// Original 52e14 limit is consumed at the end of the enemy-chalice phase.
+	// Timeout is native ENEMY_WIN (2); the SCORE scene still awards score.
+	if engine.endTurn > 0 && engine.turn >= engine.endTurn {
+		engine.endType, engine.phase = 2, battlePhaseEnded
+		return engine.appendWaveBuffCleanup(append(results, battleEndResult(2))), nil
+	}
 	for playerIndex := range engine.players {
 		for sphereIndex := range engine.players[playerIndex].Spheres {
 			engine.players[playerIndex].Spheres[sphereIndex].ChalicePlayable = false

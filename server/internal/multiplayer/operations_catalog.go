@@ -29,6 +29,8 @@ func LoadOperationsEnemyCatalog(root string) (map[int]CombatEnemyParty, map[int]
 }
 
 type OperationsCardInfo struct {
+	Prefix      string `json:"prefix,omitempty"`
+	LimitCount  int    `json:"limit_count,omitempty"`
 	Attribute   string `json:"attribute"`
 	Cost        int    `json:"cost"`
 	NormalSkill string `json:"normal_skill"`
@@ -53,7 +55,7 @@ func LoadOperationsCardCatalog(cardPath, battleRoot string) (map[int]OperationsC
 			return err
 		}
 		normal, arthur := skills[card.NormalSkillID], skills[card.ArthurSkillID]
-		result[card.ID] = OperationsCardInfo{Attribute: normal.Attribute, Cost: normal.Cost, NormalSkill: normal.Name, ArthurSkill: arthur.Name}
+		result[card.ID] = OperationsCardInfo{Prefix: combatField(row, 4), LimitCount: optionalCombatInt(row, 22), Attribute: normal.Attribute, Cost: normal.Cost, NormalSkill: normal.Name, ArthurSkill: arthur.Name}
 		return nil
 	})
 	return result, err

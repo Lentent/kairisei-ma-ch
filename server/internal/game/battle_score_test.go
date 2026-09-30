@@ -55,3 +55,76 @@ func TestScoreSettlementKeepsBestAndDoesNotRepeatAwards(t *testing.T) {
 		t.Fatal("lineup lost saved best")
 	}
 }
+
+func TestDamageScoreTimeoutFreezesPolicyAndAwardsOnlyNewGrades(t *testing.T) {
+	p := &gamestate.TeamBattleScorePolicy{SourceState: "LOCAL_POLICY_DAMAGE_SCORE", EndTurn: 5, Rate: 100}
+	for i := range 9 {
+		p.Grades = append(p.Grades, gamestate.TeamBattleScoreGrade{Score: int64(i+1) * 100, Rewards: []gamestate.Reward{{Type: 10, Num: 10, CardSkillLevels: []int16{}}}})
+	}
+	s := onboardingTestStore()
+	s.teamBattleScores = map[int]gamestate.TeamBattleScoreProgress{}
+	profiles := []gamestate.TeamBattleRewardProfile{{BossID: 123, ScorePolicy: gamestate.CloneTeamBattleScorePolicy(p), ResultRewards: []gamestate.Reward{{Type: 4, Num: 100}}}}
+	s.activeBattle = &TeamBattleContext{BossID: 123, ScorePolicy: gamestate.CloneTeamBattleScorePolicy(p)}
+	// A policy change during the fight must not multiply the accepted score.
+	profiles[0].ScorePolicy.Rate = 1000
+	result, err := s.CompleteTeamBattle(123, false, profiles, TeamBattleDropReport{ScoreVerified: true, ScoreDamage: 250})
+	if err != nil || s.coinFree != 20 || s.gold != 0 || len(result.ScoreInfo) != 1 || s.teamBattleScores[123].HighScore != 250 {
+		t.Fatalf("timeout settlement: coin=%d gold=%d result=%+v err=%v", s.coinFree, s.gold, result, err)
+	}
+	if _, err := s.CompleteTeamBattle(123, false, profiles, TeamBattleDropReport{ScoreVerified: true, ScoreDamage: 900}); err == nil {
+		t.Fatal("timeout retry awarded without a new entry")
+	}
+	encoded, err := json.Marshal(s.teamBattleScores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.teamBattleScores = nil
+	if err := json.Unmarshal(encoded, &s.teamBattleScores); err != nil {
+		t.Fatal(err)
+	}
+	s.activeBattle = &TeamBattleContext{BossID: 123, ScorePolicy: p}
+	result, err = s.CompleteTeamBattle(123, false, profiles, TeamBattleDropReport{ScoreVerified: true, ScoreDamage: 450})
+	if err != nil || s.coinFree != 40 || len(result.Score.Rewards) != 2 || s.teamBattleScores[123].Claimed != 15 {
+		t.Fatal("reloaded progress repeated or lost grade rewards", result, err)
+	}
+	s.activeBattle = &TeamBattleContext{BossID: 123, ScorePolicy: p}
+	_, err = s.CompleteTeamBattle(123, false, profiles, TeamBattleDropReport{ScoreVerified: true, ScoreDamage: 150})
+	if err != nil || s.coinFree != 40 || s.teamBattleScores[123].HighScore != 450 {
+		t.Fatal("lower result erased progress", err)
+	}
+}
+
+func TestSoloCupClearAwardsAllGradesAndFailureAwardsNothing(t *testing.T) {
+	p := &gamestate.TeamBattleScorePolicy{SourceState: "LOCAL_POLICY_DAMAGE_SCORE", EndTurn: 5, Rate: 150}
+	for i := range 9 {
+		p.Grades = append(p.Grades, gamestate.TeamBattleScoreGrade{Score: int64(i+1) * 100, Rewards: []gamestate.Reward{{Type: 10, Num: 10, CardSkillLevels: []int16{}}}})
+	}
+	s := onboardingTestStore()
+	s.teamBattleScores = map[int]gamestate.TeamBattleScoreProgress{}
+	s.teamBattleSolo = json.RawMessage(`{"9":[{"0":1,"9":0,"10":[{"0":123,"10":0}]}],"10":[],"11":[],"12":[]}`)
+	profiles := []gamestate.TeamBattleRewardProfile{{BossID: 123, ScorePolicy: gamestate.CloneTeamBattleScorePolicy(p), ResultRewards: []gamestate.Reward{{Type: 4, Num: 100}}}}
+	// Later changes to the top threshold and multiplier do not change this run.
+	profiles[0].ScorePolicy.Grades[8].Score = 10000
+	profiles[0].ScorePolicy.Rate = 1000
+	for _, turns := range []int{1, 5, 8} {
+		s.activeBattle = &TeamBattleContext{BossID: 123, ScorePolicy: p}
+		r, err := s.CompleteTeamBattle(123, false, profiles, TeamBattleDropReport{SoloChallenge: true, Turns: turns})
+		if err != nil || len(r.ScoreInfo) != 0 || s.coinFree != 0 || s.gold != 0 || s.teamBattleScores[123].Claimed != 0 {
+			t.Fatalf("failed/retired/timeout solo earned rewards: %+v %v", r, err)
+		}
+	}
+	for attempt := range 2 {
+		s.activeBattle = &TeamBattleContext{BossID: 123, ScorePolicy: p}
+		r, err := s.CompleteTeamBattle(123, true, profiles, TeamBattleDropReport{SoloChallenge: true, Turns: 4})
+		if err != nil || len(r.ScoreInfo) != 1 || s.coinFree != 90 || s.teamBattleScores[123].Claimed != 511 || s.teamBattleScores[123].HighScore != 900 {
+			t.Fatalf("clear must earn only unclaimed grades: %+v %v", r, err)
+		}
+		info := r.ScoreInfo[0].(map[string]any)
+		if info["damage"] != int64(900) || info["rate"] != 100 || info["grade"] != 8 || (attempt == 1 && len(r.Score.Rewards) != 0) {
+			t.Fatal("clear score multiplied or rewards repeated", r)
+		}
+		if _, err := s.CompleteTeamBattle(123, true, profiles, TeamBattleDropReport{SoloChallenge: true}); err == nil {
+			t.Fatal("duplicate result accepted without entry")
+		}
+	}
+}

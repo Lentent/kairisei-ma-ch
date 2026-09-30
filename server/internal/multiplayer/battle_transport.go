@@ -76,7 +76,7 @@ func roomStartResult(current *room, results []BattleResult) (string, error) {
 		return "", err
 	}
 	var rows []string
-	for len(results) > 0 && results[0].Command == resultHP {
+	for len(results) > 0 && (results[0].Command == resultHP || results[0].Command == resultLimitTurn) {
 		row, err := results[0].CSV()
 		if err != nil {
 			return "", err

@@ -36,7 +36,8 @@ func teamBattleDropPlanWire(plan []gamestate.TeamBattleEnemyDrop, enemyTypes []i
 func multiplayerDropReport(completed multiplayer.CompletedBattle) game.TeamBattleDropReport {
 	if completed.DropLedgerVersion == 1 {
 		return game.TeamBattleDropReport{Turns: completed.Turns, Authoritative: true, ReleasedDrops: completed.ReleasedDrops,
-			FameRewardsSet: completed.FameRewardsSet, FameRewards: completed.FameRewards}
+			FameRewardsSet: completed.FameRewardsSet, FameRewards: completed.FameRewards,
+			ScoreVerified: completed.ScorePolicy != nil, ScoreDamage: completed.ScoreDamage, ScorePolicy: completed.ScorePolicy}
 	}
 	// Pre-upgrade completed records represent victories, with the historical
 	// aggregate body-only policy. They have no bit field; do not erase rewards.

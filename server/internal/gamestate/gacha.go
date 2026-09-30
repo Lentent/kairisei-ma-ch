@@ -5,6 +5,9 @@ import (
 	"math"
 )
 
+// Operator pool identities are separate from the immutable built-in catalog.
+const OperatorGachaFirstID = 60300001
+
 // CloneGachas also isolates nested reward slices from operations drafts and
 // account snapshots; advancing one account never edits publication metadata.
 func CloneGachas(source []GachaProfile) []GachaProfile {
@@ -18,12 +21,27 @@ func CloneGachas(source []GachaProfile) []GachaProfile {
 		for j := range p.Steps {
 			p.Steps[j].RewardPool = cloneRewardPool(p.Steps[j].RewardPool)
 		}
+		if p.CardFames != nil {
+			fames := make(map[int]int, len(p.CardFames))
+			for id, fame := range p.CardFames {
+				fames[id] = fame
+			}
+			p.CardFames = fames
+		}
 		p.Gifts = append([]GachaGiftRule(nil), p.Gifts...)
 		for j := range p.Gifts {
 			p.Gifts[j].Rewards = cloneGachaRewards(p.Gifts[j].Rewards)
 		}
 	}
 	return result
+}
+
+// CardFame is the fame a drawn copy of cardID receives from this pool.
+func (p GachaProfile) CardFame(cardID int) int {
+	if fame := p.CardFames[cardID]; fame > 1 {
+		return fame
+	}
+	return 1
 }
 
 func cloneGachaRewards(source []Reward) []Reward {
@@ -46,8 +64,15 @@ func (p GachaProfile) CurrentStep() GachaProfile {
 	if len(p.Steps) > 0 {
 		step := p.Steps[min(max(p.PlayCount, 0), len(p.Steps)-1)]
 		p.Price, p.RewardPool = step.Price, step.RewardPool
+		if step.PayType != 0 {
+			p.PayType, p.PayTypeID = step.PayType, step.PayTypeID
+		}
 	}
 	return p
+}
+
+func (p GachaProfile) Exhausted() bool {
+	return p.PlayCountMax > 0 && p.GroupPlayCount >= p.PlayCountMax
 }
 
 func (p GachaProfile) CurrentGifts() []Reward {
@@ -104,6 +129,14 @@ func ValidateGachaReward(r Reward) error {
 // ValidateGachaRules checks the static rule shape; runtime loaders additionally
 // resolve every reward against the full CN masters before publication.
 func ValidateGachaRules(p GachaProfile) error {
+	// 0 is the unfiltered list, 1-4 are professions, and 5 is the native
+	// mixed-profession choice. Publication and persistence share this contract.
+	if p.GachaType < 0 || p.GachaType > 4 || p.ArthurType < 0 || p.ArthurType > 5 {
+		return errors.New("invalid gacha type or profession choice")
+	}
+	if p.PlayCountMax < 0 || p.PlayCountMax > 1000000 {
+		return errors.New("invalid gacha play limit")
+	}
 	mixed := len(p.RewardPool) > 0
 	if mixed {
 		if len(p.CardIDs) > 0 || p.UserSelectMax != 0 || p.GuaranteedCount != 0 || p.UnownedOnly || p.DailyFirstFree || p.CardNum != p.CardNumMax {
@@ -118,6 +151,12 @@ func ValidateGachaRules(p GachaProfile) error {
 			return errors.New("step gacha requires a fixed-size reward pool")
 		}
 		for _, step := range p.Steps {
+			if step.PayType != 0 && step.PayType != 3 && step.PayType != 4 && step.PayType != 6 {
+				return errors.New("unsupported step payment")
+			}
+			if (step.PayType == 4 && step.PayTypeID <= 0) || (step.PayType != 4 && step.PayTypeID != 0) {
+				return errors.New("invalid step payment item")
+			}
 			if step.Price <= 0 {
 				return errors.New("invalid step price")
 			}

@@ -25,8 +25,11 @@ func (s *Account) HomeBannerGachaID(now time.Time) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	selected := gamestate.GachaProfile{}
+	groupPlays := s.gachaGroupPlaysLocked()
 	for _, gacha := range s.gachas {
-		if !s.gachaScheduledLocked(gacha.GachaID) || gacha.GachaType != 0 || gacha.PayType != 3 ||
+		gacha.GroupPlayCount = groupPlays[gacha.GroupID]
+		gacha = gacha.CurrentStep()
+		if gacha.Exhausted() || !s.gachaScheduledLocked(gacha.GachaID) || gacha.GachaType != 0 || gacha.PayType != 3 ||
 			gacha.CardNum <= 1 || gacha.CardNumMax <= 1 ||
 			int64(gacha.EndTime) <= now.Unix() {
 			continue
@@ -62,22 +65,34 @@ func (s *Account) VisibleGachasLocked() []gamestate.GachaProfile {
 		return []gamestate.GachaProfile{}
 	}
 
-	preferredSingles := make(map[int]int)
+	groupPlays := s.gachaGroupPlaysLocked()
+	candidates := make([]gamestate.GachaProfile, 0, len(s.gachas))
+	for _, gacha := range s.gachas {
+		gacha.GroupPlayCount = groupPlays[gacha.GroupID]
+		if isOnboardingGachaID(gacha.GachaID) || !s.gachaScheduledLocked(gacha.GachaID) || gacha.Exhausted() {
+			continue
+		}
+		gacha = s.currentGachaLocked(gacha)
+		if !gacha.UnownedOnly || len(gacha.CardIDs) > 0 {
+			candidates = append(candidates, gacha)
+		}
+	}
+	// Preserve one affordable single-draw payment per profession; the native
+	// profession picker must receive all the distinct profession choices.
+	key := func(g gamestate.GachaProfile) [2]int { return [2]int{g.GroupID, int(g.ArthurType)} }
+	preferredSingles := make(map[[2]int]int)
 	for _, payType := range []int{4, 2, 3, 6} {
-		for _, gacha := range s.gachas {
-			if isOnboardingGachaID(gacha.GachaID) || !s.gachaScheduledLocked(gacha.GachaID) {
-				continue
-			}
+		for _, gacha := range candidates {
 			if gacha.CardNumMax != 1 || gacha.PayType != payType {
 				continue
 			}
-			if _, exists := preferredSingles[gacha.GroupID]; exists {
+			if _, exists := preferredSingles[key(gacha)]; exists {
 				continue
 			}
 			if payType == 4 && s.items[gacha.PayTypeID].Num < gacha.Price {
 				continue
 			}
-			preferredSingles[gacha.GroupID] = gacha.GachaID
+			preferredSingles[key(gacha)] = gacha.GachaID
 		}
 	}
 	// A group whose only single-draw payment is an item must remain visible
@@ -85,26 +100,19 @@ func (s *Account) VisibleGachasLocked() []gamestate.GachaProfile {
 	// row to open ItemLackTips (notably item 9010 / idx 8). The preference pass
 	// above may still replace an unavailable ticket row when the same group has
 	// an actually usable crystal or FP single-draw alternative.
-	for _, gacha := range s.gachas {
-		if isOnboardingGachaID(gacha.GachaID) || !s.gachaScheduledLocked(gacha.GachaID) || gacha.CardNumMax != 1 {
+	for _, gacha := range candidates {
+		if gacha.CardNumMax != 1 {
 			continue
 		}
-		if _, exists := preferredSingles[gacha.GroupID]; exists {
+		if _, exists := preferredSingles[key(gacha)]; exists {
 			continue
 		}
-		preferredSingles[gacha.GroupID] = gacha.GachaID
+		preferredSingles[key(gacha)] = gacha.GachaID
 	}
 
 	visible := make([]gamestate.GachaProfile, 0, len(s.gachas))
-	for _, gacha := range s.gachas {
-		if isOnboardingGachaID(gacha.GachaID) || !s.gachaScheduledLocked(gacha.GachaID) {
-			continue
-		}
-		gacha = s.currentGachaLocked(gacha)
-		if gacha.UnownedOnly && len(gacha.CardIDs) == 0 {
-			continue
-		}
-		if gacha.CardNumMax == 1 && preferredSingles[gacha.GroupID] != gacha.GachaID {
+	for _, gacha := range candidates {
+		if gacha.CardNumMax == 1 && preferredSingles[key(gacha)] != gacha.GachaID {
 			continue
 		}
 		visible = append(visible, gacha)
@@ -142,6 +150,10 @@ func (s *Account) onboardingVisibleGachaForStepLocked() int {
 }
 
 func (s *Account) GachaAvailableForPlayLocked(gachaID int) bool {
+	profile := findGachaProfile(s.gachas, gachaID)
+	if profile == nil || (profile.PlayCountMax > 0 && s.gachaGroupPlaysLocked()[profile.GroupID] >= profile.PlayCountMax) {
+		return false
+	}
 	if !s.gachaScheduledLocked(gachaID) {
 		return false
 	}
@@ -156,6 +168,21 @@ func (s *Account) GachaAvailableForPlayLocked(gachaID int) bool {
 		}
 	}
 	return !isOnboardingGachaID(gachaID)
+}
+
+// Count successful requests, never the number of cards drawn. Existing per-ID
+// play counters remain authoritative for persistence and independent step rules.
+func (s *Account) gachaGroupPlaysLocked() map[int]int {
+	result := make(map[int]int)
+	for _, profile := range s.gachas {
+		count := max(0, profile.PlayCount)
+		if count > math.MaxInt-result[profile.GroupID] {
+			result[profile.GroupID] = math.MaxInt
+		} else {
+			result[profile.GroupID] += count
+		}
+	}
+	return result
 }
 
 func gachaLocalDayKey(now time.Time) string {
@@ -400,10 +427,14 @@ func (s *Account) PlayGacha(
 			break
 		}
 	}
-	if index < 0 || payType != s.gachas[index].PayType {
+	if index < 0 {
 		return gachaPlayResult{}, ErrGachaUnavailable
 	}
 	profile := s.currentGachaLocked(s.gachas[index])
+	profile.GroupPlayCount = s.gachaGroupPlaysLocked()[profile.GroupID]
+	if payType != profile.PayType || profile.Exhausted() {
+		return gachaPlayResult{}, ErrGachaUnavailable
+	}
 	gacha := &profile
 	if gacha.PlayCount == math.MaxInt || (gacha.UnownedOnly && len(gacha.CardIDs) == 0) {
 		return gachaPlayResult{}, ErrGachaUnavailable
@@ -512,6 +543,7 @@ func (s *Account) PlayGacha(
 			return gachaPlayResult{}, err
 		}
 		rewards[draw] = GachaCardReward(cardID)
+		rewards[draw].CardFame = int16(gacha.CardFame(cardID))
 		if err := s.validateRewardLocked(rewards[draw]); err != nil {
 			return gachaPlayResult{}, err
 		}

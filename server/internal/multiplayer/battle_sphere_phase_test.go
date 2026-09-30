@@ -165,71 +165,88 @@ func TestTerminalAnimationChaliceClickDoesNotDisconnect(t *testing.T) {
 }
 
 func TestCompletedBattleInteraction(t *testing.T) {
-	engine, members := nextBattleFixture(t)
-	engine.phase, engine.endType = battlePhaseEnded, 1
-	hub := NewHub()
-	repository := &terminalCompletionRepository{}
-	hub.repository = repository
-	s := &Server{hub: hub, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	left, right := net.Pipe()
-	t.Cleanup(func() { left.Close(); right.Close() })
-	ownerOut, guestOut := &hubCheckingConn{Conn: left, hub: hub}, &hubCheckingConn{Conn: left, hub: hub}
-	owner := &clientConn{server: s, conn: ownerOut, roomID: 1, memberType: 1, userID: 1001}
-	guest := &clientConn{server: s, conn: guestOut, roomID: 1, memberType: 2, userID: 1002}
-	current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle, OwnerMemberType: 1, Members: members},
-		engine: engine, engineBattleEnd: 1, connections: map[int]*clientConn{1: owner, 2: guest}}
-	hub.rooms[1] = current
-	session := hub.lockRoomSession(current.RoomID)
-	if err := s.completeGoBattleLocked(session, current); err != nil {
-		t.Fatal(err)
-	}
-	before, err := hub.SettlementFor(1, 1001)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rng := engine.rng
-	for _, request := range []battleFrame{{"Chat", "17"}, {"ChatNew", "18"}, {"ChaliceSphrReserve", "1"}, {"ChaliceSphrReserve", "0"}, {"ChaliceSphrSkip", ""}} {
-		if err := owner.handle(request.method, request.payload); err != nil {
-			t.Fatal("legitimate final-direction interaction rejected", request.method, err)
-		}
-	}
-	frames := guestOut.output.String()
-	if !strings.Contains(frames, "MemberChat{\n1,17") || !strings.Contains(frames, "MemberChatNew{\n1,18") ||
-		strings.Index(frames, "GameClose{") > strings.Index(frames, "MemberChat{") ||
-		strings.Contains(ownerOut.output.String(), "MemberChat{") || strings.Contains(frames, "ChaliceSphrSkipExec{") ||
-		strings.Contains(frames, "ApiChaliceSphrReserve{") || guestOut.locked || ownerOut.locked {
-		t.Fatal("final-direction chat did not reach the peer in order", frames)
-	}
-	if err := guest.handle("ChaliceSphrSkip", ""); err == nil {
-		t.Fatal("guest skipped the owner's movie")
-	}
-	impostor := &clientConn{server: s, conn: guestOut, roomID: 1, memberType: 1, userID: 1001}
-	if err := impostor.handle("Chat", "17"); err == nil {
-		t.Fatal("stale socket impersonated a completed member")
-	}
-	if err := owner.handle("ChaliceSphrReserve", "100"); err == nil {
-		t.Fatal("completion accepted malformed input")
-	}
-	if err := hub.MarkSettlementClaimed(1, 1001); err != nil {
-		t.Fatal(err)
-	}
-	if err := guest.handle("Chat", "19"); err != nil {
-		t.Fatal("one player's settlement closed the other player's direction", err)
-	}
-	after, err := hub.SettlementFor(1, 1002)
-	if err != nil || !reflect.DeepEqual(before, after) || repository.saves != 1 || engine.rng != rng || hub.rooms[1] != nil {
-		t.Fatal("interaction reopened combat or modified immutable settlement", err)
-	}
-	deadline := owner.finishingDeadline()
-	if !owner.readDeadline().Equal(deadline) {
-		t.Fatal("ping could extend the fixed finishing lifetime")
-	}
-	owner.setFinishingDeadline(time.Now().Add(-time.Second))
-	if err := owner.handle("Chat", "20"); err == nil {
-		t.Fatal("expired interaction identity was accepted")
-	}
-	if err := guest.close(true); err != nil || hub.completed[1].comebackConnections[2] != nil {
-		t.Fatal("final direction close retained a live identity", err)
+	for _, scoreDeath := range []bool{false, true} {
+		t.Run(fmt.Sprint(scoreDeath), func(t *testing.T) {
+			engine, members := nextBattleFixture(t)
+			engine.phase, engine.endType = battlePhaseEnded, 1
+			if scoreDeath {
+				engine.memberDeadEnd = true
+				engine.players[0].HP = 0
+				engine.endType = 0
+				engine.settlePlayerDeaths(nil)
+				if engine.endType != 2 || engine.players[0].GameOver || engine.continuePending {
+					t.Fatal("score death retired a participant or failed to end")
+				}
+			}
+			hub := NewHub()
+			repository := &terminalCompletionRepository{}
+			hub.repository = repository
+			s := &Server{hub: hub, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			left, right := net.Pipe()
+			t.Cleanup(func() { left.Close(); right.Close() })
+			ownerOut, guestOut := &hubCheckingConn{Conn: left, hub: hub}, &hubCheckingConn{Conn: left, hub: hub}
+			owner := &clientConn{server: s, conn: ownerOut, roomID: 1, memberType: 1, userID: 1001}
+			guest := &clientConn{server: s, conn: guestOut, roomID: 1, memberType: 2, userID: 1002}
+			current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle, OwnerMemberType: 1, Members: members},
+				engine: engine, engineBattleEnd: engine.endType, connections: map[int]*clientConn{1: owner, 2: guest}}
+			if scoreDeath {
+				current.scorePolicy = &gamestate.TeamBattleScorePolicy{MemberDeadEnd: true}
+			}
+			hub.rooms[1] = current
+			session := hub.lockRoomSession(current.RoomID)
+			if err := s.completeGoBattleLocked(session, current); err != nil {
+				t.Fatal(err)
+			}
+			before, err := hub.SettlementFor(1, 1001)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rng := engine.rng
+			for _, request := range []battleFrame{{"Chat", "17"}, {"ChatNew", "18"}, {"ChaliceSphrReserve", "1"}, {"ChaliceSphrReserve", "0"}, {"ChaliceSphrSkip", ""}} {
+				if err := owner.handle(request.method, request.payload); err != nil {
+					t.Fatal("legitimate final-direction interaction rejected", request.method, err)
+				}
+			}
+			frames := guestOut.output.String()
+			if !strings.Contains(frames, "MemberChat{\n1,17") || !strings.Contains(frames, "MemberChatNew{\n1,18") ||
+				strings.Index(frames, "GameClose{") > strings.Index(frames, "MemberChat{") ||
+				strings.Contains(ownerOut.output.String(), "MemberChat{") || strings.Contains(frames, "ChaliceSphrSkipExec{") ||
+				strings.Contains(frames, "ApiChaliceSphrReserve{") || guestOut.locked || ownerOut.locked {
+				t.Fatal("final-direction chat did not reach the peer in order", frames)
+			}
+			if err := guest.handle("ChaliceSphrSkip", ""); err == nil {
+				t.Fatal("guest skipped the owner's movie")
+			}
+			impostor := &clientConn{server: s, conn: guestOut, roomID: 1, memberType: 1, userID: 1001}
+			if err := impostor.handle("Chat", "17"); err == nil {
+				t.Fatal("stale socket impersonated a completed member")
+			}
+			if err := owner.handle("ChaliceSphrReserve", "100"); err == nil {
+				t.Fatal("completion accepted malformed input")
+			}
+			if err := hub.MarkSettlementClaimed(1, 1001); err != nil {
+				t.Fatal(err)
+			}
+			if err := guest.handle("Chat", "19"); err != nil {
+				t.Fatal("one player's settlement closed the other player's direction", err)
+			}
+			after, err := hub.SettlementFor(1, 1002)
+			if err != nil || !reflect.DeepEqual(before, after) || repository.saves != 1 || engine.rng != rng || hub.rooms[1] != nil {
+				t.Fatal("interaction reopened combat or modified immutable settlement", err)
+			}
+			deadline := owner.finishingDeadline()
+			if !owner.readDeadline().Equal(deadline) {
+				t.Fatal("ping could extend the fixed finishing lifetime")
+			}
+			owner.setFinishingDeadline(time.Now().Add(-time.Second))
+			if err := owner.handle("Chat", "20"); err == nil {
+				t.Fatal("expired interaction identity was accepted")
+			}
+			if err := guest.close(true); err != nil || hub.completed[1].comebackConnections[2] != nil {
+				t.Fatal("final direction close retained a live identity", err)
+			}
+
+		})
 	}
 }
 

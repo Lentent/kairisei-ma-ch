@@ -12,7 +12,9 @@ import (
 
 func TestSoloEntryFreezesContinueRuleWithDebit(t *testing.T) {
 	const boss = 30010102
-	s := &Account{bp: 30, bpMax: 30, bpRecoveryInterval: 3 * time.Minute, coin: 32, coinFree: 20,
+	// A recovery item can leave enough BP for a quest costing more than the
+	// natural cap. Entry checks the actual balance, not that cap.
+	s := &Account{bp: 30, bpMax: 10, bpRecoveryInterval: 3 * time.Minute, coin: 32, coinFree: 20,
 		teamBattleSolo: json.RawMessage(`{"9":[],"10":[{"0":300101,"9":0,"10":[{"0":30010102,"5":15,"7":1,"10":0,"24":3}]}],"11":[],"12":[]}`),
 	}
 	helper := &s.playerProgression.Friends.HelperReward

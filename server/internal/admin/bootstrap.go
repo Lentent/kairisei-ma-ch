@@ -42,6 +42,8 @@ type Config struct {
 	Progression   gamestate.PlayerProgressionPolicy
 	GachaBanners  map[string]string
 	AssetMaps     []string
+	// GachaCoverDir is the writable folder for uploaded pool covers (next to the save database).
+	GachaCoverDir string
 }
 
 func New(config Config) (http.Handler, error) {
@@ -140,7 +142,6 @@ func New(config Config) (http.Handler, error) {
 		itemNames[item.ItemID] = item.Name
 	}
 	presetsByGroup := make(map[int]*AdminGachaPreset)
-	knownGachaGroups := make(map[int]struct{}, len(config.Operations.managedGachaGroups))
 	for _, gacha := range primaryState.Gachas {
 		if gacha.GachaID == 90000100 || gacha.GachaID == 90000200 {
 			continue
@@ -173,7 +174,6 @@ func New(config Config) (http.Handler, error) {
 			return nil, fmt.Errorf("CN managed gacha group %d has inconsistent metadata", gacha.GroupID)
 		}
 		preset.GachaIDs = append(preset.GachaIDs, gacha.GachaID)
-		knownGachaGroups[gacha.GroupID] = struct{}{}
 	}
 	gachaPresets := make([]AdminGachaPreset, 0, len(presetsByGroup))
 	for _, preset := range presetsByGroup {
@@ -221,8 +221,15 @@ func New(config Config) (http.Handler, error) {
 	if config.Operations.content != nil {
 		for _, definition := range config.Operations.content.base.CollectionRewards {
 			kind := map[int]string{14: "costume", 16: "stamp", 18: "honor"}[definition.Type]
+			imageURL := ""
+			if kind == "costume" || kind == "stamp" {
+				imageURL, err = adminOptionalImageURL(assetsRoot, fmt.Sprintf("/assets/%s/%d.webp", kind, definition.ID))
+				if err != nil {
+					return nil, fmt.Errorf("validate CN admin %s %d image: %w", kind, definition.ID, err)
+				}
+			}
 			catalog = append(catalog, AdminCatalogEntry{Kind: kind, RewardType: definition.Type, RewardTypeID: definition.ID,
-				Name: definition.Name, Detail: definition.Detail, PictID: definition.PictID})
+				Name: definition.Name, Detail: definition.Detail, PictID: definition.PictID, ImageURL: imageURL})
 		}
 	}
 	catalogByKey := make(map[string]AdminCatalogEntry, len(catalog))
@@ -230,7 +237,7 @@ func New(config Config) (http.Handler, error) {
 		catalogByKey[adminCatalogKey(entry.RewardType, entry.RewardTypeID)] = entry
 	}
 	for index := range groups {
-		imageURL, err := adminBossImageURL(assetsRoot, groups[index].ImageURL)
+		imageURL, err := adminOptionalImageURL(assetsRoot, groups[index].ImageURL)
 		if err != nil {
 			return nil, fmt.Errorf("validate CN admin boss group %d image: %w", groups[index].GroupID, err)
 		}
@@ -273,19 +280,11 @@ func New(config Config) (http.Handler, error) {
 		knownGroups: knownGroups, bossCount: len(knownBosses),
 		multiplayerHub: config.Multiplayer, advertiseHost: config.AdvertiseHost,
 		gamePort: config.GamePort, logger: config.Logger, progression: config.Progression,
-		gachaPresets: gachaPresets, knownGachaGroups: knownGachaGroups,
+		gachaPresets: gachaPresets, gachaCoverDir: config.GachaCoverDir,
 		gachaBannerPaths: config.GachaBanners,
 	}
-	for _, config := range config.Operations.gachaConfigurations {
-		edit := AdminGachaConfigFromProfile(config.Profile)
-		edit.StartUnix, edit.EndUnix = config.StartUnix, config.EndUnix
-		preview, err := admin.validateGachaConfig(edit)
-		if err != nil {
-			return nil, err
-		}
-		if !preview["publishable"].(bool) {
-			return nil, errors.New("published gacha card resources are unavailable")
-		}
+	if err := admin.validateStoredGachas(); err != nil {
+		return nil, err
 	}
 	if policy := config.Operations.playerPolicy.Load(); policy != nil {
 		if err := admin.validateTutorialMail(policy.Value.TutorialMail); err != nil {
@@ -309,6 +308,15 @@ func New(config Config) (http.Handler, error) {
 	}
 	router := chi.NewRouter()
 	router.Use(adminSecurityHeaders)
+	router.Use(admin.maintenanceWrites)
+	if err := config.Multiplayer.SetMaintenance(config.Operations.MaintenanceState().Enabled); err != nil {
+		return nil, err
+	}
+	router.Get("/api/maintenance", admin.getMaintenance)
+	router.Put("/api/maintenance", admin.setMaintenance)
+	router.Post("/api/maintenance/cleanup", admin.cleanupOperationalState)
+	router.Get("/api/evolution-policy", admin.evolutionEditor)
+	router.Put("/api/evolution-policy", admin.saveEvolutionPolicy)
 	router.Get("/api/player-policy", admin.playerPolicy)
 	router.Get("/api/player-policy/notice-preview", admin.operations.LocalNotice)
 	router.Put("/api/player-policy", admin.savePlayerPolicy)
@@ -318,7 +326,7 @@ func New(config Config) (http.Handler, error) {
 		_, _ = w.Write(adminPlayerPolicyJS)
 	})
 	router.Get("/", admin.index)
-	for path, content := range map[string][]byte{"/admin.js": adminJS, "/accounts.js": adminAccountsJS, "/mail.js": adminMailJS, "/settings.js": adminSettingsJS, "/insights.js": adminInsightsJS, "/admin.css": adminCSS} {
+	for path, content := range map[string][]byte{"/admin.js": adminJS, "/accounts.js": adminAccountsJS, "/mail.js": adminMailJS, "/settings.js": adminSettingsJS, "/evolution.js": adminEvolutionJS, "/insights.js": adminInsightsJS, "/admin.css": adminCSS} {
 		router.Get(path, func(w http.ResponseWriter, _ *http.Request) {
 			contentType := "text/javascript; charset=utf-8"
 			if strings.HasSuffix(path, ".css") {
@@ -349,6 +357,8 @@ func New(config Config) (http.Handler, error) {
 		_, _ = w.Write(adminContentJS)
 	})
 	router.Get("/api/boss-drops", admin.dropEditor)
+	router.Get("/api/activity-rewards", admin.activityRewardEditor)
+	router.Put("/api/activity-rewards", admin.saveActivityRewards)
 	router.Get("/api/boss-rules", admin.bossRules)
 	router.Put("/api/boss-rules", admin.saveBossRules)
 	router.Put("/api/boss-drops", admin.saveDropEditor)
@@ -357,6 +367,7 @@ func New(config Config) (http.Handler, error) {
 	router.Delete("/api/exchanges/{shopID}", admin.changeExchangeDeletion)
 	router.Post("/api/exchanges/{shopID}/restore", admin.changeExchangeDeletion)
 	router.Put("/api/settings", admin.setRuntimeSettings)
+	router.Put("/api/item-shop", admin.setItemShop)
 	router.Get("/api/accounts", admin.accountList)
 	router.Post("/api/accounts/resolve", admin.resolveAccounts)
 	router.Get("/api/accounts/{userID}", admin.accountDetail)
@@ -373,7 +384,12 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/boss-policy", admin.bossPolicy)
 	router.Put("/api/boss-policy", admin.setBossPolicy)
 	router.Get("/api/gacha-editor", admin.gachaEditorList)
+	router.Post("/api/gacha-pools", admin.createCustomGacha)
+	router.Post("/api/gacha-pools/{gachaID}/{action:delete|restore}", admin.changeCustomGachaDeletion)
+	router.Post("/api/gacha-covers", admin.uploadGachaCover)
+	router.Get("/gacha-covers/{file}", ServeGachaCover(config.GachaCoverDir))
 	router.Post("/api/gacha-editor/{action}", admin.gachaEditorAction)
+	router.Post("/api/gacha-editor/group/{action:draft|publish|discard}", admin.gachaGroupAction)
 	router.Get("/api/gacha-presets", admin.gachaPresetList)
 	router.Get("/api/gacha-policy", admin.gachaPolicy)
 	router.Put("/api/gacha-policy", admin.setGachaPolicy)

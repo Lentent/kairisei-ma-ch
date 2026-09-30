@@ -25,6 +25,9 @@ func ValidateMixedGachaConfig(catalog map[string]AdminCatalogEntry, base gamesta
 	canonical := [][]gamestate.WeightedReward{base.RewardPool}
 	edited := [][]gamestate.WeightedReward{config.RewardPool}
 	for i, step := range config.Steps {
+		if err := validateAdminGachaPayment(catalog, AdminGachaConfig{PayType: step.PayType, PayTypeID: step.PayTypeID}); err != nil {
+			return nil, fmt.Errorf("第%d阶段：%w", i+1, err)
+		}
 		if step.Price < 1 || step.Price > 10000000 {
 			return nil, errors.New("阶段价格须为1–10000000")
 		}
@@ -69,7 +72,12 @@ func ValidateMixedGachaConfig(catalog map[string]AdminCatalogEntry, base gamesta
 			if err != nil {
 				return nil, err
 			}
-			rows[0].Name = fmt.Sprintf("第%d阶段 · 费用%d", i+1, config.Steps[i].Price)
+			current := configured.CurrentStep()
+			payment := map[int]string{3: "水晶", 6: "付费水晶"}[current.PayType]
+			if current.PayType == 4 {
+				payment = catalog[adminCatalogKey(8, current.PayTypeID)].Name
+			}
+			rows[0].Name = fmt.Sprintf("第%d阶段 · %s × %d", i+1, payment, config.Steps[i].Price)
 			stages = append(stages, rows...)
 		}
 	}

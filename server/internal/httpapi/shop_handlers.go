@@ -141,8 +141,8 @@ func (a *API) itemShopBuy(writer http.ResponseWriter, request *http.Request) {
 	tabs, owned := a.account.ItemShopState()
 	coin, coinFree := a.account.CoinState()
 	a.writeProtocol(writer, map[string]any{
-		"items":                  a.itemInfosWire(updated),
-		"new_stampids":           []int{},
+		"items":                  a.itemInfosWire(updated.Items),
+		"new_stampids":           updated.StampIDs,
 		"pay_item":               []any{},
 		"is_item_in_present_box": 0,
 		"user":                   a.userPayload(),
@@ -302,7 +302,7 @@ func (a *API) itemInfosWire(items []gamestate.Item) []any {
 	return result
 }
 
-func itemShopTabsWire(tabs []gamestate.ItemShopTab, owned map[int]int) []any {
+func itemShopTabsWire(tabs []gamestate.ItemShopTab, owned map[[2]int]int) []any {
 	result := make([]any, len(tabs))
 	for tabIndex, tab := range tabs {
 		lineups := make([]any, 0, len(tab.Lineup))
@@ -316,7 +316,7 @@ func itemShopTabsWire(tabs []gamestate.ItemShopTab, owned map[int]int) []any {
 					"buy_type":   interior.BuyType,
 					"buy_typeid": interior.BuyTypeID,
 					"num":        interior.Num,
-					"own_num":    owned[interior.BuyTypeID],
+					"own_num":    owned[[2]int{interior.BuyType, interior.BuyTypeID}],
 				}
 			}
 			lineups = append(lineups, map[string]any{

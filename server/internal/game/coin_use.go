@@ -14,6 +14,7 @@ const (
 )
 
 const coinUseFullHealCrystalCost = 40
+const CoinUseCardContainerExtend = 10
 
 // The original window adds its base 100 to card_extend_limit.
 const CardCapacityLimit = gamestate.CardCapacityLimit
@@ -24,7 +25,21 @@ func (s *Account) CardCapacity() int {
 	return s.cardMax
 }
 
+func (s *Account) CardContainerCapacity() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cardContainerMax
+}
+
 func (s *Account) ExtendCardCapacity(option int) error {
+	return s.extendInventoryCapacity(option, false)
+}
+
+func (s *Account) ExtendCardContainerCapacity(option int) error {
+	return s.extendInventoryCapacity(option, true)
+}
+
+func (s *Account) extendInventoryCapacity(option int, container bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Original ExtendedPurchaseExecutor options: +5/+25/+50 for 40/200/400.
@@ -33,7 +48,14 @@ func (s *Account) ExtendCardCapacity(option int) error {
 		return errors.New("unsupported card expansion option")
 	}
 	amount := amounts[option]
-	if s.cardMax > CardCapacityLimit-amount {
+	capacity := &s.cardMax
+	if container {
+		capacity = &s.cardContainerMax
+	}
+	if *capacity > CardCapacityLimit-amount {
+		if container {
+			return &BusinessError{-1, "卡牌仓库容量已达到可扩展上限。"}
+		}
 		return &BusinessError{-1, "卡牌容量已达到可扩展上限。"}
 	}
 	cost := amount * 8
@@ -43,7 +65,7 @@ func (s *Account) ExtendCardCapacity(option int) error {
 	freeSpend := min(s.coinFree, cost)
 	s.coinFree -= freeSpend
 	s.coin -= cost - freeSpend
-	s.cardMax += amount
+	*capacity += amount
 	return nil
 }
 

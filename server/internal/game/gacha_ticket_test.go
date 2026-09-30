@@ -25,6 +25,7 @@ func TestRarityFiveTicketGachaConsumesOfficialItemAndAddsCard(t *testing.T) {
 		gachas: []gamestate.GachaProfile{{
 			GachaID: gachaID, PayType: 4, PayTypeID: itemID, Price: 1,
 			CardNum: 1, CardNumMax: 1, CardIDs: []int{cardID}, CardWeights: []int{1},
+			CardFames: map[int]int{cardID: 77},
 		}},
 		items: map[int]gamestate.Item{itemID: {ItemID: itemID, Num: 2}},
 		itemDefinitions: map[int]gamestate.ItemDefinition{
@@ -51,6 +52,12 @@ func TestRarityFiveTicketGachaConsumesOfficialItemAndAddsCard(t *testing.T) {
 	if len(cardStore.cards) != 1 || cardStore.cards[0].CardID != cardID ||
 		cardStore.cardDefinitions[cardStore.cards[0].CardID].RarityRank != 5 {
 		t.Fatalf("rarity-five reward was not added: %+v", cardStore.cards)
+	}
+	if cardStore.cards[0].Fame != 77 {
+		t.Fatalf("configured pool fame not applied to the drawn card: %d", cardStore.cards[0].Fame)
+	}
+	if pool := GachaPoolRewards(cardStore.gachas[0]); pool[0].CardFame != 77 {
+		t.Fatalf("lineup shows fame %d, want configured 77", pool[0].CardFame)
 	}
 	if cardStore.gachas[0].PlayCount != 1 {
 		t.Fatalf("play count = %d, want 1", cardStore.gachas[0].PlayCount)
@@ -153,7 +160,7 @@ func TestCrystalGachaTicketQuickBuyConsumesFreeCrystalAndStaysHidden(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated) != 1 || updated[0].ItemID != itemID || updated[0].Num != 2 ||
+	if len(updated.Items) != 1 || updated.Items[0].ItemID != itemID || updated.Items[0].Num != 2 ||
 		cardStore.coin != 3 || cardStore.coinFree != 0 {
 		t.Fatalf("quick buy result = %+v, paid/free = %d/%d", updated, cardStore.coin, cardStore.coinFree)
 	}

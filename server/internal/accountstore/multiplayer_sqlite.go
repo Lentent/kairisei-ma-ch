@@ -12,6 +12,7 @@ import (
 	"io"
 	"time"
 
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/multiplayer"
 )
@@ -125,6 +126,9 @@ func (accounts *Accounts) SaveCompleted(completed multiplayer.CompletedBattle, e
 		); err != nil {
 			return fmt.Errorf("write multiplayer completion: %w", err)
 		}
+		if err := writeMultiplayerClear(transaction, completed); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("read multiplayer completion identity: %w", err)
 	}
@@ -226,6 +230,12 @@ func (accounts *Accounts) pruneMultiplayerCompletions(transaction *sql.Tx, now t
 }
 
 func validateCompletedBattle(completed multiplayer.CompletedBattle, expiresAt time.Time) error {
+	if err := gamestate.ValidateTeamBattleScorePolicy(completed.ScorePolicy); err != nil {
+		return fmt.Errorf("multiplayer completion score policy: %w", err)
+	}
+	if completed.ScoreDamage < 0 || completed.ScoreDamage > 1000000000000 || completed.EndType < 0 || completed.EndType > 2 || (completed.EndType == 2 && completed.ScorePolicy == nil) {
+		return errors.New("multiplayer completion score or end type is invalid")
+	}
 	if completed.BattleIndex < 0 || completed.BattleIndex >= multiplayer.MaxBattleWaves || completed.Progress < 0 || completed.Progress > completed.BattleIndex {
 		return errors.New("multiplayer completion wave is invalid")
 	}

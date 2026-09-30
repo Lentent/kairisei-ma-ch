@@ -1,11 +1,104 @@
 package game
 
 import (
+	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
+
+func TestGachaGroupLimitCountsRequestsAcrossVariants(t *testing.T) {
+	pool := []gamestate.WeightedReward{{Weight: 1, Reward: gamestate.Reward{Type: 8, RewardTypeID: 10, Num: 1, CardSkillLevels: []int16{}}}}
+	profiles := []gamestate.GachaProfile{
+		{GachaID: 11, GroupID: 7, PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1, PlayCountMax: 2, RewardPool: pool},
+		{GachaID: 12, GroupID: 7, PayType: 3, Price: 10, CardNum: 10, CardNumMax: 10, PlayCountMax: 2, RewardPool: pool},
+	}
+	s := &Account{gachas: gamestate.CloneGachas(profiles), coinFree: 100, items: map[int]gamestate.Item{}, itemDefinitions: map[int]gamestate.ItemDefinition{10: {ItemID: 10, MaxOwned: 1000}}}
+	if _, err := s.PlayGacha(12, 4, nil); err == nil || s.gachaGroupPlaysLocked()[7] != 0 {
+		t.Fatal("failed request used quota")
+	}
+	if _, err := s.PlayGacha(12, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	if s.items[10].Num != 10 || s.gachaGroupPlaysLocked()[7] != 1 || len(s.GachaState()) != 2 {
+		t.Fatal("ten-draw must consume exactly one group play")
+	}
+	// Existing serialized per-ID counters alone reconstruct the shared quota.
+	raw, err := json.Marshal(s.gachas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &s.gachas); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.PlayGacha(11, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.GachaState()) != 0 || s.gachaGroupPlaysLocked()[7] != 2 {
+		t.Fatal("whole group remains after its shared limit")
+	}
+	before := s.coinFree
+	for _, id := range []int{11, 12} {
+		if _, err = s.PlayGacha(id, 3, nil); err == nil || s.coinFree != before {
+			t.Fatal("stale variant request bypassed shared limit")
+		}
+	}
+	// Two simultaneous requests against the final group slot cannot both commit.
+	s.gachas[0].PlayCount = 0
+	s.gachas[1].PlayCount = 1
+	var wg sync.WaitGroup
+	results := make(chan error, 2)
+	for _, id := range []int{11, 12} {
+		wg.Add(1)
+		go func(id int) { defer wg.Done(); _, e := s.PlayGacha(id, 3, nil); results <- e }(id)
+	}
+	wg.Wait()
+	close(results)
+	success := 0
+	for err := range results {
+		if err == nil {
+			success++
+		}
+	}
+	if success != 1 || s.gachaGroupPlaysLocked()[7] != 2 {
+		t.Fatal("concurrent draws overran group quota")
+	}
+}
+
+func TestGachaStepPaymentUsesCurrentStage(t *testing.T) {
+	pool := []gamestate.WeightedReward{{Weight: 1, Reward: gamestate.Reward{Type: 8, RewardTypeID: 10, Num: 1, CardSkillLevels: []int16{}}}}
+	p := gamestate.GachaProfile{GachaID: 11, GroupID: 7, PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1, RewardPool: pool, Steps: []gamestate.GachaStep{{Price: 1, RewardPool: pool}, {PayType: 4, PayTypeID: 99, Price: 2, RewardPool: pool}}}
+	s := &Account{gachas: []gamestate.GachaProfile{p}, coinFree: 20, items: map[int]gamestate.Item{99: {ItemID: 99, Num: 4}}, itemDefinitions: map[int]gamestate.ItemDefinition{10: {ItemID: 10, MaxOwned: 100}, 99: {ItemID: 99, MaxOwned: 100}}}
+	if _, err := s.PlayGacha(11, 3, nil); err != nil {
+		t.Fatal(err)
+	}
+	visible := s.GachaState()
+	if visible[0].PayType != 4 || visible[0].PayTypeID != 99 || visible[0].Price != 2 {
+		t.Fatal("next stage advertises old payment")
+	}
+	if _, err := s.PlayGacha(11, 3, nil); err == nil || s.coinFree != 19 || s.gachas[0].PlayCount != 1 {
+		t.Fatal("old currency accepted after stage change")
+	}
+	if _, err := s.PlayGacha(11, 4, nil); err != nil || s.items[99].Num != 2 || s.coinFree != 19 {
+		t.Fatal("stage item not charged correctly", err)
+	}
+}
+
+func TestGachaVisibilityRetainsAllProfessionChoices(t *testing.T) {
+	s := &Account{}
+	for job := int8(1); job <= 5; job++ {
+		s.gachas = append(s.gachas, gamestate.GachaProfile{GachaID: 10 + int(job), GroupID: 7, ArthurType: job, PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1, PlayCountMax: 1, CardIDs: []int{100}, CardWeights: []int{1}})
+	}
+	if len(s.GachaState()) != 5 {
+		t.Fatal("single-draw preference collapsed profession choices")
+	}
+	s.gachas[2].PlayCount = 1
+	if len(s.GachaState()) != 0 {
+		t.Fatal("other profession choices escaped the shared one-time limit")
+	}
+}
 
 func TestGachaConfigurationPreservesPlayerStateAndScheduledPaymentFallback(t *testing.T) {
 	profiles := []gamestate.GachaProfile{
@@ -119,5 +212,20 @@ func TestMixedGachaExpectancyComparesPresentationGrades(t *testing.T) {
 		if got := s.gachaMixedResultExpectancy(tc.rewards); got != tc.want {
 			t.Fatalf("mixed expectancy = %d, want %d", got, tc.want)
 		}
+	}
+}
+
+func TestOperatorGachaPoolIsAppendedWithStoredPlays(t *testing.T) {
+	s := &Account{operatorGachaPlays: map[int]int{60300001: 3}}
+	pool := gamestate.GachaProfile{GachaID: 60300001, GroupID: 60300001, CardNum: 1, CardNumMax: 1, CardIDs: []int{1}, CardWeights: []int{1}}
+	s.ApplyGachaConfiguration(1, []GachaConfiguration{{Operator: true, Profile: pool}})
+	pool.Name = "renamed"
+	s.ApplyGachaConfiguration(2, []GachaConfiguration{{Operator: true, Disabled: true, Profile: pool}})
+	if len(s.gachas) != 1 || s.gachas[0].PlayCount != 3 || s.gachas[0].Name != "renamed" || s.gachaScheduledLocked(60300001) || len(s.operatorGachaPlays) != 0 {
+		t.Fatalf("operator pool: %+v plays=%v", s.gachas, s.operatorGachaPlays)
+	}
+	s.ApplyGachaConfiguration(3, nil)
+	if len(s.gachas) != 0 || len(s.GachaState()) != 0 {
+		t.Fatal("retired operator pool reappeared after removing configuration")
 	}
 }

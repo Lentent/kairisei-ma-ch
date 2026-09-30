@@ -4,6 +4,10 @@ import (
 	"kairisei.local/server/internal/game"
 )
 
+func (h *accountBusinessHandler) ApplyEvolutionRestrictions(policy *game.EvolutionRestrictions) {
+	h.api.account.ApplyEvolutionRestrictions(policy)
+}
+
 func (h *accountBusinessHandler) ApplyRuntimeSettings(settings game.RuntimeSettings) {
 	h.api.account.ApplyRuntimeSettings(settings)
 }

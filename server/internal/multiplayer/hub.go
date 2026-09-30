@@ -3,6 +3,7 @@ package multiplayer
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -46,6 +47,7 @@ const (
 )
 
 type Member struct {
+	ClearDeck     json.RawMessage `json:"clear_deck,omitempty"`
 	MemberType    int
 	UserID        int
 	Level         int
@@ -114,6 +116,7 @@ type BattleDrop struct {
 }
 
 type RoomSpec struct {
+	ScorePolicy        *gamestate.TeamBattleScorePolicy
 	FameRewardsSet     bool
 	FameRewards        []gamestate.Reward
 	Battles            []gamestate.TeamBattleReplayBattle
@@ -171,6 +174,9 @@ type RoomSnapshot struct {
 // their authenticated comeback window. Mutable account rewards remain in the
 // per-account SQLite store.
 type CompletedBattle struct {
+	ScorePolicy        *gamestate.TeamBattleScorePolicy
+	ScoreDamage        int64
+	EndType            int
 	FameRewardsSet     bool
 	FameRewards        []gamestate.Reward
 	Turns              int
@@ -238,7 +244,8 @@ type cardPlaySubmission struct {
 }
 
 type room struct {
-	session *roomSession // registry-owned identity; mutable state uses session.mu
+	scorePolicy *gamestate.TeamBattleScorePolicy
+	session     *roomSession // registry-owned identity; mutable state uses session.mu
 
 	RoomSnapshot
 	battles                []gamestate.TeamBattleReplayBattle
@@ -307,6 +314,8 @@ type roomReservation struct {
 }
 
 type Hub struct {
+	maintenance        bool
+	creatingRooms      int
 	mu                 sync.RWMutex
 	configFrozen       bool       // startup dependencies become immutable on first activity
 	reservationMu      sync.Mutex // serializes cross-room reservation moves
@@ -561,6 +570,9 @@ func (h *Hub) IssueCreate(spec RoomSpec) (Credential, error) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.maintenance {
+		return Credential{}, errors.New("服务器维护中，请稍后再试")
+	}
 	if h.combat != nil {
 		for index, wave := range roomSpecBattles(spec) {
 			party, exists := h.combat.EnemyParties[wave.EnemyPartyID]
@@ -923,6 +935,12 @@ func validateRoomRequirements(snapshot RoomSnapshot, member Member) error {
 }
 
 func validateRoomSpec(spec RoomSpec) error {
+	if err := gamestate.ValidateTeamBattleScorePolicy(spec.ScorePolicy); err != nil {
+		return err
+	}
+	if spec.ScorePolicy != nil && len(roomSpecBattles(spec)) != 1 {
+		return errors.New("score battle must have one wave")
+	}
 	if spec.BattlePointUse < 0 {
 		return errors.New("room battle point cost is invalid")
 	}
@@ -1081,6 +1099,7 @@ func (h *Hub) pruneCompletedLocked(now time.Time) {
 }
 
 func cloneMember(member Member) Member {
+	member.ClearDeck = append(json.RawMessage(nil), member.ClearDeck...)
 	member.PartsIDs = append([]int(nil), member.PartsIDs...)
 	member.DeckHonorIDs = append([]int(nil), member.DeckHonorIDs...)
 	member.DeckCards = append([]BattleCard(nil), member.DeckCards...)
@@ -1091,6 +1110,7 @@ func cloneMember(member Member) Member {
 }
 
 func cloneRoomSpec(spec RoomSpec) RoomSpec {
+	spec.ScorePolicy = gamestate.CloneTeamBattleScorePolicy(spec.ScorePolicy)
 	spec.FameRewards = cloneFameRewards(spec.FameRewards)
 	spec.Battles = append([]gamestate.TeamBattleReplayBattle(nil), spec.Battles...)
 	spec.DropPlan = cloneDropPlan(spec.DropPlan)
@@ -1115,6 +1135,7 @@ func cloneRoomSnapshot(snapshot RoomSnapshot) RoomSnapshot {
 }
 
 func cloneCompletedBattle(completed CompletedBattle) CompletedBattle {
+	completed.ScorePolicy = gamestate.CloneTeamBattleScorePolicy(completed.ScorePolicy)
 	completed.FameRewards = cloneFameRewards(completed.FameRewards)
 	completed.ReleasedDrops = cloneDropPlan(completed.ReleasedDrops)
 	completed.Members = append([]Member(nil), completed.Members...)

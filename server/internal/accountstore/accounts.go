@@ -366,18 +366,28 @@ func (accounts *Accounts) ensureSystemPartnerAccounts(transaction *sql.Tx) error
 }
 
 func (accounts *Accounts) ResolveLogin(loginUUID string) (accountIdentity, error) {
+	return accounts.ResolveLoginContext(context.Background(), loginUUID)
+}
+
+func (accounts *Accounts) ResolveLoginContext(ctx context.Context, loginUUID string) (accountIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return accountIdentity{}, err
+	}
 	loginUUID = strings.ToLower(strings.TrimSpace(loginUUID))
 	if !validLoginUUID(loginUUID) {
 		return accountIdentity{}, errors.New("CN login UUID is invalid")
 	}
 	accounts.mu.Lock()
 	defer accounts.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return accountIdentity{}, err
+	}
 
 	database, err := accounts.storage.Open()
 	if err != nil {
 		return accountIdentity{}, err
 	}
-	transaction, err := database.BeginTx(context.Background(), &sql.TxOptions{})
+	transaction, err := database.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return accountIdentity{}, fmt.Errorf("begin CN local login: %w", err)
 	}
@@ -388,7 +398,7 @@ func (accounts *Accounts) ResolveLogin(loginUUID string) (accountIdentity, error
 		}
 	}()
 
-	identity, err := accounts.resolveLoginTransaction(transaction, loginUUID, true)
+	identity, err := accounts.resolveLoginTransaction(ctx, transaction, loginUUID, true)
 	if err != nil {
 		return accountIdentity{}, err
 	}
@@ -400,10 +410,10 @@ func (accounts *Accounts) ResolveLogin(loginUUID string) (accountIdentity, error
 }
 
 // Caller owns accounts.mu and the transaction. Binding does not rotate an active game session.
-func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID string, rotate bool) (accountIdentity, error) {
+func (accounts *Accounts) resolveLoginTransaction(ctx context.Context, transaction *sql.Tx, loginUUID string, rotate bool) (accountIdentity, error) {
 	var identity accountIdentity
 	err := transaction.QueryRowContext(
-		context.Background(),
+		ctx,
 		`SELECT user_id, login_uuid, session_key
 		 FROM cn_local_account WHERE login_uuid = ?`,
 		loginUUID,
@@ -418,7 +428,7 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 			return accountIdentity{}, err
 		}
 		if _, err := transaction.ExecContext(
-			context.Background(),
+			ctx,
 			`UPDATE cn_local_account SET last_login_utc = ?, session_key = ? WHERE user_id = ?`,
 			now,
 			sessionKey,
@@ -432,7 +442,7 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 	} else {
 		var nextUserID int
 		if err := transaction.QueryRowContext(
-			context.Background(),
+			ctx,
 			`SELECT COALESCE(MAX(user_id), ?) + 1
 			 FROM cn_local_account WHERE user_id < ?`,
 			PrimaryUserID-1,
@@ -450,7 +460,7 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 			SessionKey: sessionKey,
 		}
 		if _, err := transaction.ExecContext(
-			context.Background(),
+			ctx,
 			`INSERT INTO cn_local_account
 			 (user_id, login_uuid, session_key, created_utc, last_login_utc)
 			 VALUES (?, ?, ?, ?, ?)`,
@@ -463,7 +473,7 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 			return accountIdentity{}, fmt.Errorf("create CN local account: %w", err)
 		}
 		if identity.UserID != PrimaryUserID {
-			if err := accounts.insertSeedSnapshot(transaction, identity.UserID, now); err != nil {
+			if err := accounts.insertSeedSnapshot(ctx, transaction, identity.UserID, now); err != nil {
 				return accountIdentity{}, err
 			}
 		} else {
@@ -472,7 +482,7 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 			var content []byte
 			var expectedDigest string
 			if err := transaction.QueryRowContext(
-				context.Background(),
+				ctx,
 				`SELECT revision, updated_utc, payload_json, payload_sha256
 				 FROM cn_save_snapshot WHERE singleton = 1`,
 			).Scan(&revision, &updatedUTC, &content, &expectedDigest); err != nil {
@@ -494,7 +504,10 @@ func (accounts *Accounts) resolveLoginTransaction(transaction *sql.Tx, loginUUID
 	return identity, nil
 }
 
-func (accounts *Accounts) insertSeedSnapshot(transaction *sql.Tx, userID int, now string) error {
+func (accounts *Accounts) insertSeedSnapshot(ctx context.Context, transaction *sql.Tx, userID int, now string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	state, err := LoadSaveState(accounts.storage.seedPath)
 	if err != nil {
 		return fmt.Errorf("load CN account seed: %w", err)
@@ -510,7 +523,7 @@ func (accounts *Accounts) insertSeedSnapshot(transaction *sql.Tx, userID int, no
 		return err
 	}
 	digest := sha256.Sum256(content)
-	if _, err := transaction.ExecContext(context.Background(),
+	if _, err := transaction.ExecContext(ctx,
 		`INSERT INTO cn_account_snapshot (user_id, schema_version, revision, updated_utc, payload_json, payload_sha256)
          VALUES (?, ?, 1, ?, ?, ?)`, userID, saveSnapshotSchemaVersion, now, content, hex.EncodeToString(digest[:])); err != nil {
 		return fmt.Errorf("create CN account snapshot: %w", err)

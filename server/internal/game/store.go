@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -35,8 +36,11 @@ type cardDevelopmentRule struct {
 }
 
 type Account struct {
+	evolutionRestrictions       *EvolutionRestrictions
 	playerRevision              uint64
 	gachaRevision               uint64
+	operatorGachaPlays          map[int]int // plays of operator pools not yet appended to gachas
+	gachaCoverBaseURL           string
 	teamBattleScores            map[int]gamestate.TeamBattleScoreProgress
 	localShop                   gamestate.LocalShopState
 	localCrystalPurchaseEnabled bool
@@ -141,6 +145,8 @@ type Account struct {
 	tradeShopPurchases          map[int]int
 	itemShopTabs                []gamestate.ItemShopTab
 	itemShopSettings            map[int]ItemShopSetting
+	itemShopPurchases           map[int]int
+	itemShopPeriods             map[int]gamestate.ItemShopPeriodCounts
 	gachas                      []gamestate.GachaProfile
 	gachaWindows                map[int][2]int64
 	gachaSelections             map[int][]gamestate.Reward
@@ -160,6 +166,7 @@ type Account struct {
 	apRecoveryInterval          time.Duration
 	apNextRecovery              time.Time
 	exploreActive               bool
+	exploreActiveRewards        *[]gamestate.Reward
 	exploreArthurType           int8
 	exploreDeckIndex            int8
 	exploreStartedAt            time.Time
@@ -281,6 +288,9 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 }
 
 func New(state gamestate.State) (*Account, error) {
+	if err := gamestate.ValidateItemShopProgress(state.ItemShopPurchases, state.ItemShopPeriods); err != nil {
+		return nil, err
+	}
 	if state.PlayerProgressionPolicy.ConfigVersion > 0 {
 		policy := state.PlayerProgressionPolicy
 		if state.PlayerProgressionConfigVersion != policy.ConfigVersion ||
@@ -481,7 +491,10 @@ func New(state gamestate.State) (*Account, error) {
 		teamBattleScores:            cloneTeamBattleScores(state.TeamBattleScores),
 		localShop:                   cloneLocalShop(state.LocalShop),
 		itemShopTabs:                cloneItemShopTabs(state.ItemShopTabs),
+		itemShopPurchases:           maps.Clone(state.ItemShopPurchases),
+		itemShopPeriods:             maps.Clone(state.ItemShopPeriods),
 		gachas:                      CloneGachaProfiles(state.Gachas),
+		operatorGachaPlays:          maps.Clone(state.OperatorGachaPlays),
 		gachaSelections:             make(map[int][]gamestate.Reward, len(state.GachaSelections)),
 		gachaDailyClaims:            make(map[int]string, len(state.GachaDailyClaims)),
 		bp:                          state.User.BP,
@@ -501,6 +514,7 @@ func New(state gamestate.State) (*Account, error) {
 		apMax:                       state.User.APMax,
 		apRecoveryInterval:          time.Duration(state.Explore.APRecoverySeconds) * time.Second,
 		exploreActive:               state.Explore.Active,
+		exploreActiveRewards:        state.Explore.ActiveRewards,
 		exploreArthurType:           state.Explore.ArthurType,
 		exploreDeckIndex:            state.Explore.DeckIndex,
 		exploreStages:               cloneExploreStages(exploreStages),
@@ -742,7 +756,8 @@ func New(state gamestate.State) (*Account, error) {
 			return nil, fmt.Errorf("card store repeats gacha daily claim %d", claim.GachaID)
 		}
 		profile := findGachaProfile(result.gachas, claim.GachaID)
-		if profile == nil || !profile.DailyFirstFree {
+		operator := claim.GachaID >= gamestate.OperatorGachaFirstID && (profile == nil || profile.PublicationKey == "operator")
+		if (profile == nil || !profile.DailyFirstFree) && !operator {
 			return nil, fmt.Errorf("card store gacha daily claim %d has no daily profile", claim.GachaID)
 		}
 		if _, err := time.Parse("2006-01-02", claim.Day); err != nil {
@@ -1269,7 +1284,8 @@ func (s *Account) BattlePointState() BattlePointStatus {
 
 func (s *Account) refreshBattlePointsLocked(now time.Time) {
 	if s.bp >= s.bpMax {
-		s.bp = s.bpMax
+		// Recovery items may exceed the natural cap. Keep the extra points and
+		// pause regeneration until spending brings the balance below capacity.
 		s.bpNextRecovery = time.Time{}
 		return
 	}

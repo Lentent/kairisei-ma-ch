@@ -14,7 +14,7 @@ import (
 
 func TestBusinessErrorsPreserveSessionAndProtocolErrorsRemainFailures(t *testing.T) {
 	a := &API{account: &game.Account{}, initialState: gamestate.State{}}
-	for _, expected := range []*game.BusinessError{game.ErrInsufficientGold, game.ErrInsufficientCrystals, game.ErrInsufficientMaterials, game.ErrCardCapacity, game.ErrSphereCapacity, game.ErrBuddyCapacity, game.ErrItemExpired, game.ErrGachaUnavailable} {
+	for _, expected := range []*game.BusinessError{game.ErrInsufficientGold, game.ErrInsufficientCrystals, game.ErrInsufficientMaterials, game.ErrCardCapacity, game.ErrSphereCapacity, game.ErrBuddyCapacity, game.ErrItemExpired, game.ErrGachaUnavailable, game.ErrEvolutionClosed} {
 		response := httptest.NewRecorder()
 		a.writeStoreError(response, fmt.Errorf("operation: %w", expected))
 		lines := strings.Split(strings.TrimSpace(response.Body.String()), "\n")

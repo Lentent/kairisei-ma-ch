@@ -258,8 +258,8 @@ func (accounts *Accounts) FollowFriendPointAccounts(
 		).Scan(&followerCount); err != nil {
 			return game.FollowAddResult{}, fmt.Errorf("count CN local-account followers: %w", err)
 		}
-		// The CN client exposes a 50-entry received-follow list. The local
-		// profile uses the same configured follow maximum in both directions.
+		// The native client consumes follow_max from the server. Use the same
+		// global configured follow ceiling in both directions.
 		if followerCount >= followMaximum {
 			return game.FollowAddResult{}, &game.FollowAddError{
 				ResultCode:   -3412,

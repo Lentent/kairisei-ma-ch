@@ -16,6 +16,18 @@ import (
 func auditCompleteAdminContent(t *testing.T, h http.Handler) {
 	t.Helper()
 	admin := h.(interface{ AdminHandler() http.Handler }).AdminHandler()
+	var activity struct {
+		Revision int `json:"revision"`
+		Config   struct {
+			Cups    map[int]*gamestate.TeamBattleScorePolicy `json:"cups"`
+			Explore []json.RawMessage                        `json:"explore"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(testfixture.CallContentAdmin(t, admin, "GET", "/api/activity-rewards", nil, 200), &activity); err != nil || len(activity.Config.Explore) == 0 {
+		t.Fatal("missing exploration reward configuration", err)
+	}
+	testfixture.CallContentAdmin(t, admin, "PUT", "/api/activity-rewards", map[string]any{"expected_revision": activity.Revision, "config": activity.Config}, 200)
+	t.Logf("activity rewards: %d cup policies / %d native exploration slots", len(activity.Config.Cups), len(activity.Config.Explore))
 	var rules struct {
 		Revision int                  `json:"revision"`
 		Rules    []adminapi.BossRules `json:"rules"`

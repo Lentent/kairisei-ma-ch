@@ -211,7 +211,15 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 	if err != nil {
 		return multiplayer.Credential{}, err
 	}
+	costInitial := replay.CostInitial
+	if policy := rewardProfile.ScorePolicy; policy != nil && policy.SourceState == "LOCAL_POLICY_DAMAGE_SCORE" {
+		costInitial = policy.TeamCostInitial
+		if costInitial == 0 {
+			costInitial = 3
+		}
+	}
 	return a.multiplayer.IssueCreate(multiplayer.RoomSpec{
+		ScorePolicy:        rewardProfile.ScorePolicy,
 		Battles:            battles,
 		DropLedgerVersion:  1,
 		DropPlan:           dropPlan,
@@ -233,7 +241,7 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		AllowToLeave:       issue.AllowToLeave,
 		GameStartMemberNum: issue.GameStartMemberNum,
 		AutoStart:          issue.AutoStart,
-		CostInitial:        replay.CostInitial,
+		CostInitial:        costInitial,
 		HoldMax:            replay.HoldMax,
 		BurstGaugeInitial:  replay.BurstGaugeInitial,
 		Seed:               game.NewBattleSeed(),
@@ -524,7 +532,7 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	}
 	settlement, err := a.account.CompleteTeamBattle(
 		completed.BossID,
-		true,
+		completed.EndType != 2,
 		a.initialState.TeamBattleRewards,
 		multiplayerDropReport(completed),
 	)
@@ -536,14 +544,19 @@ func (a *API) teamBattleResult(writer http.ResponseWriter, request *http.Request
 	clearRewards := battleResultRewardsWire(settlement.FirstClear.Rewards)
 	newCards := append([]game.CardInfo(nil), settlement.Result.Cards...)
 	newCards = append(newCards, settlement.FirstClear.Cards...)
+	newCards = append(newCards, settlement.Score.Cards...)
 	newStackCards := append([]gamestate.CardStack(nil), settlement.Result.StackCards...)
 	newStackCards = append(newStackCards, settlement.FirstClear.StackCards...)
+	newStackCards = append(newStackCards, settlement.Score.StackCards...)
 	newItems := append([]gamestate.Item(nil), settlement.Result.Items...)
 	newItems = append(newItems, settlement.FirstClear.Items...)
+	newItems = append(newItems, settlement.Score.Items...)
 	newSpheres := append([]gamestate.Sphere(nil), settlement.Result.Spheres...)
 	newSpheres = append(newSpheres, settlement.FirstClear.Spheres...)
+	newSpheres = append(newSpheres, settlement.Score.Spheres...)
 	newBuddies := append([]gamestate.Buddy(nil), settlement.Result.Buddies...)
 	newBuddies = append(newBuddies, settlement.FirstClear.Buddies...)
+	newBuddies = append(newBuddies, settlement.Score.Buddies...)
 	for _, fameAward := range settlement.Fame {
 		newCards = append(newCards, fameAward.Result.Cards...)
 		newStackCards = append(newStackCards, fameAward.Result.StackCards...)

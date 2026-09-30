@@ -164,7 +164,20 @@ func cnBootstrapModuleSwitches(writer http.ResponseWriter, _ *http.Request) {
 func cnBootstrapLogin(accounts *accountstore.Accounts, advertiseHost string, port int, cdn CDNConfig, versionNamespace, imageNamespace string) http.HandlerFunc {
 	baseURL := "http://" + advertiseHost + ":" + strconv.Itoa(port)
 	patchURL, cpkURL, imageURL := cdn.resourceURLs(baseURL, imageNamespace)
+	// Bound UUID-login processing and waiters too; the password gateway has its
+	// own separate limit. Do not queue unlimited retries behind the DB writer.
+	loginSlots := make(chan struct{}, 8)
 	return func(writer http.ResponseWriter, request *http.Request) {
+		if request.Context().Err() != nil {
+			return
+		}
+		select {
+		case loginSlots <- struct{}{}:
+			defer func() { <-loginSlots }()
+		default:
+			http.Error(writer, "CN local login is busy; retry later", http.StatusServiceUnavailable)
+			return
+		}
 		body, err := io.ReadAll(io.LimitReader(request.Body, maxCapturedBody+1))
 		if err != nil || len(body) == 0 || len(body) > maxCapturedBody {
 			http.Error(writer, "read CN local login", http.StatusBadRequest)
@@ -186,8 +199,11 @@ func cnBootstrapLogin(accounts *accountstore.Accounts, advertiseHost string, por
 			cnRejectOldClient(writer)
 			return
 		}
-		identity, err := accounts.ResolveLogin(payload.UUID)
+		identity, err := accounts.ResolveLoginContext(request.Context(), payload.UUID)
 		if err != nil {
+			if request.Context().Err() != nil {
+				return
+			}
 			http.Error(writer, "resolve CN local account", http.StatusBadRequest)
 			return
 		}

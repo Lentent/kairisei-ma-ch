@@ -51,6 +51,9 @@ var adminMailJS []byte
 //go:embed web/admin_settings.js
 var adminSettingsJS []byte
 
+//go:embed web/admin_evolution.js
+var adminEvolutionJS []byte
+
 //go:embed web/admin_content.js
 var adminContentJS []byte
 
@@ -137,7 +140,7 @@ type API struct {
 	logger           *slog.Logger
 	progression      gamestate.PlayerProgressionPolicy
 	gachaPresets     []AdminGachaPreset
-	knownGachaGroups map[int]struct{}
+	gachaCoverDir    string
 	gachaBannerPaths map[string]string
 }
 
@@ -241,11 +244,11 @@ func requireAdminAsset(assetsRoot string, urlPath string) error {
 	return nil
 }
 
-func adminBossImageURL(assetsRoot, urlPath string) (string, error) {
+func adminOptionalImageURL(assetsRoot, urlPath string) (string, error) {
 	err := requireAdminAsset(assetsRoot, urlPath)
 	if errors.Is(err, os.ErrNotExist) {
 		// An operator thumbnail is decorative. Packaging checks completeness;
-		// runtime can show the group name without blocking the game server.
+		// Older resource sets and text-only chat entries keep their text fallback.
 		return "", nil
 	}
 	return urlPath, err
@@ -544,8 +547,15 @@ func (admin *API) status(writer http.ResponseWriter, _ *http.Request) {
 		WriteAdminError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The shell shows a global banner while maintenance pauses game requests.
+	maintenance := map[string]any{"enabled": false, "busy": false, "revision": 0}
+	if admin.operations != nil {
+		state := admin.operations.MaintenanceState()
+		maintenance["enabled"], maintenance["busy"] = state.Enabled, state.Busy
+		maintenance["revision"] = state.Revision
+	}
 	WriteAdminJSON(writer, http.StatusOK, map[string]any{
-		"state": "PASS", "client_profile": "cn602-bootstrap",
+		"state": "PASS", "client_profile": "cn602-bootstrap", "maintenance": maintenance,
 		"game_endpoint": fmt.Sprintf("http://%s:%d", admin.advertiseHost, admin.gamePort),
 		"battle_port":   admin.gamePort + 1, "active_rooms": admin.multiplayerHub.RoomCount(),
 		"max_player_level": admin.progression.MaxLevel, "account_count": accountSummary.Players, "boss_group_count": len(admin.groups),
@@ -1238,13 +1248,16 @@ func (admin *API) setBossPolicy(writer http.ResponseWriter, request *http.Reques
 func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 	admin.operations.configMu.RLock()
 	defer admin.operations.configMu.RUnlock()
-	presets := append([]AdminGachaPreset(nil), admin.gachaPresets...)
+	presets := append(append([]AdminGachaPreset(nil), admin.gachaPresets...), admin.customGachaPresets()...)
 	for i := range presets {
 		for _, config := range admin.operations.gachaConfigurations {
 			if len(presets[i].GachaIDs) > 0 && presets[i].GachaIDs[0] == config.Profile.GachaID {
 				presets[i].Name = config.Profile.Name
 				presets[i].Price = config.Profile.Price
 				presets[i].CardCount = len(config.Profile.CardIDs) + len(config.Profile.RewardPool)
+				if config.Profile.CoverPath != "" {
+					presets[i].ImageURL = "/" + config.Profile.CoverPath
+				}
 			}
 		}
 	}
@@ -1311,8 +1324,9 @@ func (admin *API) setGachaPolicy(writer http.ResponseWriter, request *http.Reque
 		WriteAdminError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
+	known := admin.operations.ManagedGroups()
 	for _, groupID := range publication.GroupIDs {
-		if _, exists := admin.knownGachaGroups[groupID]; !exists {
+		if _, exists := known[groupID]; !exists {
 			WriteAdminError(writer, http.StatusBadRequest, fmt.Sprintf("unknown gacha group ID %d", groupID))
 			return
 		}
@@ -1340,9 +1354,23 @@ func (admin *API) audit(writer http.ResponseWriter, request *http.Request) {
 		WriteAdminError(writer, 400, err.Error())
 		return
 	}
-	q := strings.TrimSpace(request.URL.Query().Get("q"))
-	op := strings.TrimSpace(request.URL.Query().Get("operation"))
-	records, total, err := admin.accounts.AuditRecords(q, op, limit, offset)
+	query := request.URL.Query()
+	filter := accountstore.AuditFilter{Search: strings.TrimSpace(query.Get("q")), Operation: strings.TrimSpace(query.Get("operation"))}
+	for key, target := range map[string]*string{"after": &filter.After, "before": &filter.Before} {
+		if value := query.Get(key); value != "" {
+			stamp, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				WriteAdminError(writer, 400, "时间须为有效日期")
+				return
+			}
+			*target = stamp.UTC().Format(time.RFC3339)
+		}
+	}
+	if filter.After != "" && filter.Before != "" && filter.After >= filter.Before {
+		WriteAdminError(writer, 400, "开始时间须早于结束时间")
+		return
+	}
+	records, total, err := admin.accounts.QueryAuditRecords(filter, limit, offset)
 	if err != nil {
 		WriteAdminError(writer, http.StatusInternalServerError, err.Error())
 		return

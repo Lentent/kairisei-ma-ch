@@ -71,6 +71,20 @@ func TestCurrentSchemaIsValidatedAtStartupNotRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A pre-statistics schema-3 database gains only the additive display table.
+	if _, err := db.Exec("DROP TABLE cn_battle_clear_daily"); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := OpenDatabase(path, "unused-seed.json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := upgraded.EnsureSchema(); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgraded.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DROP TABLE cn_account_credentials"); err != nil {
 		t.Fatal(err)
 	}

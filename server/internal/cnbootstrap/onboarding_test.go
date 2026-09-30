@@ -29,7 +29,7 @@ func TestFirstAccountUsesOnboardingAndPreservesProgressOnReload(t *testing.T) {
 	}
 	if state.User.Name != "" || state.User.TutorialFlag != 0 || len(state.Cards) != 10 ||
 		state.Onboarding.ConfigVersion != masterdata.OnboardingConfigVersion || state.Onboarding.Step != 0 ||
-		state.User.CardMax != 6000 || state.User.NaviID != 0 || state.User.NaviUnlockFlag != 1 || !slices.Equal(state.User.SelectableNaviIDs, []int8{0}) || slices.Contains(state.User.UnlockedFeatureIDs, uint(10)) {
+		state.User.CardMax != 6000 || state.User.CardContainerMax != 3000 || state.User.NaviID != 0 || state.User.NaviUnlockFlag != 1 || !slices.Equal(state.User.SelectableNaviIDs, []int8{0}) || slices.Contains(state.User.UnlockedFeatureIDs, uint(10)) {
 		t.Fatal("fresh primary account did not enter clean training")
 	}
 	state.User.Name = "保留玩家名字"

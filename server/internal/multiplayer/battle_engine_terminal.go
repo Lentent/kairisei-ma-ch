@@ -8,9 +8,15 @@ package multiplayer
 func (engine *BattleEngine) appendTerminalBuffCleanup(results []BattleResult) []BattleResult {
 	// The no-continue profile retires KO members via 228c0 -> 661f3.
 	// Its final 2,2 has no winning-wave cleanup or Burst countdown.
-	if engine.endType == 2 {
+	if engine.endType == 2 && !engine.memberDeadEnd {
 		return results
 	}
+	return engine.appendWaveBuffCleanup(results)
+}
+
+// Limit-turn termination uses wave cleanup even with native ENEMY_WIN;
+// ordinary party defeat above deliberately skips it.
+func (engine *BattleEngine) appendWaveBuffCleanup(results []BattleResult) []BattleResult {
 	for index := range engine.players {
 		player := &engine.players[index]
 		if player.MemberType == 0 {

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -104,7 +105,21 @@ func (s *Account) MultiplayerMember(userID int, arthurType int8, deckIndex int8)
 		return multiplayer.Member{}, errors.New("local multiplayer honor deck is unavailable")
 	}
 	avatar := avatars[avatarIndex]
+	_, supportUnlocks := s.SupportDeckState()
+	if len(supportUnlocks) != 4 {
+		return multiplayer.Member{}, errors.New("support unlock state unavailable")
+	}
+	wire, err := PartnerDeckWire(userID, arthurType, deck, cardByUniqueID, s.JobParameter(deck.JobType), avatar,
+		sphereByUniqueID, buddyByUniqueID, supportUnlocks[avatarIndex], s.ArthurBurstUnlocked(arthurType))
+	if err != nil {
+		return multiplayer.Member{}, err
+	}
+	clearDeck, err := json.Marshal(wire)
+	if err != nil {
+		return multiplayer.Member{}, err
+	}
 	return multiplayer.Member{
+		ClearDeck:    clearDeck,
 		UserID:       userID,
 		IsBurst:      int(s.ArthurBurstUnlocked(arthurType)),
 		Level:        s.UserLevel(),

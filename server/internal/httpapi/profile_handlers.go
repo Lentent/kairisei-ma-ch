@@ -152,6 +152,7 @@ func (a *API) userPayload() map[string]any {
 	progression := a.account.PlayerProgressionState()
 	coin, coinFree := a.account.CoinState()
 	cardCapacity := a.account.CardCapacity()
+	containerCapacity := a.account.CardContainerCapacity()
 	supportDeckSetCardNum, _ := a.account.SupportDeckState()
 	jobs := make([]map[string]int, len(progression.Jobs))
 	for index, job := range progression.Jobs {
@@ -188,9 +189,9 @@ func (a *API) userPayload() map[string]any {
 		"card_max":                     cardCapacity,
 		"card_extend_limit":            game.CardCapacityLimit - cardCapacityBase,
 		"card_container_num":           a.account.ContainerCardCount(),
-		"card_container_max_extend":    0,
-		"card_container_max":           user.CardContainerMax,
-		"card_container_extend_limit":  0,
+		"card_container_max_extend":    max(0, containerCapacity-cardCapacityBase),
+		"card_container_max":           containerCapacity,
+		"card_container_extend_limit":  game.CardCapacityLimit - cardCapacityBase,
 		"sphr_num":                     len(a.account.SphereState()),
 		"sphr_max":                     user.SphereMax,
 		"friend_max":                   progression.FriendMax,

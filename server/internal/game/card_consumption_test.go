@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -8,6 +9,60 @@ import (
 
 	"kairisei.local/server/internal/gamestate"
 )
+
+func TestCardDecomposeZeroDustAndRejectedTargets(t *testing.T) {
+	makeAccount := func(radix int) *Account {
+		s := ConsumptionTestStore(t)
+		s.stive = 123
+		s.cards[1].Fame = 3
+		s.cardDefinitions[20] = gamestate.Card{CardID: 20, LevelMax: 1, FameMax: 100}
+		s.cardDevelopmentRules = map[int]cardDevelopmentRule{20: {DevelopmentType: 1, DecomposeRadix: radix, FameMax: 100}}
+		s.decks = []DeckInfo{{CardUniqueIDs: []int64{1, 2}, SupportCardUniqueIDs: []int64{2}, LeaderCardIndex: 0}}
+		return s
+	}
+	for _, radix := range []int{0, 20} {
+		for _, kind := range []int{cardDecomposeFame, cardDecomposeCard} {
+			s := makeAccount(radix)
+			balance, decks, err := s.DecomposeCard(2, kind)
+			if err != nil {
+				t.Fatalf("radix=%d kind=%d: %v", radix, kind, err)
+			}
+			consumed := 3
+			if kind == cardDecomposeFame {
+				consumed = 2
+				if len(s.cards) != 2 || s.cards[1].Fame != 1 || len(decks) != 0 || s.decks[0].CardUniqueIDs[1] != 2 {
+					t.Fatal("fame decomposition changed card ownership or decks")
+				}
+			} else if len(s.cards) != 1 || len(decks) != 1 || s.decks[0].CardUniqueIDs[1] != 0 || s.decks[0].SupportCardUniqueIDs[0] != 0 {
+				t.Fatal("card decomposition left card or deck references")
+			}
+			if balance != 123+radix*consumed || s.gold != 100000 {
+				t.Fatal("decomposition balance differs from native radix formula")
+			}
+		}
+	}
+	for _, reason := range []string{"locked", "missing", "not decomposable", "no extra fame"} {
+		s := makeAccount(0)
+		uid, kind := int64(2), cardDecomposeCard
+		switch reason {
+		case "locked":
+			s.cards[1].IsLock = 1
+		case "missing":
+			uid = 99
+		case "not decomposable":
+			s.cardDevelopmentRules[20] = cardDevelopmentRule{}
+		case "no extra fame":
+			s.cards[1].Fame = 1
+			kind = cardDecomposeFame
+		}
+		cards, decks := CloneCards(s.cards), CloneDecks(s.decks)
+		_, _, err := s.DecomposeCard(uid, kind)
+		var business *BusinessError
+		if !errors.As(err, &business) || !reflect.DeepEqual(cards, CloneCards(s.cards)) || !reflect.DeepEqual(decks, CloneDecks(s.decks)) || s.stive != 123 {
+			t.Fatalf("%s did not fail without consumption: %v", reason, err)
+		}
+	}
+}
 
 func TestCardConsumptionReturnsBusinessErrors(t *testing.T) {
 	for _, operation := range []string{"fusion", "evolution", "sell", "container sell"} {

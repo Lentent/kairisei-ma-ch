@@ -13,7 +13,7 @@ func TestRecoveryItemFunctions(t *testing.T) {
 		function string
 		bp, ap   int
 	}{
-		{"BP_HEAL_FULL", 87, 1}, {"BP_HEAL_HALF", 64, 1}, {"BP_HEAL_30", 50, 1},
+		{"BP_HEAL_FULL", 107, 1}, {"BP_HEAL_HALF", 64, 1}, {"BP_HEAL_30", 50, 1},
 		{"AP_HEAL_FULL", 20, 3}, {"AP_HEAL_1", 20, 2},
 	} {
 		t.Run(tc.function, func(t *testing.T) {
@@ -31,16 +31,27 @@ func TestRecoveryItemFunctions(t *testing.T) {
 			}
 		})
 	}
-	t.Run("cap and full rejection", func(t *testing.T) {
+	t.Run("overflow pauses recovery and full rejects another item", func(t *testing.T) {
 		s := &Account{bp: 80, bpMax: 87, ap: 3, apMax: 3, bpRecoveryInterval: time.Hour,
 			items: map[int]gamestate.Item{1002: {ItemID: 1002, Num: 2}}, itemDefinitions: map[int]gamestate.ItemDefinition{1002: {ItemID: 1002, Function: "BP_HEAL_30"}}}
-		if result, err := s.UseItem(1002); err != nil || result.BP.Current != 87 || !s.bpNextRecovery.IsZero() {
+		if result, err := s.UseItem(1002); err != nil || result.BP.Current != 110 || !s.bpNextRecovery.IsZero() {
 			t.Fatalf("cap: %+v %v", result, err)
 		}
 		_, err := s.UseItem(1002)
 		var business *BusinessError
 		if !errors.As(err, &business) || s.items[1002].Num != 1 {
 			t.Fatalf("full: %v / %v", err, s.items)
+		}
+		now := time.Now().Add(24 * time.Hour)
+		if got := s.battlePointStatusLocked(now); got.Current != 110 || got.NextSeconds != 0 {
+			t.Fatalf("overflow was lost: %+v", got)
+		}
+		s.bp -= 24
+		if got := s.battlePointStatusLocked(now); got.Current != 86 || got.NextSeconds != 3600 {
+			t.Fatalf("recovery did not resume: %+v", got)
+		}
+		if got := s.battlePointStatusLocked(now.Add(2 * time.Hour)); got.Current != 87 || got.NextSeconds != 0 {
+			t.Fatalf("natural recovery exceeded capacity: %+v", got)
 		}
 	})
 }

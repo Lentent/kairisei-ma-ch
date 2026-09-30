@@ -341,7 +341,8 @@ func validateBattleRuntimeMaster(master BattleRuntimeMaster) error {
 		localProfile.DailyClearRank.PublishedForActiveActivityBosses == nil ||
 		!*localProfile.DailyClearRank.PublishedForActiveActivityBosses ||
 		localProfile.DailyClearRank.StartRule != 0 ||
-		localProfile.DailyClearRank.SourceState != "LOCAL_POLICY_ORIGINAL_CLIENT_SINGLE_ACCOUNT_PROJECTION" ||
+		(localProfile.DailyClearRank.SourceState != "LOCAL_POLICY_PREVIOUS_DAY_CLEAR_COUNT" &&
+			localProfile.DailyClearRank.SourceState != "LOCAL_POLICY_ORIGINAL_CLIENT_SINGLE_ACCOUNT_PROJECTION") ||
 		localProfile.DailyClearRank.PublicPopulationClaimed == nil ||
 		*localProfile.DailyClearRank.PublicPopulationClaimed ||
 		localProfile.TowerQuest.ConfigVersion != master.TowerConfigVersion ||

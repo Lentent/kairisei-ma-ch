@@ -168,7 +168,6 @@ func validateCardRuntimeMaster(master CardRuntimeMaster) error {
 			card.Fame != 1 || card.FameMax < 1 || card.FameMax < card.Fame ||
 			card.DevelopmentType < 0 || card.DevelopmentType > 2 ||
 			card.DecomposeRadix < 0 || card.DevelopRadix < 0 ||
-			(card.DevelopmentType == 1 && card.DecomposeRadix == 0) ||
 			(card.DevelopmentType == 2 && card.DevelopRadix == 0) ||
 			card.NextLevelExperience < 0 || card.AddExperience <= 0 || card.BaseAddPrice <= 0 ||
 			card.SellGold < 0 ||

@@ -118,6 +118,7 @@ func InitializeOnboardingSnapshot(state *gamestate.State, userID int) error {
 	state.User.ArthurRank = 0
 	state.User.LastHomeDeckRank = 0
 	state.User.CardMax = gamestate.CardCapacityLimit
+	state.User.CardContainerMax = gamestate.CardContainerCapacityDefault
 	state.User.SphereMax = gamestate.SphereCapacityDefault
 	state.User.BuddyMax = gamestate.BuddyCapacityDefault
 	state.Buddy = gamestate.Buddy{}

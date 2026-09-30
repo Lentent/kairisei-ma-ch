@@ -83,12 +83,10 @@ type cnGateStageQuest struct {
 
 func validateCNRunnableContent(state gamestate.State) (cnRuntimeContentGate, error) {
 	var summary cnRuntimeContentGate
+	// This gate checks runtime content/configuration. Mutable player balances
+	// and recovery clocks are validated by accountstore at the save boundary.
 	if state.BattlePointConfigVersion <= 0 ||
-		state.BattlePoint.RecoverySeconds != 3*60 ||
-		state.BattlePoint.NextRecoveryUnix < 0 ||
-		state.User.BP < 0 || state.User.BP > state.User.BPMax ||
-		(state.User.BP < state.User.BPMax && state.BattlePoint.NextRecoveryUnix == 0) ||
-		(state.User.BP == state.User.BPMax && state.BattlePoint.NextRecoveryUnix != 0) {
+		state.BattlePoint.RecoverySeconds != 3*60 {
 		return summary, errors.New("CN runtime battle point recovery contract is incomplete")
 	}
 	cardIDs := make(map[int]struct{}, len(state.CardTemplates))

@@ -50,6 +50,29 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 		return filepath.Join(root, filepath.FromSlash(value))
 	}
 	dir := t.TempDir()
+	// Optional offline compatibility fixture. Supply an SQLite backup, never a
+	// live database with a WAL; the test only opens its own disposable copy.
+	legacyFixture := os.Getenv("CN602_DATABASE_FIXTURE")
+	if legacyFixture != "" {
+		if !filepath.IsAbs(legacyFixture) {
+			t.Fatal("absolute offline database fixture required")
+		}
+		src, err := os.Open(legacyFixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dst, err := os.OpenFile(filepath.Join(dir, "save-state.sqlite3"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			src.Close()
+			t.Fatal(err)
+		}
+		_, copyErr := io.Copy(dst, src)
+		src.Close()
+		closeErr := dst.Close()
+		if copyErr != nil || closeErr != nil {
+			t.Fatalf("copy offline fixture: %v / %v", copyErr, closeErr)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "requests.jsonl"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +123,69 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	if legacyFixture != "" {
+		admin := handler.(interface{ AdminHandler() http.Handler }).AdminHandler()
+		for _, path := range []string{"/api/status", "/api/gacha-editor", "/api/settings", "/api/evolution-policy", "/api/activity-rewards", "/api/player-policy", "/api/maintenance"} {
+			testfixture.CallContentAdmin(t, admin, "GET", path, nil, 200)
+		}
+		var page struct {
+			Accounts []struct {
+				ID int `json:"user_id"`
+			} `json:"accounts"`
+		}
+		if err := json.Unmarshal(testfixture.CallContentAdmin(t, admin, "GET", "/api/accounts?limit=200&include_system=1", nil, 200), &page); err != nil {
+			t.Fatal(err)
+		}
+		for _, account := range page.Accounts {
+			testfixture.CallContentAdmin(t, admin, "GET", fmt.Sprintf("/api/accounts/%d", account.ID), nil, 200)
+		}
+		// Admin reads alone do not apply live pool profiles to account snapshots.
+		// Exercise the real login/Home persistence boundary on this disposable DB.
+		db, err := handler.(*cnDeploymentHandler).database.OpenRead()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := db.Query(`SELECT login_uuid FROM cn_local_account WHERE user_id < ? ORDER BY user_id LIMIT 200`, accountstore.SystemPartnerUserIDBase)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var uuids []string
+		for rows.Next() {
+			var uuid string
+			if err := rows.Scan(&uuid); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			uuids = append(uuids, uuid)
+		}
+		readErr := rows.Err()
+		rows.Close()
+		if readErr != nil || len(uuids) == 0 {
+			t.Fatalf("read offline fixture logins: %v", readErr)
+		}
+		for _, uuid := range uuids {
+			body, _ := json.Marshal(map[string]string{"uuid": uuid, "clver": cnMinimumClientVersion})
+			login := httptest.NewRecorder()
+			handler.ServeHTTP(login, httptest.NewRequest("POST", "/loginSDK.php", strings.NewReader(string(body))))
+			var identity struct {
+				Session string `json:"sess_key"`
+			}
+			if login.Code != 200 || json.Unmarshal(login.Body.Bytes(), &identity) != nil || identity.Session == "" {
+				t.Fatal("offline fixture login failed")
+			}
+			for attempt := 0; attempt < 2; attempt++ {
+				for _, request := range []struct{ path, payload string }{{"/HomeShow", ""}, {"/TeamBattleSoloShow", `{"0":1}`}} {
+					response := httptest.NewRecorder()
+					handler.ServeHTTP(response, httptest.NewRequest("POST", request.path, strings.NewReader(identity.Session+request.payload)))
+					if response.Code != 200 {
+						t.Fatalf("offline fixture %s %d: status %d: %s", request.path, attempt, response.Code, response.Body.String())
+					}
+				}
+			}
+		}
+		t.Logf("existing database: all configuration pages, %d account snapshots, %d player logins with repeated Home/dungeon requests; disposable copy, no listeners", len(page.Accounts), len(uuids))
+		return
+	}
 	cards, err := masterdata.LoadCardRuntimeMaster(p("cn-card-master"))
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +204,46 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	}
 	if len(costumes.Entries) != len(avatar.CostumeRewards) {
 		t.Fatalf("Admin costume count %d differs from resource catalog %d", len(costumes.Entries), len(avatar.CostumeRewards))
+	}
+	// Exercise the actual catalog and image allowlist, including text-only chat
+	// and older resource sets that have no decorative collection thumbnails.
+	for _, kind := range []string{"costume", "stamp"} {
+		icons, textOnly := 0, 0
+		for offset := 0; ; offset += 200 {
+			var page struct {
+				Entries []adminapi.AdminCatalogEntry `json:"entries"`
+			}
+			body := testfixture.CallContentAdmin(t, admin, "GET", fmt.Sprintf("/api/catalog?kind=%s&limit=200&offset=%d", kind, offset), nil, 200)
+			if err := json.Unmarshal(body, &page); err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range page.Entries {
+				url := fmt.Sprintf("/assets/%s/%d.webp", kind, entry.RewardTypeID)
+				_, err := os.Stat(filepath.Join(filepath.Dir(p("cn-card-master")), "cn602-admin-assets", kind, fmt.Sprintf("%d.webp", entry.RewardTypeID)))
+				if os.IsNotExist(err) {
+					if entry.ImageURL != "" {
+						t.Fatalf("%s points to a missing image", url)
+					}
+					textOnly++
+					continue
+				}
+				if err != nil || entry.ImageURL != url {
+					t.Fatalf("collection image mapping %s: %q, %v", url, entry.ImageURL, err)
+				}
+				reply := httptest.NewRecorder()
+				request := httptest.NewRequest("GET", "http://localhost"+url, nil)
+				request.RemoteAddr = "127.0.0.1:50000"
+				admin.ServeHTTP(reply, request)
+				if reply.Code != 200 || reply.Header().Get("Content-Type") != "image/webp" || reply.Body.Len() == 0 {
+					t.Fatalf("collection image not served: %s, %d", url, reply.Code)
+				}
+				icons++
+			}
+			if len(page.Entries) < 200 {
+				break
+			}
+		}
+		t.Logf("Admin %s: %d original icons, %d text fallbacks", kind, icons, textOnly)
 	}
 	requests := make([]adminapi.AdminMailRequest, 0, len(avatar.CostumeRewards))
 	for _, row := range avatar.CostumeRewards {
@@ -357,7 +483,9 @@ func probeCompleteRuntimeGacha(t *testing.T, handler http.Handler, savePath, see
 // Opt-in profiling uses only this test's disposable accounts; no listener or player DB.
 func profileCompleteRuntimeAccounts(t *testing.T, handler http.Handler, profile string) {
 	t.Helper()
-	for count := 0; count <= 32; count++ {
+	// Cross the 32-entry idle-cache boundary so the profile also exercises
+	// eviction, rather than only measuring its expected initial growth.
+	for count := 0; count <= 48; count++ {
 		if count > 0 {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/loginSDK.php", strings.NewReader(fmt.Sprintf(`{"uuid":"00000000-0000-0000-0000-%012d","clver":"%s"}`, count, cnMinimumClientVersion))))

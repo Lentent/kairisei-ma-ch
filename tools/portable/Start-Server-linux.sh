@@ -7,7 +7,7 @@ ARCH=${1:-}
 case "$ARCH" in amd64|arm64) shift ;; *) echo 'Unsupported server architecture.' >&2; exit 2 ;; esac
 
 usage() {
-    echo "Usage: sh Start-Server-linux-$ARCH.sh <server IPv4> [port] [--dry-run]"
+    echo "Usage: sh Start-Server-linux-$ARCH.sh <server IPv4 or DNS host> [port] [--dry-run]"
     echo 'Example: sh Start-Server-linux-amd64.sh 192.168.2.149 26020'
     echo 'Admin stays on 127.0.0.1 at port + 2. Stop with Ctrl+C or SIGTERM.'
 }
@@ -22,21 +22,30 @@ if [ "$#" -gt 0 ] && [ "$1" = '--dry-run' ]; then DRY_RUN=true; shift; fi
 if [ "$#" -ne 0 ]; then usage >&2; exit 2; fi
 
 case "$ADVERTISE_HOST" in
-    ''|*[!0-9.]*|.*|*.|*..*) echo 'Server address must be an IPv4 address.' >&2; exit 2 ;;
+    ''|*[!a-zA-Z0-9.-]*|.*|*.|*..*) echo 'Server address must be an IPv4 address or DNS host, without URL syntax.' >&2; exit 2 ;;
 esac
+if [ "${#ADVERTISE_HOST}" -gt 253 ]; then echo 'Server host is too long.' >&2; exit 2; fi
 OLD_IFS=$IFS
 IFS=.
 set -- $ADVERTISE_HOST
 IFS=$OLD_IFS
-if [ "$#" -ne 4 ]; then echo 'Server address must have four IPv4 octets.' >&2; exit 2; fi
-FIRST_OCTET=$1
-for octet do
-    if [ "${#octet}" -gt 3 ] || [ "$octet" -gt 255 ]; then echo 'Invalid IPv4 octet.' >&2; exit 2; fi
-    case "$octet" in 0?*) echo 'IPv4 octets must not have leading zeros.' >&2; exit 2 ;; esac
-done
-if [ "$FIRST_OCTET" -eq 0 ] || [ "$FIRST_OCTET" -ge 224 ]; then
-    echo 'Server address must be a unicast IPv4 address.' >&2; exit 2
-fi
+case "$ADVERTISE_HOST" in
+    *[!0-9.]*)
+        for label do
+            if [ "${#label}" -gt 63 ]; then echo 'DNS label is too long.' >&2; exit 2; fi
+            case "$label" in -*|*-) echo 'DNS labels cannot begin or end with a hyphen.' >&2; exit 2 ;; esac
+        done ;;
+    *)
+        if [ "$#" -ne 4 ]; then echo 'Server address must have four IPv4 octets.' >&2; exit 2; fi
+        FIRST_OCTET=$1
+        for octet do
+            if [ "${#octet}" -gt 3 ] || [ "$octet" -gt 255 ]; then echo 'Invalid IPv4 octet.' >&2; exit 2; fi
+            case "$octet" in 0?*) echo 'IPv4 octets must not have leading zeros.' >&2; exit 2 ;; esac
+        done
+        if [ "$FIRST_OCTET" -eq 0 ] || [ "$FIRST_OCTET" -ge 224 ]; then
+            echo 'Server address must be a unicast IPv4 address.' >&2; exit 2
+        fi ;;
+esac
 case "$PORT" in ''|*[!0-9]*|0?*) echo 'Port must be an integer from 1 to 65533.' >&2; exit 2 ;; esac
 if [ "${#PORT}" -gt 5 ] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65533 ]; then
     echo 'Port must be from 1 to 65533.' >&2; exit 2

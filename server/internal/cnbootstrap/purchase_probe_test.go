@@ -91,6 +91,7 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	}{
 		{"/BuyNavi", `{"navi_id":18}`, "navi-poor", -1060},
 		{"/CoinUse", `{"type":2,"param":0}`, "expansion-poor", -1060},
+		{"/CoinUse", `{"type":10,"param":0}`, "warehouse-expansion-poor", -1060},
 		{"/ItemShopBuy", `{"item_shop_lineupid":992001,"buy_num":1,"popupid":0}`, "coin-shop-poor", -1060},
 		{"/ItemShopBuy", `{"item_shop_lineupid":602001,"buy_num":1,"popupid":0}`, "gold-shop-poor", -1030},
 		{"/GachaPlay2", `{"0":60200011,"1":3,"2":"probe","3":[],"4":0}`, "gacha-poor", -1060},
@@ -169,6 +170,30 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	settings("PUT", false, 0, 409)
 	settings("PUT", false, 1, 200)
 	buy(3, 0, 6480)
+	for _, kind := range []int{2, 10} {
+		base := 100
+		if kind == 10 {
+			base = 3000
+		}
+		for option, extra := range []int{5, 30, 80} {
+			result := call("/CoinUse", fmt.Sprintf(`{"type":%d,"param":%d}`, kind, option), fmt.Sprintf("capacity-%d-%d", kind, option), 0)
+			var user map[string]json.RawMessage
+			if err := json.Unmarshal(result["user"], &user); err != nil {
+				t.Fatal(err)
+			}
+			field := "card_max"
+			if kind == 10 {
+				field = "card_container_max"
+			}
+			if string(user[field]) != fmt.Sprint(base+extra) {
+				t.Fatalf("capacity response %s=%s", field, user[field])
+			}
+		}
+	}
+	expanded, err := accounts.LoadState(identity.UserID)
+	if err != nil || expanded.User.CardMax != 180 || expanded.User.CardContainerMax != 3080 || expanded.User.CoinFree != 5200 {
+		t.Fatalf("expansion persistence: cards=%d container=%d free=%d err=%v", expanded.User.CardMax, expanded.User.CardContainerMax, expanded.User.CoinFree, err)
+	}
 
 }
 

@@ -42,6 +42,6 @@ func (s *Account) applyPlayerExperienceLocked(amount int) {
 	// Level-up always refills both point pools and resets their recovery clocks.
 	s.ap = s.apMax
 	s.apNextRecovery = time.Time{}
-	s.bp = s.bpMax
+	s.bp = max(s.bp, s.bpMax)
 	s.bpNextRecovery = time.Time{}
 }

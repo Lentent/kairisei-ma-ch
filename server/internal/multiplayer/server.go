@@ -382,7 +382,7 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	}
 	hub.prunePendingLocked(time.Now())
 	pending, exists := hub.pending[token]
-	if !exists || pending.Kind != pendingCreate || pending.Signature != signature {
+	if hub.maintenance || !exists || pending.Kind != pendingCreate || pending.Signature != signature {
 		return rejectLocked(errors.New("RoomCreateRequest credential is invalid"))
 	}
 	delete(hub.pending, token)
@@ -396,7 +396,9 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		return rejectLocked(errors.New("room start mode does not match HTTP authorization"))
 	}
 	speedSource := hub.gameSpeed
+	hub.creatingRooms++
 	hub.mu.Unlock()
+	defer func() { hub.mu.Lock(); hub.creatingRooms--; hub.mu.Unlock() }()
 	member := cloneMember(pending.Member)
 	member.UserID = userID
 	member.ArthurType = arthurType
@@ -450,6 +452,7 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		dropLedgerVersion:    pending.Spec.DropLedgerVersion,
 		dropPlan:             cloneDropPlan(pending.Spec.DropPlan),
 		fameRewardsSet:       pending.Spec.FameRewardsSet,
+		scorePolicy:          gamestate.CloneTeamBattleScorePolicy(pending.Spec.ScorePolicy),
 		fameRewards:          cloneFameRewards(pending.Spec.FameRewards),
 		connections:          map[int]*clientConn{1: c},
 		reservations:         make(map[int]roomReservation),
@@ -1277,6 +1280,8 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		return errors.New("completed battle has no connected account")
 	}
 	projection := CompletedBattle{
+		ScorePolicy:     current.scorePolicy,
+		EndType:         current.engineBattleEnd,
 		FameRewardsSet:  current.fameRewardsSet,
 		FameRewards:     current.fameRewards,
 		BattleIndex:     current.battleIndex,
@@ -1291,6 +1296,9 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 		CompletedAtUnix: now.Unix(),
 	}
 	if current.engine != nil {
+		if current.scorePolicy != nil {
+			projection.ScoreDamage = current.engine.ScoreDamage()
+		}
 		recordRoomWaveDrops(current)
 		projection.Turns = current.engine.elapsedWaveTurns + current.engine.turn
 		projection.DropLedgerVersion = current.dropLedgerVersion
@@ -1299,7 +1307,7 @@ func completeBattleLocked(hub *Hub, current *room, now time.Time) error {
 	}
 	projection = cloneCompletedBattle(projection)
 	expiresAt := now.Add(completedLifetime)
-	canSettle := current.engineBattleEnd == 1
+	canSettle := current.engineBattleEnd == 1 || (current.scorePolicy != nil && current.engineBattleEnd == 2)
 	if !canSettle {
 		// Ordinary CN defeat returns through the failure/back-stack flow. Keep
 		// only a short-lived terminal snapshot, never a victory reward receipt.

@@ -77,6 +77,15 @@ func TestAdminMailBatchAtomicRetryAndRestart(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	for _, c := range []struct {
+		search     string
+		unfinished bool
+		want       int
+	}{{"赠", false, 1}, {"test-mail-batch-1", false, 1}, {"不存在", false, 0}, {"", true, 0}} {
+		if docs, total, err := operations.storage.ListBatchDocuments(adminBatchPrefix, c.search, c.unfinished, 20, 0); err != nil || total != c.want || len(docs) != c.want {
+			t.Fatalf("batch list filter %+v: total=%d err=%v", c, total, err)
+		}
+	}
 	for _, id := range ids {
 		state, err := accounts.LoadState(id)
 		if err != nil {

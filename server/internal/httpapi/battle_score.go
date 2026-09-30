@@ -4,8 +4,8 @@ import (
 	"strings"
 )
 
-// Called only after the native report envelope was validated. This local policy
-// credits a fixed clear score and a turn multiplier; it does not claim to replay damage.
+// Called only after the native report envelope was validated. Preserve turn
+// metadata for legacy score policies; current solo cups require a clear only.
 func nativeScoreTurns(commands []string) int {
 	turns := 0
 	for _, wave := range commands {

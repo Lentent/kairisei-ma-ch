@@ -257,7 +257,12 @@ func (admin *API) listMailBatches(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, err.Error())
 		return
 	}
-	documents, total, err := admin.operations.storage.ListDocuments(adminBatchPrefix, limit, offset)
+	status := r.URL.Query().Get("status")
+	if status != "" && status != "unfinished" {
+		WriteAdminError(w, 400, "未知批次状态")
+		return
+	}
+	documents, total, err := admin.operations.storage.ListBatchDocuments(adminBatchPrefix, r.URL.Query().Get("q"), status == "unfinished", limit, offset)
 	if err != nil {
 		WriteAdminError(w, 500, err.Error())
 		return

@@ -20,16 +20,25 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Assert-AdvertiseIPv4 {
+function Assert-AdvertiseHost {
     param([string]$Address)
 
+    $Address = $Address.Trim().ToLowerInvariant()
+    if ($Address.Length -lt 1 -or $Address.Length -gt 253) { throw 'Invalid server host length.' }
+    if ($Address -notmatch '^[0-9.]+$') {
+        foreach ($label in $Address.Split('.')) {
+            if ($label -notmatch '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$') { throw 'Server host must be an IPv4 address or DNS name without URL syntax.' }
+        }
+        return $Address
+    }
     $parsed = $null
+    if ($Address -notmatch '^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$') { throw 'Invalid IPv4 address.' }
     if (-not [Net.IPAddress]::TryParse($Address, [ref]$parsed) -or
         $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
         throw "AdvertiseHost must be an IPv4 address: $Address"
     }
     $bytes = $parsed.GetAddressBytes()
-    if ($bytes[0] -eq 0 -or ($bytes[0] -ge 224 -and $bytes[0] -le 239)) {
+    if ($bytes[0] -eq 0 -or $bytes[0] -ge 224) {
         throw "AdvertiseHost must be a unicast IPv4 address: $Address"
     }
     return $parsed.ToString()
@@ -165,7 +174,7 @@ $adminPort = $Port + 2
 $healthURL = "http://127.0.0.1:$Port/healthz"
 $adminHealthURL = "http://127.0.0.1:$adminPort/api/health"
 
-$AdvertiseHost = Assert-AdvertiseIPv4 -Address $AdvertiseHost
+$AdvertiseHost = Assert-AdvertiseHost -Address $AdvertiseHost
 foreach ($path in @(
     $serverPath, $saveSeedPath, $assetMapPath, $cardMasterPath, $exploreMasterPath,
     $storyMasterPath, $battleMasterPath, $combatCardPath, $naviMasterPath,

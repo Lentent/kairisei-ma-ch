@@ -1,6 +1,7 @@
 package accountstore
 
 import (
+	"context"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
@@ -72,13 +73,13 @@ func (accounts *Accounts) BindAccount(uuid, name, password string) (AccountBindi
 	if err != nil {
 		return AccountBinding{}, err
 	}
-	salt, hash, err := PasswordHash(password)
-	if err != nil {
-		return AccountBinding{}, err
-	}
 	uuid = strings.ToLower(strings.TrimSpace(uuid))
 	if !validLoginUUID(uuid) {
 		return AccountBinding{}, errors.New("本机登录凭据无效")
+	}
+	salt, hash, err := PasswordHash(password)
+	if err != nil {
+		return AccountBinding{}, err
 	}
 	accounts.mu.Lock()
 	defer accounts.mu.Unlock()
@@ -91,7 +92,7 @@ func (accounts *Accounts) BindAccount(uuid, name, password string) (AccountBindi
 		return AccountBinding{}, err
 	}
 	defer tx.Rollback()
-	identity, err := accounts.resolveLoginTransaction(tx, uuid, false)
+	identity, err := accounts.resolveLoginTransaction(context.Background(), tx, uuid, false)
 	if err != nil {
 		return AccountBinding{}, err
 	}

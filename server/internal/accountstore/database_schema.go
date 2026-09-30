@@ -11,6 +11,7 @@ import (
 const SaveDatabaseSchemaVersion = 3
 
 var fixedStateTableColumns = map[string][]string{
+	"cn_battle_clear_daily":     {"day", "boss_id", "mode", "user_id", "arthur_type", "clear_count", "completed_at", "event_key", "decks_json", "decks_sha256"},
 	"cn_account_balance":        {"user_id", "gold", "coin", "coin_free", "friend_point", "pvp_point"},
 	"cn_account_card":           {"user_id", "unique_id", "slot", "card_id", "level", "experience", "now_exp", "next_exp", "love", "fame", "is_lock", "hp", "attack", "magic", "mind", "base_add_price", "skill_levels", "sort_order", "row_sha256"},
 	"cn_account_item":           {"user_id", "item_id", "num", "limit_time", "sort_order", "row_sha256"},
@@ -132,6 +133,9 @@ func initializeSaveSchema(transaction *sql.Tx) error {
 		)
 	}
 	if userVersion == SaveDatabaseSchemaVersion {
+		if _, err := transaction.Exec(battleClearStatisticsSchema); err != nil {
+			return err
+		}
 		return validateFixedStateSchema(transaction)
 	}
 	// Version zero is accepted only for a new, empty database. Never merge an
@@ -265,6 +269,9 @@ func initializeSaveSchema(transaction *sql.Tx) error {
 		if _, err := transaction.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SaveDatabaseSchemaVersion)); err != nil {
 			return fmt.Errorf("set CN SQLite schema version: %w", err)
 		}
+	}
+	if _, err := transaction.Exec(battleClearStatisticsSchema); err != nil {
+		return err
 	}
 	return validateFixedStateSchema(transaction)
 }

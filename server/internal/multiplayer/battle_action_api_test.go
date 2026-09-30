@@ -67,6 +67,10 @@ func TestNativeTacticalAutomatonAPIReceipt(t *testing.T) {
 	compareNativeActionAPIReceipt(t, os.Getenv("CN_NATIVE_TACTICAL_AUTOMATON_API_RECEIPT"), "original-cn-x86-tactical-automaton-api-chain")
 }
 
+func TestNativeScoreLimitAPIReceipt(t *testing.T) {
+	compareNativeActionAPIReceipt(t, os.Getenv("CN_NATIVE_SCORE_LIMIT_API_RECEIPT"), "original-cn-x86-score-limit-api-chain")
+}
+
 // Keep the official slot identities and source rows, but register only the
 // controlled skill_set calls actually supplied to the original API.
 func nativeActionAPIParty(t *testing.T, engine *BattleEngine, row []string, enemies []nativeActionAPIEnemy) (int, []BattleDrop) {
@@ -490,7 +494,10 @@ func compareNativeActionAPIReceipt(t *testing.T, path, scope string) {
 		Scope   string
 		Library string `json:"lib_sha256"`
 		Cases   []struct {
-			Input struct {
+			ScoreDamage *int64 `json:"score_damage"`
+			Input       struct {
+				EndTurn          int          `json:"end_turn"`
+				MemberDeadEnd    bool         `json:"member_dead_end"`
 				BurstGauge       []int        `json:"burst_gauge"`
 				BurstInitial     int          `json:"burst_initial"`
 				TranceRates      [4][2][5]int `json:"trance_rates"`
@@ -567,6 +574,8 @@ func compareNativeActionAPIReceipt(t *testing.T, path, scope string) {
 	for _, specimen := range receipt.Cases {
 		t.Run(specimen.Input.Name, func(t *testing.T) {
 			engine, members := nextBattleFixture(t)
+			engine.endTurn = specimen.Input.EndTurn
+			engine.memberDeadEnd = specimen.Input.MemberDeadEnd
 			engine.catalog.TranceRates = specimen.Input.TranceRates
 			if specimen.Input.Seed != nil {
 				engine.seed = *specimen.Input.Seed
@@ -782,6 +791,9 @@ func compareNativeActionAPIReceipt(t *testing.T, path, scope string) {
 				if rng := [4]uint32{engine.rng.x, engine.rng.y, engine.rng.z, engine.rng.w}; rng != phase.RNG {
 					t.Fatalf("phase %d/%s RNG: Go=%v native=%v", phaseIndex, phase.Name, rng, phase.RNG)
 				}
+			}
+			if specimen.ScoreDamage != nil && engine.ScoreDamage() != *specimen.ScoreDamage {
+				t.Fatalf("score damage: Go=%d native=%d", engine.ScoreDamage(), *specimen.ScoreDamage)
 			}
 		})
 	}

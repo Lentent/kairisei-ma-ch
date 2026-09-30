@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -121,9 +122,40 @@ func auditCompleteBusinessRecovery(t *testing.T, handler http.Handler, savePath,
 		}
 		return s
 	}
-	for _, id := range []int{20002007, 20002001, 20002013, 10177201} {
-		call("/HowToGetCardShow", map[string]any{"cardids": []int{id}}, 0)
+	// The full-input gate queries every normal card and stack material through
+	// the production adapter. The small game test owns availability edge cases.
+	cardIDs := make([]int, 0, len(cards.CardTemplates)+len(cards.StackCardTemplates))
+	for _, card := range cards.CardTemplates {
+		cardIDs = append(cardIDs, card.CardID)
 	}
+	for _, card := range cards.StackCardTemplates {
+		cardIDs = append(cardIDs, card.CardID)
+	}
+	slices.Sort(cardIDs)
+	cardIDs = slices.Compact(cardIDs)
+	sourceCounts := map[int]int{}
+	for start := 0; start < len(cardIDs); start += 64 {
+		batch := cardIDs[start:min(start+64, len(cardIDs))]
+		result := call("/HowToGetCardShow", map[string]any{"cardids": batch}, 0)
+		var lists []struct {
+			CardID  int `json:"cardid"`
+			Sources []struct {
+				Type int `json:"type"`
+			} `json:"get_cards"`
+		}
+		if err := json.Unmarshal(result["how_to_list"], &lists); err != nil || len(lists) != len(batch) {
+			t.Fatalf("acquisition batch %d: %v, rows=%d", start, err, len(lists))
+		}
+		for i, list := range lists {
+			if list.CardID != batch[i] || len(list.Sources) == 0 {
+				t.Fatalf("acquisition response lost card %d", batch[i])
+			}
+			for _, source := range list.Sources {
+				sourceCounts[source.Type]++
+			}
+		}
+	}
+	t.Logf("acquisition full catalog: cards/materials=%d source rows by native type=%v", len(cardIDs), sourceCounts)
 	fusion := map[string]any{"base_uniqid": 90024, "add_uniqids": []int{93177, 90065}, "add_cardids": stackIDs}
 	call("/CardFusion2", fusion, -1)
 	rejected := load()

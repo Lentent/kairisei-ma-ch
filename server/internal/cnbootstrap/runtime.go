@@ -68,6 +68,7 @@ func loadCNRuntimeStatePreparer(masters MastersConfig, pvpConfig game.PVPConfig,
 			runtimeState.User.Comment = "请多关照！"
 		}
 		runtimeState.User.InviteID = accountstore.InviteID(runtimeState.User.UserID)
+		runtimeState.User.CardContainerMax = max(runtimeState.User.CardContainerMax, gamestate.CardContainerCapacityDefault)
 		runtimeState.User.SphereMax = max(runtimeState.User.SphereMax, gamestate.SphereCapacityDefault)
 		runtimeState.User.BuddyMax = max(runtimeState.User.BuddyMax, gamestate.BuddyCapacityDefault)
 		_, err = masterdata.ApplyPlayerProgressionRuntimeMaster(&runtimeState, playerProgression)

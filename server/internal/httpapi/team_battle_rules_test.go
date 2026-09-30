@@ -13,6 +13,29 @@ import (
 	"kairisei.local/server/internal/gamestate"
 )
 
+func TestTeamBattleSoloShowPreservesOverflowBattlePoints(t *testing.T) {
+	s := testAccount(t, func(state *gamestate.State) {
+		state.User.BP = state.User.BPMax + 43
+		state.BattlePoint.NextRecoveryUnix = 0
+		state.TeamBattleSolo = json.RawMessage(`{"9":[],"10":[],"11":[],"12":[]}`)
+	})
+	want := s.BattlePointState()
+	a := &API{account: s}
+	response := httptest.NewRecorder()
+	a.teamBattleSoloShow(response, httptest.NewRequest(http.MethodPost, "/TeamBattleSoloShow", strings.NewReader(`{"active_arthur_type":1}`)))
+	lines := strings.Split(strings.TrimSpace(response.Body.String()), "\n")
+	if response.Code != http.StatusOK || len(lines) != 3 {
+		t.Fatal("overflow BP prevented returning to the dungeon picker", response.Body.String())
+	}
+	var points struct {
+		Current int `json:"0"`
+		Max     int `json:"1"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &points); err != nil || points.Current != want.Current || points.Max != want.Max || s.BattlePointState().NextSeconds != 0 {
+		t.Fatalf("overflow BP changed on display: %+v / %v", points, err)
+	}
+}
+
 func TestLostSoloBattleReportReturnsClientResult(t *testing.T) {
 	for _, cleared := range []int{0, 1} {
 		s := testAccount(t, func(state *gamestate.State) {

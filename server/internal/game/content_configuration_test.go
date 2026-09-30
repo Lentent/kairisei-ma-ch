@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
@@ -50,6 +51,15 @@ func TestExchangeConfigurationPreservesCountsAndChargesDisplayedPrice(t *testing
 	}
 	if _, err := s.BuyTradeShop(62000001, 1, nil); err != nil || s.tradeShopPurchases[2] != 3 || s.tradeShopPurchases[62000001] != 1 || s.items[4000].Num != 950 {
 		t.Fatal("same-item offers share purchase counts", err)
+	}
+	// A shop with a future opening time is neither listed nor purchasable until it opens.
+	second.StartTime = int(time.Now().Add(time.Hour).Unix())
+	s.ApplyTradeShopConfiguration(append(base.TradeShopProfiles, second))
+	if rows := s.TradeShopState(); len(rows) != 1 || rows[0].Profile.TradeShopID != 1 {
+		t.Fatal("scheduled shop listed before opening")
+	}
+	if _, err := s.BuyTradeShop(62000001, 1, nil); err == nil || s.tradeShopPurchases[62000001] != 1 {
+		t.Fatal("scheduled shop sold before opening")
 	}
 }
 

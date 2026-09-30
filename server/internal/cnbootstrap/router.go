@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 
@@ -30,6 +31,7 @@ func (app *application) router() chi.Router {
 	router.Use(cnNetworkCompression(app.config.Logger))
 	router.Use(app.recorder.middleware(app.config.Logger))
 	router.Use(normalizeLeadingSlashes)
+	router.Use(app.maintenanceRequests)
 	router.Use(authenticateCNSessions(app.accounts))
 	router.Get("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -65,6 +67,8 @@ func (app *application) router() chi.Router {
 			http.ServeFile(writer, request, bannerPath)
 		})
 	}
+	// Operator-uploaded pool covers (content-addressed files next to the save database).
+	router.Get("/local/gacha-covers/{file}", adminapi.ServeGachaCover(app.gachaCoverDir()))
 	router.Get("/local/home/banner.png", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "image/png")
 		writer.Header().Set("Cache-Control", "no-store")
@@ -131,6 +135,33 @@ func (app *application) router() chi.Router {
 	return router
 }
 
+func (app *application) maintenanceRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			next.ServeHTTP(w, r)
+			return
+		}
+		done, ok := app.operations.AdmitGameRequest()
+		if !ok {
+			w.Header().Set("Retry-After", "60")
+			if businessCompressionRoute(r) {
+				common := cnBootstrapCommon()
+				common["res_code"] = -1
+				common["res_str"] = "服务器维护中，请稍后再试"
+				common["res_err_action"] = 1
+				writeCNProtocolResponseWithPopup(w, common, map[string]any{})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]any{"res_code": 503, "res_str": "服务器维护中，请稍后再试"})
+			return
+		}
+		defer done()
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (app *application) handler() (http.Handler, error) {
 	adminHandler, err := adminapi.New(adminapi.Config{
 		Accounts: app.accounts, Runtime: app.business, Operations: app.operations,
@@ -138,9 +169,15 @@ func (app *application) handler() (http.Handler, error) {
 		Multiplayer: app.config.Multiplayer, AdvertiseHost: app.config.Network.AdvertiseHost, GamePort: app.config.Network.HTTPPort,
 		Logger: app.config.Logger, Progression: app.progression,
 		GachaBanners: app.resources.GachaBanners, AssetMaps: []string{app.config.Resources.AssetMap},
+		GachaCoverDir: app.gachaCoverDir(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize CN admin handler: %w", err)
 	}
-	return &cnDeploymentHandler{Handler: app.router(), admin: adminHandler, database: app.accounts.Database()}, nil
+	return &cnDeploymentHandler{Handler: app.router(), admin: adminHandler, database: app.accounts.Database(), operations: app.operations}, nil
+}
+
+// gachaCoverDir is the fixed, writable cover folder: "gacha-covers" beside the save database.
+func (app *application) gachaCoverDir() string {
+	return filepath.Join(filepath.Dir(app.config.Persistence.SavePath), "gacha-covers")
 }

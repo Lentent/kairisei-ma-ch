@@ -276,7 +276,9 @@ const (
 func (s *Account) FollowMaximum() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.followMax
+	// Mutual friends are also follows. The global follow/follower ceiling
+	// must cover the configured maximum friendship capacity at higher levels.
+	return max(s.followMax, s.playerProgression.Friends.Maximum)
 }
 
 func (s *Account) FriendMaximum() int {

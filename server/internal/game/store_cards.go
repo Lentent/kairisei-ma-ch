@@ -575,6 +575,11 @@ func (s *Account) EvolveCard(
 	if transition == nil || base.Level != base.LevelMax {
 		return CardInfo{}, 0, nil, errors.New("card is not ready for evolution")
 	}
+	if s.evolutionRestrictions != nil {
+		if _, blocked := s.evolutionRestrictions.blocked[EvolutionPath{FromCardID: base.CardID, ToCardID: toCardID}]; blocked {
+			return CardInfo{}, 0, nil, ErrEvolutionClosed
+		}
+	}
 	materialIndexes := make(map[int]struct{}, len(materialUniqueIDs))
 	selectedMaterials := make(map[int]int, len(materialUniqueIDs)+len(containerMaterialUniqueIDs)+len(materialCardIDs))
 	for _, uniqueID := range materialUniqueIDs {

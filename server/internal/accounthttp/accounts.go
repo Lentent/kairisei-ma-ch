@@ -1,6 +1,7 @@
 package accounthttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -99,6 +100,38 @@ func (router *Router) Invalidate(userID int) {
 	router.mu.Lock()
 	router.removeHandlerLocked(userID)
 	router.mu.Unlock()
+}
+
+// Maintenance excludes requests and account writers before calling this.
+func (router *Router) InvalidateAll() {
+	router.mu.Lock()
+	defer router.mu.Unlock()
+	for id := range router.handlers {
+		router.removeHandlerLocked(id)
+	}
+}
+
+// Same ascending stripe order as BattleSv debits. This also drains any late
+// account callback; no cached handler can restore removed counters afterward.
+func (router *Router) WithAccountMaintenance(ctx context.Context, action func() error) error {
+	locked := 0
+	defer func() {
+		for i := locked - 1; i >= 0; i-- {
+			router.locks[i].Unlock()
+		}
+	}()
+	for i := range router.locks {
+		for !router.locks[i].TryLock() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		locked++
+	}
+	defer router.InvalidateAll()
+	return action()
 }
 
 // Caller holds the stable account lock throughout acquire, use, and release.

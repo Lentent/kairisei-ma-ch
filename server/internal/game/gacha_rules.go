@@ -51,6 +51,7 @@ func GachaPoolRewards(profile gamestate.GachaProfile) []gamestate.Reward {
 	rewards := make([]gamestate.Reward, len(profile.CardIDs))
 	for i, id := range profile.CardIDs {
 		rewards[i] = GachaCardReward(id)
+		rewards[i].CardFame = int16(profile.CardFame(id))
 	}
 	return rewards
 }

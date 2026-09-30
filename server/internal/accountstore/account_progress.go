@@ -3,6 +3,7 @@ package accountstore
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
@@ -11,14 +12,15 @@ import (
 // Only identities and player progress cross the persistence boundary. Names,
 // artwork, costs, enemy definitions and reward lineups come from the catalog.
 type catalogProgress struct {
-	GachaPlays    map[int]int                      `json:"gacha_plays,omitempty"`
-	ShopPurchases map[int]int                      `json:"shop_purchases,omitempty"`
-	BossStates    map[int]int                      `json:"boss_states,omitempty"`
-	Areas         []masterdata.NormalQuestProgress `json:"areas,omitempty"`
-	MainStory     map[int]int                      `json:"main_story,omitempty"`
-	CNMainStory   map[int]int                      `json:"cn_main_story,omitempty"`
-	SubStory      map[int]int                      `json:"sub_story,omitempty"`
-	EventStory    map[int]int                      `json:"event_story,omitempty"`
+	GachaPlays    map[int]int                            `json:"gacha_plays,omitempty"`
+	ShopPurchases map[int]int                            `json:"shop_purchases,omitempty"`
+	ShopPeriods   map[int]gamestate.ItemShopPeriodCounts `json:"shop_periods,omitempty"`
+	BossStates    map[int]int                            `json:"boss_states,omitempty"`
+	Areas         []masterdata.NormalQuestProgress       `json:"areas,omitempty"`
+	MainStory     map[int]int                            `json:"main_story,omitempty"`
+	CNMainStory   map[int]int                            `json:"cn_main_story,omitempty"`
+	SubStory      map[int]int                            `json:"sub_story,omitempty"`
+	EventStory    map[int]int                            `json:"event_story,omitempty"`
 }
 
 func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
@@ -26,9 +28,16 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 		GachaPlays: map[int]int{}, ShopPurchases: map[int]int{}, BossStates: map[int]int{},
 		MainStory: map[int]int{}, CNMainStory: map[int]int{}, SubStory: map[int]int{}, EventStory: map[int]int{},
 	}
+	listed := make(map[int]bool, len(state.Gachas))
 	for _, gacha := range state.Gachas {
+		listed[gacha.GachaID] = true
 		if gacha.PlayCount != 0 {
 			p.GachaPlays[gacha.GachaID] = gacha.PlayCount
+		}
+	}
+	for id, plays := range state.OperatorGachaPlays {
+		if !listed[id] && plays != 0 {
+			p.GachaPlays[id] = plays
 		}
 	}
 	for _, tab := range state.ItemShopTabs {
@@ -38,6 +47,13 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 			}
 		}
 	}
+	if err := gamestate.ValidateItemShopProgress(state.ItemShopPurchases, state.ItemShopPeriods); err != nil {
+		return p, err
+	}
+	for id, count := range state.ItemShopPurchases {
+		p.ShopPurchases[id] = count
+	}
+	p.ShopPeriods = maps.Clone(state.ItemShopPeriods)
 	var solo map[string]json.RawMessage
 	if len(state.TeamBattleSolo) > 0 {
 		if err := json.Unmarshal(state.TeamBattleSolo, &solo); err != nil {
@@ -104,11 +120,24 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 }
 
 func (p catalogProgress) apply(state *gamestate.State) error {
+	if err := gamestate.ValidateItemShopProgress(p.ShopPurchases, p.ShopPeriods); err != nil {
+		return err
+	}
 	state.Gachas = cloneGachas(state.Gachas)
+	listed := make(map[int]bool, len(state.Gachas))
 	for i := range state.Gachas {
 		state.Gachas[i].PlayCount = p.GachaPlays[state.Gachas[i].GachaID]
+		listed[state.Gachas[i].GachaID] = true
+	}
+	state.OperatorGachaPlays = map[int]int{}
+	for id, plays := range p.GachaPlays {
+		if !listed[id] {
+			state.OperatorGachaPlays[id] = plays
+		}
 	}
 	state.ItemShopTabs = CloneItemShopTabs(state.ItemShopTabs)
+	state.ItemShopPurchases = maps.Clone(p.ShopPurchases)
+	state.ItemShopPeriods = maps.Clone(p.ShopPeriods)
 	for _, tab := range state.ItemShopTabs {
 		for i := range tab.Lineup {
 			item := &tab.Lineup[i]

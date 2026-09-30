@@ -121,9 +121,7 @@ func ApplyPlayerProgressionRuntimeMaster(
 	state.User.NextLevelExperience = policy.ExperienceRequired(state.User.Level) - preservedWithinLevelExperience
 	state.User.BPMax = policy.BattlePointMaximum(state.User.Level)
 	if wasBPFull {
-		state.User.BP = state.User.BPMax
-	} else if state.User.BP > state.User.BPMax {
-		state.User.BP = state.User.BPMax
+		state.User.BP = max(state.User.BP, state.User.BPMax)
 	}
 	state.User.FriendMax = policy.FriendMaximum(state.User.Level)
 	state.User.Jobs = policy.JobsAtLevel(state.User.Level)

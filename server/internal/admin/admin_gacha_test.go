@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -17,15 +18,64 @@ import (
 	"kairisei.local/server/internal/testfixture"
 )
 
-func TestLuckyBagPresetCardEligibility(t *testing.T) {
-	base := gamestate.GachaProfile{BannerKey: "lucky_bag_opera", CardIDs: []int{10163033}}
-	entry := AdminCatalogEntry{Rarity: 6}
-	if !adminGachaCardEligible(base, entry, 10163033) || adminGachaCardEligible(base, entry, 10163037) {
-		t.Fatal("lucky bag must allow its own featured cards only")
+func TestOperatorGachaCardEligibility(t *testing.T) {
+	nonGacha := AdminCatalogEntry{Rarity: 2, GachaEligible: false}
+	if !adminGachaCardEligible(gamestate.GachaProfile{BannerKey: "local_standard"}, nonGacha) {
+		t.Fatal("operator pools must accept cards of any acquisition source")
 	}
-	base.BannerKey = "local_standard"
-	if adminGachaCardEligible(base, entry, 10163033) {
-		t.Fatal("ordinary pool accepted an unlabeled card")
+	if adminGachaCardEligible(gamestate.GachaProfile{UnownedOnly: true}, nonGacha) || !adminGachaCardEligible(gamestate.GachaProfile{UnownedOnly: true}, AdminCatalogEntry{Rarity: 6}) {
+		t.Fatal("unowned six-star pool must keep its six-star identity")
+	}
+}
+
+func TestLegacyGachaDocumentDefaultsRemainCompatible(t *testing.T) {
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	catalog, err := accounts.Database().CatalogState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := findProfile(catalog.Gachas, 60200211)
+	if base == nil {
+		t.Fatal("legacy fixture pool missing")
+	}
+	old := AdminGachaConfigFromProfile(*base)
+	old.Price = 23
+	encoded, _ := json.Marshal(old)
+	var legacy map[string]any
+	if err := json.Unmarshal(encoded, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"pay_type", "pay_typeid", "cover_path", "card_fames", "closed"} {
+		delete(legacy, key)
+	}
+	legacy["disabled"] = true // Retired field must not unexpectedly close an old pool.
+	if _, err := accounts.Database().WriteDocument("gacha-live:60200211", 0, legacy, "gacha-live"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := accounts.Database().WriteDocument(runtimeSettingsKey, 0, map[string]any{"crystal_purchase_enabled": false, "team_battle_speed": 150}, "runtime-settings"); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewOperations(accounts.Database(), catalog.Gachas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted.gachaConfigurations) != 1 {
+		t.Fatal("legacy publication lost")
+	}
+	c := restarted.gachaConfigurations[0]
+	if c.Disabled || c.Profile.Price != 23 || c.Profile.PayType != base.PayType || c.Profile.PayTypeID != base.PayTypeID || c.Profile.CardFame(c.Profile.CardIDs[0]) != 1 || c.Profile.CoverPath != "" {
+		t.Fatalf("legacy defaults changed: %+v", c)
+	}
+	if restarted.runtimeSettings.GachaCoverSource != "" || restarted.runtimeSettings.GachaCoverBaseURL != "" {
+		t.Fatal("old settings gained a remote cover source")
+	}
+	db, err := accounts.Database().OpenRead()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+		t.Fatal("legacy schema changed", version, err)
 	}
 }
 
@@ -91,6 +141,10 @@ func TestAdminGachaDraftPublicationAndRestart(t *testing.T) {
 	if response := call("publish", publish); response.Code != 409 {
 		t.Fatalf("stale publication status=%d", response.Code)
 	}
+	cleared, err := operations.storage.ReadDocument("gacha-draft:" + strconv.Itoa(base.GachaID))
+	if err != nil || gachaDraftExists(cleared) {
+		t.Fatal("publication retained draft content", err)
+	}
 	restarted, err := NewOperations(accounts.Database(), []gamestate.GachaProfile{base, {GachaID: 90000100}})
 	if err != nil {
 		t.Fatal(err)
@@ -102,14 +156,14 @@ func TestAdminGachaDraftPublicationAndRestart(t *testing.T) {
 		t.Fatal("payment item was lost on restart")
 	}
 	config.CardIDs = []int{3, 2}
-	result = call("draft", map[string]any{"config": config, "expected_revision": 1})
+	result = call("draft", map[string]any{"config": config, "expected_revision": cleared.Revision})
 	if result.Code != 200 {
 		t.Fatal(result.Body.String())
 	}
 	if err := json.Unmarshal(result.Body.Bytes(), &saved); err != nil {
 		t.Fatal(err)
 	}
-	publish["expected_revision"], publish["expected_live_revision"], publish["sha256"] = 2, 1, saved.Document.SHA256
+	publish["expected_revision"], publish["expected_live_revision"], publish["sha256"] = saved.Document.Revision, 1, saved.Document.SHA256
 	if response := call("publish", publish); response.Code != 400 {
 		t.Fatalf("unavailable card published: %d", response.Code)
 	}
@@ -120,7 +174,7 @@ func TestAdminGachaDraftPublicationAndRestart(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			codes <- call("draft", map[string]any{"config": config, "expected_revision": 2}).Code
+			codes <- call("draft", map[string]any{"config": config, "expected_revision": saved.Document.Revision}).Code
 		}()
 	}
 	wg.Wait()
@@ -138,10 +192,20 @@ func TestAdminGachaDraftPublicationAndRestart(t *testing.T) {
 		t.Fatalf("concurrent editors: success=%d conflict=%d", success, conflict)
 	}
 	entry := admin.catalogByKey["6:1"]
-	entry.GachaEligible = false
+	entry.GachaEligible, entry.FameMax = false, 90
 	admin.catalogByKey["6:1"] = entry
-	if _, err := admin.validateGachaConfig(config); err == nil {
-		t.Fatal("non-gacha acquisition card accepted by the pool editor")
+	if _, err := admin.validateGachaConfig(config); err != nil {
+		t.Fatalf("non-gacha acquisition card rejected: %v", err)
+	}
+	for fames, ok := range map[*map[int]int]bool{{1: 90}: true, {1: 91}: false, {99: 2}: false} {
+		withFame := config
+		withFame.CardFames = *fames
+		if _, err := admin.validateGachaConfig(withFame); (err == nil) != ok {
+			t.Fatalf("card fame %v accepted=%v: %v", *fames, err == nil, err)
+		}
+		if ok && adminConfiguredGacha(operations.gachaBases[config.GachaID], withFame).Profile.CardFame(1) != 90 {
+			t.Fatal("configured fame not carried into the game profile")
+		}
 	}
 	entry.GachaEligible = true
 	admin.catalogByKey["6:1"] = entry

@@ -77,13 +77,14 @@ type accountSnapshot struct {
 }
 
 type exploreProgress struct {
-	StageCursor        int   `json:"stage_cursor"`
-	ActiveStageID      int   `json:"active_stage_id"`
-	Active             bool  `json:"active"`
-	ArthurType         int8  `json:"arthur_type"`
-	DeckIndex          int8  `json:"deck_index"`
-	StartedAtUnix      int64 `json:"started_at_unix"`
-	APNextRecoveryUnix int64 `json:"ap_next_recovery_unix"`
+	ActiveRewards      *[]gamestate.Reward `json:"active_rewards,omitempty"`
+	StageCursor        int                 `json:"stage_cursor"`
+	ActiveStageID      int                 `json:"active_stage_id"`
+	Active             bool                `json:"active"`
+	ArthurType         int8                `json:"arthur_type"`
+	DeckIndex          int8                `json:"deck_index"`
+	StartedAtUnix      int64               `json:"started_at_unix"`
+	APNextRecoveryUnix int64               `json:"ap_next_recovery_unix"`
 }
 
 func accountSnapshotFromState(state gamestate.State) (accountSnapshot, error) {
@@ -147,7 +148,8 @@ func accountSnapshotFromState(state gamestate.State) (accountSnapshot, error) {
 		TowerQuestProgress:             state.TowerQuestProgress,
 		Progress:                       progress,
 		ExploreProgress: exploreProgress{
-			StageCursor: state.Explore.StageCursor, ActiveStageID: state.Explore.ActiveStageID,
+			ActiveRewards: state.Explore.ActiveRewards,
+			StageCursor:   state.Explore.StageCursor, ActiveStageID: state.Explore.ActiveStageID,
 			Active: state.Explore.Active, ArthurType: state.Explore.ArthurType, DeckIndex: state.Explore.DeckIndex,
 			StartedAtUnix: state.Explore.StartedAtUnix, APNextRecoveryUnix: state.Explore.APNextRecoveryUnix,
 		},
@@ -216,6 +218,7 @@ func (snapshot accountSnapshot) applyAccountData(state *gamestate.State) {
 	state.Explore.StageCursor = snapshot.ExploreProgress.StageCursor
 	state.Explore.ActiveStageID = snapshot.ExploreProgress.ActiveStageID
 	state.Explore.Active = snapshot.ExploreProgress.Active
+	state.Explore.ActiveRewards = snapshot.ExploreProgress.ActiveRewards
 	state.Explore.ArthurType = snapshot.ExploreProgress.ArthurType
 	state.Explore.DeckIndex = snapshot.ExploreProgress.DeckIndex
 	state.Explore.StartedAtUnix = snapshot.ExploreProgress.StartedAtUnix

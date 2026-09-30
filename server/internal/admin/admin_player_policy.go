@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"kairisei.local/server/internal/game"
 	"kairisei.local/server/internal/gamestate"
@@ -20,6 +21,13 @@ type noticePolicy struct {
 	Enabled bool   `json:"enabled"`
 	Title   string `json:"title"`
 	Body    string `json:"body"`
+	// Optional display window (Unix seconds); zero means unbounded. Checked when the page is served.
+	StartUnix int64 `json:"start_unix,omitempty"`
+	EndUnix   int64 `json:"end_unix,omitempty"`
+}
+
+func (n noticePolicy) visible(now int64) bool {
+	return n.Enabled && (n.StartUnix <= 0 || now >= n.StartUnix) && (n.EndUnix <= 0 || now < n.EndUnix)
 }
 
 type loginRewards struct {
@@ -122,6 +130,9 @@ func (o *Operations) validatePlayerPolicy(p PlayerPolicy) error {
 	}
 	if p.Notice.Enabled && strings.TrimSpace(p.Notice.Body) == "" {
 		return errors.New("显示公告时正文不能为空")
+	}
+	if p.Notice.StartUnix < 0 || p.Notice.EndUnix < 0 || p.Notice.StartUnix > 0 && p.Notice.EndUnix > 0 && p.Notice.StartUnix >= p.Notice.EndUnix {
+		return errors.New("公告开始时间须早于结束时间")
 	}
 	mail := p.TutorialMail
 	if len([]rune(mail.Title)) > 40 || len([]rune(mail.Message)) > 200 || len(mail.Rewards) > 120 {
@@ -244,7 +255,7 @@ var noticeTemplate = template.Must(template.New("notice").Parse(`<!doctype html>
 
 func (o *Operations) LocalNotice(w http.ResponseWriter, r *http.Request) {
 	notice := noticePolicy{Title: "公告", Body: "暂无公告。"}
-	if p := o.playerPolicy.Load(); p != nil && p.Value.Notice.Enabled {
+	if p := o.playerPolicy.Load(); p != nil && p.Value.Notice.visible(time.Now().Unix()) {
 		notice = p.Value.Notice
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

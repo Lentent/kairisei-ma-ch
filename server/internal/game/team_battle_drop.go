@@ -79,6 +79,12 @@ func isTangibleTeamBattleReward(reward gamestate.Reward) bool {
 // room instead provides exactly the drops its engine released (DESTRUCT can
 // destroy an enemy without releasing a drop). Never re-roll either at result.
 type TeamBattleDropReport struct {
+	// Set only by the validated solo result route. Solo cups award every
+	// unclaimed grade on a clear; no damage estimate or NPC replay is used.
+	SoloChallenge  bool
+	ScoreVerified  bool
+	ScoreDamage    int64
+	ScorePolicy    *gamestate.TeamBattleScorePolicy
 	FameRewardsSet bool
 	FameRewards    []gamestate.Reward
 	Turns          int

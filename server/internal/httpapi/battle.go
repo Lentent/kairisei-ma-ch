@@ -22,13 +22,6 @@ type teamBattlePartnerDeckSelect struct {
 	DeckIndex  int8 `json:"deck_idx"`
 }
 
-type localTeamBattleDeckProjection struct {
-	ArthurType  int8
-	UserID      int
-	PartnerDeck map[string]any
-	FriendState int
-}
-
 func (a *API) teamBattleRecommendDeckShow(writer http.ResponseWriter, _ *http.Request) {
 	recommendations := make([]gamestate.TeamBattleRecommendation, len(a.initialState.TeamBattleRecommendations))
 	for index, recommendation := range a.initialState.TeamBattleRecommendations {
@@ -119,177 +112,6 @@ func pastBossProgress(source []json.RawMessage, progress json.RawMessage) ([]jso
 		result[i], _ = json.Marshal(group)
 	}
 	return result, nil
-}
-
-// teamBattleClearDeckShow projects the single local account population into
-// the original client's read-only clear-deck browser. The current Arthur is
-// the player account; the other three Arthurs keep the same stable local-AI
-// identities used by solo TeamBattle partner selection. This is deliberately
-// not presented as an official ranking or a remote-player archive.
-func (a *API) teamBattleClearDeckShow(writer http.ResponseWriter, request *http.Request) {
-	var payload struct {
-		BossID int `json:"bossid"`
-	}
-	if err := decodeExact(request, []string{"bossid"}, &payload); err != nil {
-		a.writeStoreError(writer, err)
-		return
-	}
-	if _, found := teamBattleReplayForBoss(a.initialState.TeamBattleReplays, payload.BossID); !found {
-		writeError(writer, http.StatusBadRequest, "unknown team battle boss")
-		return
-	}
-
-	entries, err := a.localTeamBattleDeckProjections()
-	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
-		return
-	}
-	partnerDecks := make([]any, 0, 4)
-	friendStates := make([]any, 0, 4)
-	for _, entry := range entries {
-		partnerDecks = append(partnerDecks, entry.PartnerDeck)
-		friendStates = append(friendStates, map[string]any{
-			"userid":       entry.UserID,
-			"friend_state": entry.FriendState,
-		})
-	}
-
-	a.writeProtocol(writer, map[string]any{
-		"partner_deck":      partnerDecks,
-		"how_to_list":       []any{},
-		"friend_state_list": friendStates,
-	})
-}
-
-func (a *API) localTeamBattleDeckProjections() ([]localTeamBattleDeckProjection, error) {
-	cards, decks := a.account.Show()
-	cardByUniqueID := make(map[int64]game.CardInfo, len(cards))
-	for _, card := range cards {
-		cardByUniqueID[card.UniqueID] = card
-	}
-	sphereByUniqueID := make(map[int64]gamestate.Sphere)
-	for _, sphere := range a.account.SphereState() {
-		sphereByUniqueID[sphere.UniqueID] = sphere
-	}
-	buddyByUniqueID := make(map[int64]gamestate.Buddy)
-	for _, buddy := range a.account.BuddyState() {
-		buddyByUniqueID[buddy.UniqueID] = buddy
-	}
-	avatars := a.account.AvatarsState()
-	_, supportUnlocks := a.account.SupportDeckState()
-	if len(avatars) != 4 || len(supportUnlocks) != 4 {
-		return nil, errors.New("team battle deck projection state is unavailable")
-	}
-	activeArthurType := a.account.ActiveArthurType()
-	if activeArthurType < 1 || activeArthurType > 4 {
-		return nil, errors.New("active Arthur type is invalid")
-	}
-
-	entries := make([]localTeamBattleDeckProjection, 0, 4)
-	for arthurType := int8(1); arthurType <= 4; arthurType++ {
-		deck, found := selectCompletePartnerDeck(decks, arthurType, cardByUniqueID)
-		if !found {
-			return nil, errors.New("team battle clear deck is incomplete")
-		}
-		userID := a.initialState.User.UserID*10 + int(arthurType)
-		friendState := 0
-		if arthurType == activeArthurType {
-			userID = a.initialState.User.UserID
-			friendState = 4 // FRIEND_STATE.MYSELF
-		}
-		partnerDeck, err := teamBattlePartnerDeckWire(
-			userID,
-			arthurType,
-			deck,
-			cardByUniqueID,
-			a.account.JobParameter(deck.JobType),
-			avatars[int(arthurType)-1],
-			sphereByUniqueID,
-			buddyByUniqueID,
-			supportUnlocks[arthurType-1],
-			a.account.ArthurBurstUnlocked(arthurType),
-		)
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, localTeamBattleDeckProjection{
-			ArthurType:  arthurType,
-			UserID:      userID,
-			PartnerDeck: partnerDeck,
-			FriendState: friendState,
-		})
-	}
-	return entries, nil
-}
-
-// dailyClearRankShow exposes one deterministic local-account rank row. The
-// client expects four aligned deck lists: solo view merges the same row index
-// into a four-Arthur clear deck, while multi view selects one list by job.
-// There is no recovered public ranking population or retired daily score
-// store, so rank 1 is an explicit single-account local projection.
-func (a *API) dailyClearRankShow(writer http.ResponseWriter, request *http.Request) {
-	var payload struct {
-		BossID  int `json:"bossid"`
-		IsMulti int `json:"is_multi"`
-	}
-	if err := decodeExact(request, []string{"bossid", "is_multi"}, &payload); err != nil {
-		a.writeStoreError(writer, err)
-		return
-	}
-	if payload.IsMulti != 0 && payload.IsMulti != 1 {
-		writeError(writer, http.StatusBadRequest, "invalid daily-clear ranking mode")
-		return
-	}
-	if _, found := teamBattleReplayForBoss(a.initialState.TeamBattleReplays, payload.BossID); !found {
-		writeError(writer, http.StatusBadRequest, "unknown team battle boss")
-		return
-	}
-	entries, err := a.localTeamBattleDeckProjections()
-	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if payload.IsMulti == 0 {
-		activeArthurType := a.account.ActiveArthurType()
-		ordered := make([]localTeamBattleDeckProjection, 0, len(entries))
-		for _, entry := range entries {
-			if entry.ArthurType == activeArthurType {
-				ordered = append(ordered, entry)
-				break
-			}
-		}
-		for _, entry := range entries {
-			if entry.ArthurType != activeArthurType {
-				ordered = append(ordered, entry)
-			}
-		}
-		entries = ordered
-	}
-
-	deckHonorIDs, _ := a.account.HonorState()
-	playerName := a.account.UserName()
-	deckLists := make([]any, 0, len(entries))
-	friendStates := make([]any, 0, len(entries))
-	for _, entry := range entries {
-		deckLists = append(deckLists, map[string]any{
-			"ranks": []any{map[string]any{
-				"userid":        entry.UserID,
-				"name":          playerName,
-				"rank":          1,
-				"partner_deck":  entry.PartnerDeck,
-				"deck_honorids": append([]int(nil), deckHonorIDs...),
-			}},
-		})
-		friendStates = append(friendStates, map[string]any{
-			"userid":       entry.UserID,
-			"friend_state": entry.FriendState,
-		})
-	}
-	a.writeProtocol(writer, map[string]any{
-		"deck":              deckLists,
-		"how_to_list":       []any{},
-		"friend_state_list": friendStates,
-	})
 }
 
 // challengeShow closes the original client's optional challenge-detail
@@ -476,6 +298,15 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 	friendPointReward := 0
 	rentalCredits := make([]game.FriendPointRentalCredit, 0, 3)
 	selectedResultPartners := make([]game.TeamBattleResultPartner, 0, 3)
+	clearDecks := make([]gamestate.BattleClearDeck, 0, 4)
+	if a.battleHistory != nil {
+		member, err := a.account.MultiplayerMember(a.initialState.User.UserID, payload.DeckArthurType, payload.DeckArthurTypeIndex)
+		if err != nil {
+			a.writeStoreError(writer, err)
+			return
+		}
+		clearDecks = append(clearDecks, gamestate.BattleClearDeck{UserID: member.UserID, Name: member.Name, ArthurType: member.ArthurType, HonorIDs: member.DeckHonorIDs, Deck: member.ClearDeck})
+	}
 	deckHonorIDs, _ := a.account.HonorState()
 	localHonorIDs := make([]int, 4)
 	copy(localHonorIDs, deckHonorIDs)
@@ -507,6 +338,18 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 				writeError(writer, http.StatusBadRequest, deckErr.Error())
 				return
 			}
+			// Own-deck battles read their member label from the start DTO's
+			// deck name. Override only this response; deck browsers still need
+			// the actual deck name and rental partners use PartnerInfo.name.
+			if a.battleHistory != nil {
+				encoded, err := json.Marshal(deck)
+				if err != nil {
+					a.writeStoreError(writer, err)
+					return
+				}
+				clearDecks = append(clearDecks, gamestate.BattleClearDeck{UserID: view.UserID, Name: view.Name, ArthurType: int(view.ArthurType), HonorIDs: view.HonorIDs, Deck: encoded})
+			}
+			deck["name"] = view.Name
 			partnerDecks = append(partnerDecks, deck)
 			selectedDeck, _ := game.ExactDeck(view.Decks, view.ArthurType, selection.DeckIndex)
 			leader, _ := game.PartnerLeaderCard(selectedDeck, view.Cards)
@@ -551,6 +394,14 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 		if deckErr != nil {
 			writeError(writer, http.StatusInternalServerError, deckErr.Error())
 			return
+		}
+		if a.battleHistory != nil {
+			encoded, err := json.Marshal(partnerDeck)
+			if err != nil {
+				a.writeStoreError(writer, err)
+				return
+			}
+			clearDecks = append(clearDecks, gamestate.BattleClearDeck{UserID: view.UserID, Name: view.Name, ArthurType: int(view.ArthurType), HonorIDs: view.HonorIDs, Deck: encoded})
 		}
 		partnerDecks = append(partnerDecks, partnerDeck)
 	}
@@ -611,6 +462,15 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 	if !found {
 		writeError(writer, http.StatusInternalServerError, "team battle drop profile is unavailable")
 		return
+	}
+	if context.ScorePolicy != nil {
+		replay.EndTurn = context.ScorePolicy.EndTurn
+	}
+	if a.battleHistory != nil {
+		if err := a.account.SetTeamBattleClearDecks(payload.BossID, clearDecks); err != nil {
+			a.writeStoreError(writer, err)
+			return
+		}
 	}
 	if !a.persistOrError(writer) {
 		return
@@ -741,7 +601,7 @@ func (a *API) teamBattleSoloEnd(writer http.ResponseWriter, request *http.Reques
 		payload.BossID,
 		payload.IsClear != 0,
 		a.initialState.TeamBattleRewards,
-		game.TeamBattleDropReport{EnemyDeadBits: payload.EnemyDeadBit, Turns: nativeScoreTurns(payload.InputCommand)},
+		game.TeamBattleDropReport{SoloChallenge: true, EnemyDeadBits: payload.EnemyDeadBit, Turns: nativeScoreTurns(payload.InputCommand)},
 	)
 	if err != nil {
 		a.rejectTeamBattleSoloReport(writer, payload.BossID, err)
@@ -783,14 +643,19 @@ func (a *API) teamBattleSoloEnd(writer http.ResponseWriter, request *http.Reques
 	clearRewards := battleResultRewardsWire(settlement.FirstClear.Rewards)
 	newCards := append([]game.CardInfo(nil), settlement.Result.Cards...)
 	newCards = append(newCards, settlement.FirstClear.Cards...)
+	newCards = append(newCards, settlement.Score.Cards...)
 	newStackCards := append([]gamestate.CardStack(nil), settlement.Result.StackCards...)
 	newStackCards = append(newStackCards, settlement.FirstClear.StackCards...)
+	newStackCards = append(newStackCards, settlement.Score.StackCards...)
 	newItems := append([]gamestate.Item(nil), settlement.Result.Items...)
 	newItems = append(newItems, settlement.FirstClear.Items...)
+	newItems = append(newItems, settlement.Score.Items...)
 	newSpheres := append([]gamestate.Sphere(nil), settlement.Result.Spheres...)
 	newSpheres = append(newSpheres, settlement.FirstClear.Spheres...)
+	newSpheres = append(newSpheres, settlement.Score.Spheres...)
 	newBuddies := append([]gamestate.Buddy(nil), settlement.Result.Buddies...)
 	newBuddies = append(newBuddies, settlement.FirstClear.Buddies...)
+	newBuddies = append(newBuddies, settlement.Score.Buddies...)
 	for _, fameAward := range settlement.Fame {
 		newCards = append(newCards, fameAward.Result.Cards...)
 		newStackCards = append(newStackCards, fameAward.Result.StackCards...)
@@ -856,7 +721,15 @@ func (a *API) teamBattleSoloEnd(writer http.ResponseWriter, request *http.Reques
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !a.persistOrError(writer) {
+	if payload.IsClear != 0 && a.battleHistory != nil && len(settlement.Context.ClearDecks) == 4 {
+		record := gamestate.BattleClearRecord{BossID: payload.BossID, UserID: a.initialState.User.UserID, Mode: 0,
+			CompletedAt: time.Now().Unix(), EventKey: settlement.Context.FameSeed, Decks: settlement.Context.ClearDecks}
+		if err := a.battleHistory.PersistSoloClear(a.account.Snapshot(a.initialState), record, requestDigest); err != nil {
+			a.logger.Error("persist solo clear statistics and rewards", "error", err)
+			writeError(writer, http.StatusInternalServerError, "persist solo battle result")
+			return
+		}
+	} else if !a.persistOrError(writer) {
 		return
 	}
 	a.writeProtocol(writer, json.RawMessage(encodedResponse))
@@ -1335,12 +1208,8 @@ func teamBattleSoloWithBattlePoints(
 	status game.BattlePointStatus,
 	medalCount int,
 ) (json.RawMessage, error) {
-	if status.Current < 0 || status.Max <= 0 || status.Current > status.Max {
-		return nil, errors.New("local team battle point state is invalid")
-	}
-	if medalCount < 0 {
-		return nil, errors.New("local team battle medal state is invalid")
-	}
+	// These balances come from the account, not the request. Project them as-is;
+	// recovery items can raise BP above its natural regeneration cap.
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(configuration, &top); err != nil {
 		return nil, fmt.Errorf("decode local team battle point response: %w", err)
@@ -1462,117 +1331,7 @@ func teamBattleEnemyTypes(segments []gamestate.TeamBattleReplayBattle) []int8 {
 	return enemyTypes
 }
 
-func teamBattlePartnerDeckWire(
-	userID int,
-	arthurType int8,
-	deck game.DeckInfo,
-	cards map[int64]game.CardInfo,
-	job gamestate.JobParameter,
-	avatar gamestate.Avatar,
-	spheres map[int64]gamestate.Sphere,
-	buddies map[int64]gamestate.Buddy,
-	supportUnlocked int8,
-	isBurst int8,
-) (map[string]any, error) {
-	cardDeck := make([]any, 0, len(deck.CardUniqueIDs))
-	for _, uniqueID := range deck.CardUniqueIDs {
-		card, exists := cards[uniqueID]
-		if !exists {
-			return nil, fmt.Errorf("team battle deck card %d is unavailable", uniqueID)
-		}
-		cardDeck = append(cardDeck, partnerCardWire(card))
-	}
-	if len(cardDeck) == 0 {
-		return nil, fmt.Errorf("team battle deck is empty")
-	}
-	if supportUnlocked < 0 || int(supportUnlocked) > len(deck.SupportCardUniqueIDs) {
-		return nil, fmt.Errorf("team battle support-card slot count is invalid")
-	}
-	// ProtoGen only allocates PartnerDeckInfo.support_deck when the wire list is
-	// non-empty. ClearDeck then unconditionally unions deck and support_deck, so
-	// sending [] for a profession with zero unlocked slots becomes a client-side
-	// null and aborts the view. Keep the complete fixed slot vector on the wire;
-	// support_card_unlock_slot_num remains the independent lock-state owner.
-	supportDeck := make([]any, len(deck.SupportCardUniqueIDs))
-	for index := range supportDeck {
-		uniqueID := deck.SupportCardUniqueIDs[index]
-		if uniqueID == 0 {
-			supportDeck[index] = partnerCardWire(game.CardInfo{SkillLevels: []int16{}})
-			continue
-		}
-		card, exists := cards[uniqueID]
-		if !exists {
-			return nil, fmt.Errorf("team battle support card %d is unavailable", uniqueID)
-		}
-		supportDeck[index] = partnerCardWire(card)
-	}
-	hp, attack, magic, mind := game.PartnerDeckStats(deck, cards, job)
-	if len(deck.SphereUniqueIDs) != game.DeckSphereSlots {
-		return nil, fmt.Errorf("team battle deck must contain %d sphere slots", game.DeckSphereSlots)
-	}
-	sphereDeck := make([]any, game.DeckSphereSlots)
-	for index, uniqueID := range deck.SphereUniqueIDs {
-		if uniqueID == 0 {
-			sphereDeck[index] = map[string]any{"sphrid": 0, "lv": 0}
-			continue
-		}
-		sphere, exists := spheres[uniqueID]
-		if !exists || sphere.SphereID <= 0 || sphere.Level <= 0 {
-			return nil, fmt.Errorf("team battle deck sphere %d is unavailable", uniqueID)
-		}
-		sphereDeck[index] = map[string]any{
-			"sphrid": sphere.SphereID,
-			"lv":     sphere.Level,
-		}
-	}
-	const battleBuddySlots = 5
-	buddyDeck := make([]any, battleBuddySlots)
-	for index := range buddyDeck {
-		buddyDeck[index] = map[string]any{"buddyid": 0, "lv": 0}
-	}
-	buddyIndex := 0
-	for _, uniqueID := range deck.BuddyUniqueIDs {
-		if uniqueID == 0 {
-			continue
-		}
-		buddy, exists := buddies[uniqueID]
-		if !exists {
-			return nil, fmt.Errorf("team battle deck buddy %d is unavailable", uniqueID)
-		}
-		if buddyIndex >= len(buddyDeck) {
-			return nil, fmt.Errorf("team battle deck has more than %d buddies", battleBuddySlots)
-		}
-		buddyDeck[buddyIndex] = map[string]any{
-			"buddyid": buddy.BuddyID,
-			"lv":      buddy.Level,
-		}
-		buddyIndex++
-	}
-	return map[string]any{
-		"userid":                       userID,
-		"arthur_type":                  arthurType,
-		"job_type":                     deck.JobType,
-		"is_burst":                     isBurst,
-		"hp":                           hp,
-		"atkp":                         attack,
-		"intp":                         magic,
-		"mndp":                         mind,
-		"deck":                         cardDeck,
-		"support_deck":                 supportDeck,
-		"support_card_unlock_slot_num": supportUnlocked,
-		"sphrs":                        sphereDeck,
-		"buddys":                       buddyDeck,
-		"avatar": map[string]any{
-			"costumeid":       avatar.CostumeID,
-			"avatar_partsids": append([]int(nil), avatar.AvatarPartIDs...),
-		},
-		"deck_rank":       deck.DeckRank,
-		"leader_card_idx": deck.LeaderCardIndex,
-		"name":            deck.Name,
-		"rental_idx":      deck.Index,
-		"play_log_turn":   0,
-	}, nil
-}
+var teamBattlePartnerDeckWire = game.PartnerDeckWire
 
 func selectCompletePartnerDeck(
 	decks []game.DeckInfo,
@@ -1607,16 +1366,4 @@ func selectCompletePartnerDeck(
 	return game.DeckInfo{}, false
 }
 
-func partnerCardWire(card game.CardInfo) map[string]any {
-	return map[string]any{
-		"cardid":   card.CardID,
-		"lv":       card.Level,
-		"skill_lv": append([]int16(nil), card.SkillLevels...),
-		"love":     card.Love,
-		"hp":       card.HP,
-		"atkp":     card.Attack,
-		"intp":     card.Magic,
-		"mndp":     card.Mind,
-		"fame":     card.Fame,
-	}
-}
+func partnerCardWire(card game.CardInfo) map[string]any { return game.PartnerCardWire(card) }

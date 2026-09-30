@@ -74,18 +74,28 @@ func (s *Account) ItemCount(itemID int) int {
 	return s.items[itemID].Num
 }
 
-func (s *Account) ItemShopState() ([]gamestate.ItemShopTab, map[int]int) {
+func (s *Account) ItemShopState() ([]gamestate.ItemShopTab, map[[2]int]int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	owned := make(map[int]int, len(s.items))
+	owned := make(map[[2]int]int, len(s.items)+len(s.stampIDs)+2)
 	for itemID, item := range s.items {
-		owned[itemID] = item.Num
+		owned[[2]int{1, itemID}] = item.Num
 	}
-	tabs := cloneItemShopTabs(s.itemShopTabs)
+	for id := range s.stampIDs {
+		owned[[2]int{2, id}] = 1
+	}
+	owned[[2]int{3, 0}], owned[[2]int{4, 0}] = s.cardContainerMax, s.cardMax
+	tabs := s.itemShopBaseTabs()
 	for ti := range tabs {
-		for li := range tabs[ti].Lineup {
-			tabs[ti].Lineup[li] = s.configuredItemShopLineup(tabs[ti].Lineup[li])
+		visible := tabs[ti].Lineup[:0]
+		for _, base := range tabs[ti].Lineup {
+			lineup := s.configuredItemShopLineup(base)
+			if len(lineup.Interiors) == 1 && lineup.Interiors[0].BuyType == 2 && owned[[2]int{2, lineup.Interiors[0].BuyTypeID}] != 0 {
+				continue
+			}
+			visible = append(visible, lineup)
 		}
+		tabs[ti].Lineup = visible
 	}
 	return tabs, owned
 }
@@ -142,6 +152,11 @@ type tradeShopLineupState struct {
 	IsNew       int8
 }
 
+// tradeShopOpen applies the operator switch and the optional opening window.
+func tradeShopOpen(shop gamestate.TradeShopProfile, now int64) bool {
+	return !shop.Disabled && (shop.EndTime <= 0 || now < int64(shop.EndTime)) && (shop.StartTime <= 0 || now >= int64(shop.StartTime))
+}
+
 type TradeShopState struct {
 	Profile gamestate.TradeShopProfile
 	Lineups []tradeShopLineupState
@@ -170,7 +185,7 @@ func (s *Account) tradeShopStateLocked() []TradeShopState {
 	}
 	for _, shopID := range shopIDs {
 		profile := cloneTradeShopProfile(s.tradeShopProfiles[shopID])
-		if profile.Disabled || (profile.EndTime > 0 && time.Now().Unix() >= int64(profile.EndTime)) {
+		if !tradeShopOpen(profile, time.Now().Unix()) {
 			continue
 		}
 		lineups := profile.Lineups[:0]
@@ -422,8 +437,11 @@ func (s *Account) UseItem(itemID int) (itemUseResult, error) {
 		if definition.Function == "BP_HEAL_30" {
 			heal = 30
 		}
-		s.bp = min(s.bpMax, s.bp+heal)
-		if s.bp == s.bpMax {
+		if int64(s.bp)+int64(heal) > math.MaxInt32 {
+			return itemUseResult{}, &BusinessError{-1, "体力数值过大，无法继续恢复。"}
+		}
+		s.bp += heal
+		if s.bp >= s.bpMax {
 			s.bpNextRecovery = time.Time{}
 		}
 	case "AP_HEAL_FULL", "AP_HEAL_1":
@@ -450,59 +468,90 @@ func (s *Account) UseItem(itemID int) (itemUseResult, error) {
 	}, nil
 }
 
-func (s *Account) BuyItemShop(lineupID int, buyNum int) ([]gamestate.Item, error) {
+type ItemShopBuyResult struct {
+	Items    []gamestate.Item
+	StampIDs []int
+}
+
+func (s *Account) BuyItemShop(lineupID int, buyNum int) (ItemShopBuyResult, error) {
 	if lineupID <= 0 || buyNum <= 0 {
-		return nil, errors.New("invalid item shop purchase")
+		return ItemShopBuyResult{}, errors.New("invalid item shop purchase")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var selected *gamestate.ItemShopLineup
-	for tabIndex := range s.itemShopTabs {
-		for lineupIndex := range s.itemShopTabs[tabIndex].Lineup {
-			lineup := &s.itemShopTabs[tabIndex].Lineup[lineupIndex]
+	now := time.Now()
+	tabs := s.itemShopBaseTabs()
+	for tabIndex := range tabs {
+		for lineupIndex := range tabs[tabIndex].Lineup {
+			lineup := &tabs[tabIndex].Lineup[lineupIndex]
 			if lineup.LineupID == lineupID {
-				configured := s.configuredItemShopLineup(*lineup)
+				configured := s.itemShopLineupAt(*lineup, now)
 				selected = &configured
 				break
 			}
 		}
 	}
 	if selected == nil || selected.Disabled {
-		return nil, &BusinessError{-3600, "该商品已下架，请重新选择。"}
+		return ItemShopBuyResult{}, &BusinessError{-3600, "该商品已下架，请重新选择。"}
+	}
+	if selected.StockType != 0 && buyNum > selected.StockRemain {
+		return ItemShopBuyResult{}, &BusinessError{-1, "该商品的限购次数已用完。"}
+	}
+	if int64(s.itemShopPurchases[lineupID])+int64(buyNum) > math.MaxInt32 {
+		return ItemShopBuyResult{}, errors.New("item-shop purchase count overflow")
 	}
 	if buyNum > selected.BuyNumMax {
-		return nil, &BusinessError{-1, "超过单次购买数量上限。"}
+		return ItemShopBuyResult{}, &BusinessError{-1, "超过单次购买数量上限。"}
 	}
 	if selected.PayType != 1 && selected.PayType != 3 {
-		return nil, errors.New("unsupported item shop payment type")
+		return ItemShopBuyResult{}, errors.New("unsupported item shop payment type")
 	}
 	cost := int64(selected.Price) * int64(buyNum)
 	if cost <= 0 || cost > int64(math.MaxInt) {
-		return nil, errors.New("item shop purchase cost is invalid")
+		return ItemShopBuyResult{}, errors.New("item shop purchase cost is invalid")
 	}
 	switch selected.PayType {
 	case 1:
 		if cost > int64(s.gold) {
-			return nil, ErrInsufficientGold
+			return ItemShopBuyResult{}, ErrInsufficientGold
 		}
 	case 3:
 		if cost > int64(s.coin)+int64(s.coinFree) {
-			return nil, ErrInsufficientCrystals
+			return ItemShopBuyResult{}, ErrInsufficientCrystals
 		}
 	}
-	updates := make([]gamestate.Item, 0, len(selected.Interiors))
+	result := ItemShopBuyResult{Items: []gamestate.Item{}, StampIDs: []int{}}
 	for _, interior := range selected.Interiors {
-		if interior.BuyType != 1 {
-			return nil, errors.New("unsupported item shop interior")
-		}
-		definition, exists := s.itemDefinitions[interior.BuyTypeID]
-		if !exists {
-			return nil, errors.New("unknown item shop item")
-		}
 		addition := int64(interior.Num) * int64(buyNum)
-		current := s.items[interior.BuyTypeID]
-		if addition <= 0 || int64(current.Num)+addition > int64(definition.MaxOwned) {
-			return nil, errItemCapacity
+		if addition <= 0 || addition > math.MaxInt32 {
+			return ItemShopBuyResult{}, errors.New("invalid product quantity")
+		}
+		switch interior.BuyType {
+		case 1:
+			definition, exists := s.itemDefinitions[interior.BuyTypeID]
+			if !exists {
+				return ItemShopBuyResult{}, errors.New("unknown item shop item")
+			}
+			if int64(s.items[interior.BuyTypeID].Num)+addition > int64(definition.MaxOwned) {
+				return ItemShopBuyResult{}, errItemCapacity
+			}
+		case 2:
+			_, known := s.collectionRewardIDs[[2]int{16, interior.BuyTypeID}]
+			_, owned := s.stampIDs[interior.BuyTypeID]
+			if !known || owned || addition != 1 {
+				return ItemShopBuyResult{}, &BusinessError{-1, "表情不存在或已经拥有。"}
+			}
+		case 3:
+			if int64(s.cardContainerMax)+addition > CardCapacityLimit {
+				return ItemShopBuyResult{}, &BusinessError{-1, "卡牌仓库容量已达到可扩展上限。"}
+			}
+		case 4:
+			if int64(s.cardMax)+addition > CardCapacityLimit {
+				return ItemShopBuyResult{}, &BusinessError{-1, "卡牌容量已达到可扩展上限。"}
+			}
+		default:
+			return ItemShopBuyResult{}, errors.New("unsupported item shop interior")
 		}
 	}
 	switch selected.PayType {
@@ -513,17 +562,29 @@ func (s *Account) BuyItemShop(lineupID int, buyNum int) ([]gamestate.Item, error
 		s.coinFree -= freeSpend
 		s.coin -= int(cost) - freeSpend
 	}
-	for _, interior := range selected.Interiors {
-		current := s.items[interior.BuyTypeID]
-		current.ItemID = interior.BuyTypeID
-		current.Num += interior.Num * buyNum
-		s.items[current.ItemID] = current
-		updates = append(updates, current)
+	for _, entry := range selected.Interiors {
+		switch entry.BuyType {
+		case 1:
+			current := s.items[entry.BuyTypeID]
+			current.ItemID = entry.BuyTypeID
+			current.Num += entry.Num * buyNum
+			s.items[current.ItemID] = current
+			result.Items = append(result.Items, current)
+		case 2:
+			if s.stampIDs == nil {
+				s.stampIDs = map[int]struct{}{}
+			}
+			s.stampIDs[entry.BuyTypeID] = struct{}{}
+			result.StampIDs = append(result.StampIDs, entry.BuyTypeID)
+		case 3:
+			s.cardContainerMax += entry.Num * buyNum
+		case 4:
+			s.cardMax += entry.Num * buyNum
+		}
 	}
-	sort.Slice(updates, func(left, right int) bool {
-		return updates[left].ItemID < updates[right].ItemID
-	})
-	return updates, nil
+	sort.Slice(result.Items, func(i, j int) bool { return result.Items[i].ItemID < result.Items[j].ItemID })
+	s.recordItemShopPurchase(lineupID, buyNum, now)
+	return result, nil
 }
 
 type eventShopBuyResult struct {
@@ -615,7 +676,7 @@ func (s *Account) BuyTradeShop(lineupID int, num int, uniqueIDs []int64) (tradeS
 
 	var selected *gamestate.TradeShopLineupProfile
 	for _, shop := range s.tradeShopProfiles {
-		if shop.Disabled || (shop.EndTime > 0 && time.Now().Unix() >= int64(shop.EndTime)) {
+		if !tradeShopOpen(shop, time.Now().Unix()) {
 			continue
 		}
 		for index := range shop.Lineups {

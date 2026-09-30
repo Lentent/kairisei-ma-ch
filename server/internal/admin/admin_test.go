@@ -16,7 +16,7 @@ import (
 func TestAdminMissingBossImageUsesTextFallback(t *testing.T) {
 	root := t.TempDir()
 	url := "/assets/boss/60600204.webp"
-	if image, err := adminBossImageURL(root, url); err != nil || image != "" {
+	if image, err := adminOptionalImageURL(root, url); err != nil || image != "" {
 		t.Fatalf("missing decorative image blocks the server: %q %v", image, err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "boss"), 0700); err != nil {
@@ -25,10 +25,10 @@ func TestAdminMissingBossImageUsesTextFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "boss", "60600204.webp"), []byte("image"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if image, err := adminBossImageURL(root, url); err != nil || image != url {
+	if image, err := adminOptionalImageURL(root, url); err != nil || image != url {
 		t.Fatalf("existing image was hidden: %q %v", image, err)
 	}
-	if _, err := adminBossImageURL(root, "/assets/../../outside.webp"); err == nil {
+	if _, err := adminOptionalImageURL(root, "/assets/../../outside.webp"); err == nil {
 		t.Fatal("unsafe image path accepted as a missing thumbnail")
 	}
 }
@@ -98,6 +98,21 @@ func TestAdminAccountListDoesNotDecodeSnapshots(t *testing.T) {
 	rows, total, err := accounts.QueryFilteredAccounts(accountstore.AccountFilter{Binding: "guest", Search: guest.LoginUUID}, 10, 0)
 	if err != nil || total != 1 || rows[0].Username != "" {
 		t.Fatal("guest binding filter", err)
+	}
+	bound, _, err := accounts.QueryFilteredAccounts(accountstore.AccountFilter{Binding: "bound"}, 1, 0)
+	if err != nil || len(bound) != 1 {
+		t.Fatal("bound account lookup", err)
+	}
+	for _, c := range []struct {
+		filter accountstore.AccountFilter
+		want   int
+	}{
+		{accountstore.AccountFilter{Binding: "bound", LevelMin: bound[0].Level, LevelMax: bound[0].Level, ArthurType: bound[0].ArthurType, Sort: "level"}, 1},
+		{accountstore.AccountFilter{Binding: "bound", LevelMin: bound[0].Level + 1}, 0},
+	} {
+		if rows, total, err := accounts.QueryFilteredAccounts(c.filter, 10, 0); err != nil || total != c.want || len(rows) != c.want {
+			t.Fatalf("level/job filter %+v: %d rows, total %d, %v", c.filter, len(rows), total, err)
+		}
 	}
 	rows, total, err = accounts.QueryFilteredAccounts(accountstore.AccountFilter{ActiveOnly: true}, 10, 0)
 	if err != nil || total != 0 || len(rows) != 0 {

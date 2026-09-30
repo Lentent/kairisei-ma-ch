@@ -146,13 +146,16 @@ func (s *Account) DecomposeCard(uniqueID int64, decomposeType int) (int, []DeckI
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := cardIndexByUniqueID(s.cards, uniqueID)
-	if index < 0 || s.cards[index].IsLock != 0 {
-		return 0, nil, errors.New("card decomposition target is unavailable")
+	if index < 0 {
+		return 0, nil, ErrCardUnavailable
+	}
+	if s.cards[index].IsLock != 0 {
+		return 0, nil, ErrCardLocked
 	}
 	card := s.cards[index]
 	rule, exists := s.cardDevelopmentRules[card.CardID]
-	if !exists || rule.DevelopmentType != cardDevelopmentDecompose || rule.DecomposeRadix <= 0 {
-		return 0, nil, errors.New("card is not decomposable")
+	if !exists || rule.DevelopmentType != cardDevelopmentDecompose || rule.DecomposeRadix < 0 {
+		return 0, nil, &BusinessError{-1, "该卡牌不能分解。"}
 	}
 	fame := card.Fame
 	if fame < 1 {
@@ -162,11 +165,13 @@ func (s *Account) DecomposeCard(uniqueID int64, decomposeType int) (int, []DeckI
 	if decomposeType == cardDecomposeFame {
 		consumedFame--
 		if consumedFame <= 0 {
-			return 0, nil, errors.New("card has no decomposable fame")
+			return 0, nil, &BusinessError{-1, "该卡牌没有可分解的额外名声。"}
 		}
 	}
 	gain := int64(rule.DecomposeRadix) * int64(consumedFame)
-	if gain <= 0 || gain > math.MaxInt || int64(s.stive)+gain > math.MaxInt {
+	// Native DevChecker gates on dev_type and lock, not reward amount. Zero
+	// dust is a valid confirmed decomposition and must keep the balance intact.
+	if gain < 0 || gain > math.MaxInt || int64(s.stive)+gain > math.MaxInt {
 		return 0, nil, errors.New("card decomposition stive overflow")
 	}
 	if decomposeType == cardDecomposeFame {
@@ -308,12 +313,8 @@ func (s *Account) HowToGetCards(cardIDs []int, profiles []gamestate.TeamBattleRe
 	defer s.mu.RUnlock()
 	seen := make(map[int]struct{}, len(cardIDs))
 	result := make([]howToGetCardList, len(cardIDs))
-	visibleGachas := s.VisibleGachasLocked()
-	battleSources, err := s.battleCardSourcesLocked(profiles, allowedGroups)
-	if err != nil {
-		return nil, err
-	}
-	for index, cardID := range cardIDs {
+	sources := make(cardSourceIndex, len(cardIDs))
+	for _, cardID := range cardIDs {
 		_, cardExists := s.cardDefinitions[cardID]
 		_, stackExists := s.stackCardTemplates[cardID]
 		_, developmentExists := s.cardDevelopmentRules[cardID]
@@ -326,29 +327,30 @@ func (s *Account) HowToGetCards(cardIDs []int, profiles []gamestate.TeamBattleRe
 			return nil, fmt.Errorf("duplicate card acquisition query %d", cardID)
 		}
 		seen[cardID] = struct{}{}
-		entries := append([]howToGetCardEntry{}, battleSources[cardID]...)
-		for _, transition := range s.cardActions.EvolutionTransitions {
-			if transition.ToCardID != cardID {
+		sources[cardID] = make(map[howToGetCardEntry]struct{})
+	}
+	if err := s.battleCardSourcesLocked(profiles, allowedGroups, sources); err != nil {
+		return nil, err
+	}
+	s.gachaCardSourcesLocked(sources)
+	s.exchangeCardSourcesLocked(sources)
+	s.missionCardSourcesLocked(sources)
+	for _, transition := range s.cardActions.EvolutionTransitions {
+		if s.evolutionRestrictions != nil {
+			if _, blocked := s.evolutionRestrictions.blocked[EvolutionPath{transition.FromCardID, transition.ToCardID}]; blocked {
 				continue
 			}
-			typeID := 4 + transition.Type
-			if transition.Type == 3 {
-				typeID = 12
-			}
-			entries = append(entries, howToGetCardEntry{Type: typeID, ContentID: transition.FromCardID})
 		}
-		for _, gacha := range visibleGachas {
-			for _, poolCardID := range gacha.CardIDs {
-				if poolCardID != cardID {
-					continue
-				}
-				entries = append(entries, howToGetCardEntry{
-					Type:      7,
-					ContentID: gacha.GachaID,
-					Text:      gacha.Name,
-				})
-				break
-			}
+		typeID := 4 + transition.Type
+		if transition.Type == 3 {
+			typeID = 12
+		}
+		sources.add(transition.ToCardID, howToGetCardEntry{Type: typeID, ContentID: transition.FromCardID})
+	}
+	for index, cardID := range cardIDs {
+		entries := make([]howToGetCardEntry, 0, len(sources[cardID]))
+		for entry := range sources[cardID] {
+			entries = append(entries, entry)
 		}
 		sort.Slice(entries, func(left, right int) bool {
 			if entries[left].Type != entries[right].Type {

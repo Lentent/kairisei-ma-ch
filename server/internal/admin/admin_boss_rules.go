@@ -43,6 +43,13 @@ func (c *contentStore) defaultBossRules(id int) (bossRuleEntry, bool) {
 }
 
 func (c *contentStore) validateBossRules(rule BossRules) error {
+	if rule.Continue {
+		for _, p := range c.base.TeamBattleRewards {
+			if p.BossID == rule.BossID && p.ScorePolicy != nil {
+				return errors.New("圣剑杯计分战斗不允许复活")
+			}
+		}
+	}
 	base, ok := c.defaultBossRules(rule.BossID)
 	if !ok {
 		return errors.New("该难度不支持运营规则配置")

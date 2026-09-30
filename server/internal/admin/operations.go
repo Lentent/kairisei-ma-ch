@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -70,6 +71,11 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 }
 
 type Operations struct {
+	evolutionEdges          map[game.EvolutionPath]int
+	evolutionClosed         []game.EvolutionPath
+	evolutionRevision       int
+	evolutionPolicy         *game.EvolutionRestrictions
+	maintenance             maintenanceGate
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
@@ -78,14 +84,19 @@ type Operations struct {
 	runtimeSettings         game.RuntimeSettings
 	runtimeSettingsRevision int
 	itemShopBases           []gamestate.ItemShopLineup
+	itemShopProducts        map[[2]int]gamestate.ItemDefinition
 	storage                 *accountstore.Database
 	configMu                sync.RWMutex
 	gachaBases              map[int]gamestate.GachaProfile
+	gachaCardJobs           map[int]int8
 	gachaConfigurations     []game.GachaConfiguration
 	gachaRevision           uint64
 	managedGachaGroups      map[int]struct{}
 	managedGachaGroupByID   map[int]int
 	defaultGachaPublication map[int]struct{}
+	customGachas            map[int]customGachaPool
+	customGachaRevision     int
+	customGachaNextID       int
 }
 
 func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfile) (*Operations, error) {
@@ -127,6 +138,14 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 	if err != nil {
 		return nil, err
 	}
+	operations.gachaCardJobs = map[int]int8{}
+	operations.evolutionEdges = map[game.EvolutionPath]int{}
+	for _, edge := range catalog.CardActions.EvolutionTransitions {
+		operations.evolutionEdges[game.EvolutionPath{FromCardID: edge.FromCardID, ToCardID: edge.ToCardID}] = edge.Type
+	}
+	for id, card := range catalog.DeckRankPolicy.Cards {
+		operations.gachaCardJobs[id] = card.ArthurType
+	}
 	for _, tab := range catalog.ItemShopTabs {
 		for _, lineup := range tab.Lineup {
 			if !lineup.Hidden {
@@ -134,10 +153,30 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 			}
 		}
 	}
+	operations.itemShopProducts = map[[2]int]gamestate.ItemDefinition{}
+	for _, item := range catalog.ItemDefinitions {
+		operations.itemShopProducts[[2]int{1, item.ItemID}] = item
+	}
+	for _, reward := range catalog.CollectionRewards {
+		if reward.Type == 16 {
+			operations.itemShopProducts[[2]int{2, reward.ID}] = gamestate.ItemDefinition{ItemID: reward.ID, Name: reward.Name, MaxOwned: 1}
+		}
+	}
+	operations.itemShopProducts[[2]int{3, 0}] = gamestate.ItemDefinition{Name: "卡牌仓库扩容", MaxOwned: gamestate.CardCapacityLimit}
+	operations.itemShopProducts[[2]int{4, 0}] = gamestate.ItemDefinition{Name: "卡牌持有上限扩容", MaxOwned: gamestate.CardCapacityLimit}
+	if err := operations.loadCustomGachas(); err != nil {
+		return nil, err
+	}
 	if err := operations.reloadGachaConfigurations(); err != nil {
 		return nil, err
 	}
 	if err := operations.loadRuntimeSettings(); err != nil {
+		return nil, err
+	}
+	if err := operations.loadMaintenance(); err != nil {
+		return nil, err
+	}
+	if err := operations.loadEvolutionRestrictions(); err != nil {
 		return nil, err
 	}
 	return operations, nil
@@ -149,6 +188,8 @@ func (operations *Operations) setGachaPublication(publication gachaPublication) 
 	}
 	sort.Ints(publication.GroupIDs)
 	unique := publication.GroupIDs[:0]
+	operations.configMu.RLock()
+	defer operations.configMu.RUnlock()
 	for _, groupID := range publication.GroupIDs {
 		if _, exists := operations.managedGachaGroups[groupID]; !exists {
 			return accountstore.Document{}, fmt.Errorf("unknown managed CN gacha group %d", groupID)
@@ -158,6 +199,23 @@ func (operations *Operations) setGachaPublication(publication gachaPublication) 
 		}
 	}
 	publication.GroupIDs = unique
+	// A deleted operator pool stays hidden by its configuration. Keeping it in an existing publication lets a
+	// restore bring it back as before; only newly opening a deleted pool is refused.
+	current, err := operations.storage.ReadDocument(gachaPublicationKey)
+	if err != nil {
+		return accountstore.Document{}, err
+	}
+	var saved gachaPublication
+	if current.Revision > 0 {
+		if err := json.Unmarshal(current.Payload, &saved); err != nil {
+			return accountstore.Document{}, fmt.Errorf("decode CN gacha publication: %w", err)
+		}
+	}
+	for _, groupID := range unique {
+		if pool, custom := operations.customGachaByGroup(groupID); custom && pool.Deleted && !slices.Contains(saved.GroupIDs, groupID) {
+			return accountstore.Document{}, fmt.Errorf("卡池 %d 已删除，恢复后才能开启", pool.GachaID)
+		}
+	}
 	expected := *publication.ExpectedRevision
 	publication.ExpectedRevision = nil
 	publication.CatalogVersion = 2
@@ -173,6 +231,8 @@ func (operations *Operations) GachaPublication() (map[int]struct{}, error) {
 }
 
 func (operations *Operations) gachaPublicationFromDocument(doc accountstore.Document) (map[int]struct{}, error) {
+	operations.configMu.RLock()
+	defer operations.configMu.RUnlock()
 	if doc.Revision == 0 {
 		return cloneIntSet(operations.defaultGachaPublication), nil
 	}
@@ -220,7 +280,7 @@ func (operations *Operations) GachaIDPublished(gachaID int, active map[int]struc
 	}
 	groupID, managed := operations.managedGachaGroupByID[gachaID]
 	if !managed {
-		return true
+		return gachaID == 90000100 || gachaID == 90000200
 	}
 	_, published := active[groupID]
 	return published
@@ -278,5 +338,16 @@ func (operations *Operations) writeDocument(key string, expected int, value any)
 }
 
 func (operations *Operations) ManagedGroups() map[int]struct{} {
+	operations.configMu.RLock()
+	defer operations.configMu.RUnlock()
 	return cloneIntSet(operations.managedGachaGroups)
+}
+
+func (operations *Operations) customGachaByGroup(groupID int) (customGachaPool, bool) {
+	for _, pool := range operations.customGachas {
+		if pool.GroupID == groupID {
+			return pool, true
+		}
+	}
+	return customGachaPool{}, false
 }

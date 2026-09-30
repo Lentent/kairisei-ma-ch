@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -55,6 +56,12 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 	testfixture.CallContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
 	bad.TutorialMail.Rewards = append(config.TutorialMail.Rewards, config.TutorialMail.Rewards[0])
 	testfixture.CallContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
+	bad = config
+	bad.Notice.StartUnix, bad.Notice.EndUnix = 2000, 1000
+	testfixture.CallContentAdmin(t, r, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": bad}, 400)
+	if now := time.Now().Unix(); (noticePolicy{Enabled: true, StartUnix: now + 60}).visible(now) || !(noticePolicy{Enabled: true, EndUnix: now + 60}).visible(now) || (noticePolicy{Enabled: true, EndUnix: now}).visible(now) {
+		t.Fatal("notice display window not applied")
+	}
 	w := httptest.NewRecorder()
 	o.LocalNotice(w, httptest.NewRequest("GET", "/", nil))
 	if strings.Contains(w.Body.String(), "<script>") || !strings.Contains(w.Body.String(), "活动公告") {

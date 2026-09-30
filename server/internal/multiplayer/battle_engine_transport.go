@@ -59,6 +59,7 @@ const (
 	resultAddCardBuff       = 324
 	resultCardBuff          = 325
 	resultAttackPartition   = 502
+	resultLimitTurn         = 503
 	resultBurstStateChange  = 504
 	resultBurstState        = 505
 	resultBurstGaugeState   = 506

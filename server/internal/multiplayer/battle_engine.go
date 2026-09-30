@@ -13,6 +13,9 @@ func (engine *BattleEngine) Start() ([]BattleResult, error) {
 		return nil, errors.New("combat start phase is unavailable")
 	}
 	results := make([]BattleResult, 0, 70)
+	if engine.endTurn > 0 {
+		results = append(results, BattleResult{Command: resultLimitTurn, Args: []int64{int64(engine.endTurn)}})
+	}
 	results = append(results, engine.waveRecovery...)
 	// Start's 62af0 -> a50c4 also repairs a non-retired zero-HP initial user.
 	// Recovery rows precede CARD identities in the transport packet.

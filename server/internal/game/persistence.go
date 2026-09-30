@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"maps"
 	"sort"
 	"time"
 
@@ -64,6 +65,7 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 	state.User.Coin = s.coin
 	state.User.CoinFree = s.coinFree
 	state.User.CardMax = s.cardMax
+	state.User.CardContainerMax = s.cardContainerMax
 	state.User.PVPPoint = s.pvpPoint
 	state.PVP = ClonePVPState(s.pvp)
 	state.Spheres = append([]gamestate.Sphere{}, s.spheres...)
@@ -83,7 +85,9 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 		return state.Items[left].ItemID < state.Items[right].ItemID
 	})
 	state.ItemShopTabs = cloneItemShopTabs(s.itemShopTabs)
+	s.snapshotItemShopProgress(&state)
 	state.Gachas = CloneGachaProfiles(s.gachas)
+	state.OperatorGachaPlays = maps.Clone(s.operatorGachaPlays)
 	state.GachaSelections = make([]gamestate.GachaSelection, 0, len(s.gachaSelections))
 	for gachaID, rewards := range s.gachaSelections {
 		state.GachaSelections = append(state.GachaSelections, gamestate.GachaSelection{
@@ -135,6 +139,7 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 	state.Onboarding = s.onboarding
 	state.User.AP = s.ap
 	state.Explore.Active = s.exploreActive
+	state.Explore.ActiveRewards = s.exploreActiveRewards
 	state.Explore.ArthurType = s.exploreArthurType
 	state.Explore.DeckIndex = s.exploreDeckIndex
 	state.Explore.Stages = cloneExploreStages(s.exploreStages)

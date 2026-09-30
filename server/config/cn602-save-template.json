@@ -98,7 +98,7 @@
     "bp": 20,
     "bp_max": 20,
     "card_max": 6000,
-    "card_container_max": 200,
+    "card_container_max": 3000,
     "sphere_max": 500,
     "friend_max": 20,
     "buddy_max": 500,

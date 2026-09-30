@@ -154,6 +154,7 @@ func assembleApplication(config Config) (*application, error) {
 			PVP:                 pvpConfig,
 			PVPAccounts:         accountStore,
 			FriendPointAccounts: accountStore,
+			BattleHistory:       accountStore,
 			BattleSV:            config.Network.BattleSV,
 			Multiplayer:         config.Multiplayer,
 		}, prepareRuntimeState)

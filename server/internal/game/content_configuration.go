@@ -21,6 +21,8 @@ func ApplyContentState(state gamestate.State, config ContentConfiguration) games
 		return state
 	}
 	state.TeamBattleRewards = config.State.TeamBattleRewards
+	state.TeamBattleReplays = config.State.TeamBattleReplays
+	state.Explore.Events = config.State.Explore.Events
 	state.TeamBattleSolo = teamBattleCatalogWithProgress(config.State.TeamBattleSolo, state.TeamBattleSolo)
 	state.TeamBattlePastBossGroups = config.State.TeamBattlePastBossGroups
 	state.DisabledTeamBattleBossIDs = config.State.DisabledTeamBattleBossIDs

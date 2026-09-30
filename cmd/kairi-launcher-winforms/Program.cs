@@ -181,7 +181,7 @@ namespace KairiseiLauncher
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Location = new Point(160, 31), Size = new Size(260, 34)
             };
-            mode.Items.AddRange(new object[] { "Android 模拟器", "局域网", "公网 IPv4" });
+            mode.Items.AddRange(new object[] { "Android 模拟器", "局域网", "公网 IP / 域名" });
             mode.SelectedIndex = 0;
             mode.SelectedIndexChanged += delegate { ApplyMode(); };
             settings.Controls.Add(mode);
@@ -309,9 +309,9 @@ namespace KairiseiLauncher
             try
             {
                 var defaults = serializer.Deserialize<DeploymentDefaults>(File.ReadAllText(path, Encoding.UTF8));
-                var parsed = defaults == null ? null : ParseIPv4(defaults.advertise_host);
+                var parsed = defaults == null ? null : NormalizeHost(defaults.advertise_host);
                 if (parsed == null || defaults.port < 1 || defaults.port > 65533) return;
-                packagedHost = parsed.ToString();
+                packagedHost = parsed;
                 packagedPort = defaults.port;
                 validationOnly = defaults.validation_only;
                 if (validationOnly) Text += " · 测试包";
@@ -322,11 +322,12 @@ namespace KairiseiLauncher
 
         private void RestoreDeploymentDefaults()
         {
-            var parsed = ParseIPv4(packagedHost);
-            if (parsed == null) return;
-            mode.SelectedIndex = parsed.ToString() == "10.0.2.2"
-                ? 0 : IsPrivate(parsed) ? 1 : 2;
-            address.Text = parsed.ToString();
+            var host = NormalizeHost(packagedHost);
+            if (host == null) return;
+            var parsed = ParseIPv4(host);
+            mode.SelectedIndex = host == "10.0.2.2"
+                ? 0 : parsed != null && IsPrivate(parsed) ? 1 : 2;
+            address.Text = host;
             port.Value = Math.Max(port.Minimum, Math.Min(port.Maximum, packagedPort));
             UpdateClientConfig();
         }
@@ -351,14 +352,14 @@ namespace KairiseiLauncher
             {
                 address.Enabled = true;
                 var current = ParseIPv4(address.Text);
-                if (current == null || current.ToString() == "10.0.2.2")
+                if (NormalizeHost(address.Text) == null || (current != null && current.ToString() == "10.0.2.2"))
                     address.Text = address.Items.Count > 0 ? address.Items[0].ToString() : "192.168.1.100";
-                hint.Text = "填写客户端可访问的 IPv4，支持虚拟局域网及内网穿透。\r\n需放行或映射 TCP 主端口和战斗端口。";
+                hint.Text = "填写客户端可访问的 IPv4 或域名，支持虚拟局域网及内网穿透。\r\n需放行或映射 TCP 主端口和战斗端口。";
             }
             else
             {
                 address.Enabled = true;
-                hint.Text = "填写这台服务器的公网 IPv4。\r\n需映射 TCP 主端口与战斗端口；Admin 不会公网开放。";
+                hint.Text = "填写这台服务器的公网 IPv4 或域名。\r\n需映射 TCP 主端口与战斗端口；Admin 不会公网开放。";
             }
             UpdateClientConfig();
         }
@@ -371,9 +372,24 @@ namespace KairiseiLauncher
 
         private string ValidateAddress()
         {
-            var parsed = ParseIPv4(address.Text);
-            if (parsed == null) throw new InvalidOperationException("连接地址必须是有效的 IPv4 地址。");
-            return parsed.ToString();
+            var host = NormalizeHost(address.Text);
+            if (host == null) throw new InvalidOperationException("连接地址必须是有效的 IPv4 或域名；端口请在下方填写。");
+            return host;
+        }
+
+        private static string NormalizeHost(string text)
+        {
+            string host = (text ?? "").Trim().ToLowerInvariant();
+            if (host.Length == 0 || host.Length > 253) return null;
+            if (System.Text.RegularExpressions.Regex.IsMatch(host, "^[0-9.]+$"))
+            {
+                if (!System.Text.RegularExpressions.Regex.IsMatch(host, @"^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$")) return null;
+                var ip = ParseIPv4(host);
+                if (ip == null || ip.GetAddressBytes()[0] == 0 || ip.GetAddressBytes()[0] >= 224) return null;
+            }
+            else foreach (string label in host.Split('.'))
+                if (!System.Text.RegularExpressions.Regex.IsMatch(label, "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")) return null;
+            return host;
         }
 
         private void UpdateClientConfig()
@@ -471,12 +487,13 @@ namespace KairiseiLauncher
                 if (initial)
                 {
                     port.Value = Math.Max(port.Minimum, Math.Min(port.Maximum, state.port));
-                    var runningAddress = ParseIPv4(state.advertise_host);
-                    if (runningAddress != null)
+                    var runningHost = NormalizeHost(state.advertise_host);
+                    if (runningHost != null)
                     {
-                        mode.SelectedIndex = runningAddress.ToString() == "10.0.2.2"
-                            ? 0 : IsPrivate(runningAddress) ? 1 : 2;
-                        address.Text = runningAddress.ToString();
+                        var runningAddress = ParseIPv4(runningHost);
+                        mode.SelectedIndex = runningHost == "10.0.2.2"
+                            ? 0 : runningAddress != null && IsPrivate(runningAddress) ? 1 : 2;
+                        address.Text = runningHost;
                     }
                 }
                 activity.Text = operationMessage + "\r\n服务运行中（PID " + state.process_id + "）\r\n客户端填写：" + state.advertise_host + ":" + state.port;

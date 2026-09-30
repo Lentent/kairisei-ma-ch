@@ -11,7 +11,9 @@ type BattleEngine struct {
 	seed             uint32
 	rng              xorShift128
 	turn             int
-	elapsedWaveTurns int // 5d08e's total turn survives Start; 5d077's wave turn does not.
+	endTurn          int
+	memberDeadEnd    bool // Original battle5_api_member_dead_end_set; SCORE mode.
+	elapsedWaveTurns int  // 5d08e's total turn survives Start; 5d077's wave turn does not.
 	costInitial      int
 	costTurnOffset   int
 	holdMax          int
@@ -289,6 +291,11 @@ func newBattleEngine(catalog *CombatCatalog, spec RoomSpec, members []Member) (*
 		costInitial: spec.CostInitial, holdMax: spec.HoldMax, continueAllowed: spec.ContinueAllowed,
 		phase: battlePhaseCreated, selectedPlays: make(map[int]cardPlaySubmission, maxRoomMembers),
 		enemyUses: make(map[int]int), openingDraw: new([4][10]bool),
+	}
+	if spec.ScorePolicy != nil {
+		engine.endTurn = spec.ScorePolicy.EndTurn
+		engine.memberDeadEnd = spec.ScorePolicy.MemberDeadEnd
+		engine.continueAllowed = false
 	}
 	seenMemberTypes := make(map[int]struct{}, maxRoomMembers)
 	for _, member := range members {

@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"kairisei.local/server/internal/gamestate"
@@ -11,7 +12,9 @@ import (
 // GachaConfiguration is supplied by the local operations store, under the
 // account request lock. Player counters and daily claims remain account-owned.
 type GachaConfiguration struct {
-	Disabled  bool
+	Disabled bool
+	// Operator marks an operator-created pool that is not part of the catalog; accounts append it.
+	Operator  bool
 	Profile   gamestate.GachaProfile
 	StartUnix int64
 	EndUnix   int64
@@ -27,12 +30,36 @@ func (s *Account) ApplyGachaConfiguration(revision uint64, configs []GachaConfig
 	if s.gachaRevision == revision {
 		return
 	}
+	listed := make(map[int]bool, len(configs))
+	for _, config := range configs {
+		listed[config.Profile.GachaID] = true
+	}
+	s.gachas = slices.DeleteFunc(s.gachas, func(profile gamestate.GachaProfile) bool {
+		if profile.PublicationKey != "operator" || listed[profile.GachaID] {
+			return false
+		}
+		delete(s.operatorGachaPlays, profile.GachaID)
+		delete(s.gachaSelections, profile.GachaID)
+		delete(s.gachaDailyClaims, profile.GachaID)
+		return true
+	})
 	for _, config := range configs {
 		current := findGachaProfile(s.gachas, config.Profile.GachaID)
+		if current == nil && config.Operator {
+			profile := CloneGachaProfiles([]gamestate.GachaProfile{config.Profile})[0]
+			profile.PublicationKey = "operator"
+			profile.PlayCount = s.operatorGachaPlays[profile.GachaID]
+			delete(s.operatorGachaPlays, profile.GachaID)
+			s.gachas = append(s.gachas, profile)
+			continue
+		}
 		if current == nil || isOnboardingGachaID(current.GachaID) {
 			continue
 		}
 		profile := CloneGachaProfiles([]gamestate.GachaProfile{config.Profile})[0]
+		if config.Operator {
+			profile.PublicationKey = "operator"
+		}
 		profile.PlayCount = current.PlayCount
 		*current = profile
 		if validateGachaSelection(profile, s.gachaSelections[profile.GachaID]) != nil {

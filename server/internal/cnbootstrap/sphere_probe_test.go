@@ -46,6 +46,7 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		t.Fatal(err)
 	}
 	state.Onboarding.Step = masterdata.OnboardingStepCount
+	state.User.CardContainerMax = 200 // Existing accounts migrate on handler preparation.
 	state.User.Gold = 1000000
 	state.Items = append(state.Items, gamestate.Item{ItemID: 7025, Num: 550})
 	for _, stack := range cards.StackCardTemplates {
@@ -90,6 +91,9 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	}
 	call("/ItemExchange", map[string]int{"itemid": 7025, "change_sets": 10}, 0)
 	state = load()
+	if state.User.CardContainerMax != 3000 {
+		t.Fatalf("legacy warehouse capacity=%d, want 3000", state.User.CardContainerMax)
+	}
 	if len(state.Spheres) != 10 {
 		t.Fatalf("fragment exchange gave %d spheres", len(state.Spheres))
 	}
@@ -200,6 +204,7 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 	}
 	state.Onboarding.Step = masterdata.OnboardingStepCount
 	state.User.Name = "InventoryTest"
+	state.User.CardContainerMax = 4000 // An existing larger capacity must survive.
 	state.Buddies = nil
 	if len(cards.BuddySeedTemplates) == 0 {
 		t.Fatal("missing buddy template")
@@ -225,6 +230,9 @@ func auditCompleteSpheres(t *testing.T, handler http.Handler, savePath, seedPath
 		t.Fatal("over-capacity account not logged in")
 	}
 	call("/BuddyShow", nil, 0)
+	if load().User.CardContainerMax != 4000 {
+		t.Fatal("warehouse migration reduced an existing larger capacity")
+	}
 	mailCount := len(load().Engagement.Presents)
 	if mailCount == 0 {
 		t.Fatal("full buddy inventory lost initial sword rewards")

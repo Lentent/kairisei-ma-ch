@@ -24,7 +24,7 @@ func TestAdminPublicationRejectsStalePages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			admin := &API{operations: operations, knownGroups: map[int]struct{}{1: {}, 2: {}}, knownGachaGroups: operations.managedGachaGroups}
+			admin := &API{operations: operations, knownGroups: map[int]struct{}{1: {}, 2: {}}}
 			get, put := admin.bossPolicy, admin.setBossPolicy
 			key := teamBattlePublicationKey
 			if kind == "gacha" {

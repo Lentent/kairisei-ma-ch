@@ -17,13 +17,15 @@ func (a *API) coinUse(writer http.ResponseWriter, request *http.Request) {
 		a.writeStoreError(writer, err)
 		return
 	}
-	if payload.Type != game.CoinUseCardExtend && payload.Param != 0 {
+	if payload.Type != game.CoinUseCardExtend && payload.Type != game.CoinUseCardContainerExtend && payload.Param != 0 {
 		writeError(writer, http.StatusBadRequest, "unsupported coin-use parameter")
 		return
 	}
 	var err error
 	if payload.Type == game.CoinUseCardExtend {
 		err = a.account.ExtendCardCapacity(payload.Param)
+	} else if payload.Type == game.CoinUseCardContainerExtend {
+		err = a.account.ExtendCardContainerCapacity(payload.Param)
 	} else {
 		err = a.account.FullHealWithCrystals(payload.Type)
 	}

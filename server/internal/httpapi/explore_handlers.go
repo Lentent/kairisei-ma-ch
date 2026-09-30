@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +27,17 @@ func (a *API) exploreStart(writer http.ResponseWriter, request *http.Request) {
 	}
 	a.clientResultMu.Lock()
 	defer a.clientResultMu.Unlock()
-	ap, leaderCardID, avatar, stage, started := a.account.BeginExplore(arthurType, deckIndex)
+	var seed [32]byte
+	if _, err := rand.Read(seed[:]); err != nil {
+		writeError(writer, http.StatusInternalServerError, "prepare Explore rewards")
+		return
+	}
+	events, rewards, err := planExploreRewards(a.initialState.Explore.Events, seed[:])
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ap, leaderCardID, avatar, stage, started := a.account.BeginExplore(arthurType, deckIndex, rewards)
 	if !started {
 		writeError(writer, http.StatusBadRequest, "Explore points are empty or an exploration is already active")
 		return
@@ -42,7 +53,7 @@ func (a *API) exploreStart(writer http.ResponseWriter, request *http.Request) {
 		"leader_cardid": leaderCardID,
 		"stage":         stage,
 		"floor_rarity":  a.initialState.Explore.FloorRarity,
-		"events":        a.initialState.Explore.Events,
+		"events":        events,
 		"avatar":        avatar,
 	})
 }

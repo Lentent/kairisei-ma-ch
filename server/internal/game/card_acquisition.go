@@ -2,46 +2,75 @@ package game
 
 import (
 	"encoding/json"
+	"fmt"
+	"math"
+	"slices"
 	"strings"
+	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
 
-func (s *Account) battleCardSourcesLocked(profiles []gamestate.TeamBattleRewardProfile, allowedGroups map[int]struct{}) (map[int][]howToGetCardEntry, error) {
-	result := map[int][]howToGetCardEntry{}
-	if len(profiles) == 0 || len(s.teamBattleSolo) == 0 {
-		return result, nil
+// Only retain rows for the requested card IDs, rather than allocating an
+// index of every obtainable card for each detail-window request.
+type cardSourceIndex map[int]map[howToGetCardEntry]struct{}
+
+func (sources cardSourceIndex) add(cardID int, entry howToGetCardEntry) {
+	if entries, requested := sources[cardID]; requested {
+		entries[entry] = struct{}{}
+	}
+}
+
+func (sources cardSourceIndex) addReward(reward gamestate.Reward, entry howToGetCardEntry) {
+	if (reward.Type == 6 || reward.Type == 13) && reward.Num > 0 {
+		sources.add(reward.RewardTypeID, entry)
+	}
+}
+
+func (s *Account) battleCardSourcesLocked(profiles []gamestate.TeamBattleRewardProfile, allowedGroups map[int]struct{}, sources cardSourceIndex) error {
+	if len(profiles) == 0 {
+		return nil
 	}
 	tutorialNormal := s.onboarding.ConfigVersion == cnOnboardingConfigVersion && s.onboarding.Step == 0
 	tutorialActivity := s.onboarding.ConfigVersion == cnOnboardingConfigVersion && s.onboarding.Step == cnOnboardingStepCount-1
-	projected, err := projectCNTeamBattlePublication(s.teamBattleSolo, s.stageQuests, s.teamBattleLimitedGroupIDs, tutorialNormal, tutorialActivity)
-	if err != nil {
-		return nil, err
-	}
 	var lists map[string]json.RawMessage
-	if err := json.Unmarshal(projected, &lists); err != nil {
-		return nil, err
+	if len(s.teamBattleSolo) > 0 {
+		projected, err := projectCNTeamBattlePublication(s.teamBattleSolo, s.stageQuests, s.teamBattleLimitedGroupIDs, tutorialNormal, tutorialActivity)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(projected, &lists); err != nil {
+			return err
+		}
 	}
 	type destination struct {
 		entry howToGetCardEntry
 		clear bool
 		area  int
+		tower int
+		multi bool
 	}
 	destinations := map[int][]destination{}
 	for _, key := range []string{"9", "10", "11", "12"} {
+		if len(lists[key]) == 0 {
+			continue
+		}
 		var groups []struct {
-			ID     int    `json:"0"`
-			Name   string `json:"4"`
-			AreaID int    `json:"9"`
-			Bosses []struct {
+			ID        int    `json:"0"`
+			StageType int    `json:"1"`
+			Name      string `json:"4"`
+			AreaID    int    `json:"9"`
+			Bosses    []struct {
 				ID         int    `json:"0"`
+				OnlyMyDeck int    `json:"1"`
+				StartRule  int    `json:"24"`
 				Difficulty string `json:"4"`
 				State      int    `json:"10"`
 				Locked     int    `json:"26"`
 			} `json:"10"`
 		}
 		if err := json.Unmarshal(lists[key], &groups); err != nil {
-			return nil, err
+			return err
 		}
 		for _, group := range groups {
 			if key != "9" && allowedGroups != nil && !gamestate.IsBurstQuestGroup(group.ID) {
@@ -50,7 +79,7 @@ func (s *Account) battleCardSourcesLocked(profiles []gamestate.TeamBattleRewardP
 				}
 			}
 			for _, boss := range group.Bosses {
-				if boss.Locked != 0 {
+				if boss.Locked != 0 || s.disabledTeamBattleBossIDs[boss.ID] {
 					continue
 				}
 				entry := howToGetCardEntry{Type: 10, ContentID: boss.ID, Text: strings.TrimSpace(group.Name + " " + boss.Difficulty)}
@@ -59,26 +88,34 @@ func (s *Account) battleCardSourcesLocked(profiles []gamestate.TeamBattleRewardP
 					// Other battle entries pass bossid to TeamSlSt.InitializePage.
 					entry.Subtype, entry.ContentID = 2, group.AreaID
 				}
-				destinations[boss.ID] = append(destinations[boss.ID], destination{entry, boss.State >= 2, group.AreaID})
+				rules := teamBattleEntryRules{OnlyMyDeck: boss.OnlyMyDeck, StartRule: boss.StartRule, StageType: group.StageType}
+				destinations[boss.ID] = append(destinations[boss.ID], destination{entry: entry, clear: boss.State >= 2, area: group.AreaID, multi: rules.AllowsMultiplayer()})
 			}
 		}
 	}
-	seen := map[int]map[howToGetCardEntry]bool{}
-	add := func(reward gamestate.Reward, entry howToGetCardEntry) {
-		if (reward.Type != 6 && reward.Type != 13) || reward.Num <= 0 {
-			return
+	for id, tower := range s.towerQuestProfiles {
+		progress, exists := s.towerQuestProgress[id]
+		if !tower.ClientEntryPublished || !exists {
+			continue
 		}
-		if seen[reward.RewardTypeID] == nil {
-			seen[reward.RewardTypeID] = map[howToGetCardEntry]bool{}
-		}
-		if !seen[reward.RewardTypeID][entry] {
-			seen[reward.RewardTypeID][entry] = true
-			result[reward.RewardTypeID] = append(result[reward.RewardTypeID], entry)
+		for _, floor := range tower.Floors {
+			var boss struct {
+				ID int `json:"0"`
+			}
+			if err := json.Unmarshal(floor.Boss, &boss); err != nil {
+				return err
+			}
+			if s.disabledTeamBattleBossIDs[boss.ID] {
+				continue
+			}
+			entry := howToGetCardEntry{Type: 10, Subtype: 1, ContentID: id, Text: fmt.Sprintf("%s 第%d层", tower.Name, floor.Floor)}
+			destinations[boss.ID] = append(destinations[boss.ID], destination{entry: entry, tower: id, clear: slices.Contains(progress.ClearedFloors, floor.Floor)})
 		}
 	}
+	add := sources.addReward
 	for _, profile := range profiles {
 		for _, target := range destinations[profile.BossID] {
-			if profile.TowerID != 0 || profile.StageQuestAreaID != target.area {
+			if profile.TowerID != target.tower || profile.StageQuestAreaID != target.area {
 				continue
 			}
 			// Follow the settlement contract: explicit part drops replace the
@@ -108,7 +145,113 @@ func (s *Account) battleCardSourcesLocked(profiles []gamestate.TeamBattleRewardP
 					add(reward, entry)
 				}
 			}
+			if policy := profile.ScorePolicy; policy != nil {
+				claimed := s.teamBattleScores[profile.BossID].Claimed
+				for grade, rewards := range policy.Grades {
+					if claimed&(uint16(1)<<grade) != 0 {
+						continue
+					}
+					entry := target.entry
+					entry.Text += fmt.Sprintf("（圣剑杯第%d档奖励）", grade+1)
+					for _, reward := range rewards.RewardList() {
+						add(reward, entry)
+					}
+				}
+			}
+			if s.teamBattleHostBonus.ConfigVersion != 0 && target.multi {
+				for _, reward := range profile.ResultRewards {
+					if slices.Contains(s.teamBattleHostBonus.EligibleRewardTypes, reward.Type) {
+						entry := target.entry
+						entry.Text += "（组队房主奖励）"
+						add(reward, entry)
+						break
+					}
+				}
+			}
 		}
 	}
-	return result, nil
+	return nil
+}
+
+func (s *Account) gachaCardSourcesLocked(sources cardSourceIndex) {
+	for _, gacha := range s.VisibleGachasLocked() {
+		remaining := math.MaxInt - gacha.PlayCount
+		if gacha.PlayCountMax > 0 {
+			remaining = min(remaining, gacha.PlayCountMax-gacha.GroupPlayCount)
+		}
+		if remaining <= 0 {
+			continue
+		}
+		entry := howToGetCardEntry{Type: 7, ContentID: gacha.GachaID, Text: gacha.Name}
+		addPool := func(pool []gamestate.WeightedReward, row howToGetCardEntry) {
+			for _, weighted := range pool {
+				if weighted.Weight > 0 {
+					sources.addReward(weighted.Reward, row)
+				}
+			}
+		}
+		if len(gacha.Steps) > 0 {
+			for step := min(gacha.PlayCount, len(gacha.Steps)-1); step < len(gacha.Steps); step++ {
+				if max(0, step-gacha.PlayCount) >= remaining {
+					break
+				}
+				row := entry
+				row.Text += fmt.Sprintf("（第%d阶段）", step+1)
+				addPool(gacha.Steps[step].RewardPool, row)
+			}
+		} else if len(gacha.RewardPool) > 0 {
+			addPool(gacha.RewardPool, entry)
+		} else {
+			for i, id := range gacha.CardIDs {
+				if gacha.GuaranteedCount > 0 {
+					rank := s.cardDefinitions[id].RarityRank
+					if rank != gacha.GuaranteedRarityRank && rank != gacha.RemainderRarityRank {
+						continue
+					}
+				}
+				if i < len(gacha.CardWeights) && gacha.CardWeights[i] > 0 {
+					sources.add(id, entry)
+				}
+			}
+		}
+		for _, gift := range gacha.Gifts {
+			if gift.FromPlay > gacha.PlayCount+remaining || (gift.ToPlay > 0 && gift.ToPlay <= gacha.PlayCount) {
+				continue
+			}
+			row := entry
+			row.Text += "（附赠奖励）"
+			for _, reward := range gift.Rewards {
+				sources.addReward(reward, row)
+			}
+		}
+	}
+}
+
+func (s *Account) exchangeCardSourcesLocked(sources cardSourceIndex) {
+	now := time.Now().Unix()
+	for _, shop := range s.tradeShopProfiles {
+		if !tradeShopOpen(shop, now) {
+			continue
+		}
+		// Native CardExchangeMgr.IsShop expects the shop ID, not lineup/card ID.
+		entry := howToGetCardEntry{Type: 8, ContentID: shop.TradeShopID, Text: shop.Name}
+		for _, lineup := range shop.Lineups {
+			if lineup.Disabled || (lineup.StockNum > 0 && s.tradeShopPurchases[lineup.LineupID] >= lineup.StockNum) {
+				continue
+			}
+			for _, reward := range lineup.Rewards {
+				sources.addReward(reward, entry)
+			}
+		}
+	}
+}
+
+func (s *Account) missionCardSourcesLocked(sources cardSourceIndex) {
+	now := time.Now().Unix()
+	for _, mission := range s.missions {
+		if mission.Info.State == 2 || (mission.Info.ClearLimitTime > 0 && int64(mission.Info.ClearLimitTime) <= now) {
+			continue
+		}
+		sources.addReward(mission.RewardPresent.Reward, howToGetCardEntry{Type: 9, ContentID: mission.Info.MissionID, Text: mission.Info.Title})
+	}
 }

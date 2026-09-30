@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -424,7 +425,7 @@ func ValidateSave(save saveState) error {
 		save.User.Level <= 0 || save.User.Experience < 0 || save.User.NowLevelExperience < 0 ||
 		save.User.NextLevelExperience < 0 ||
 		save.User.AP < 0 || save.User.APMax <= 0 || save.User.AP > save.User.APMax ||
-		save.User.BP < 0 || save.User.BPMax <= 0 || save.User.BP > save.User.BPMax ||
+		save.User.BP < 0 || save.User.BPMax <= 0 || save.User.BP > math.MaxInt32 ||
 		save.User.CardMax <= 0 || save.User.CardContainerMax <= 0 || save.User.SphereMax <= 0 ||
 		save.User.Gold < 0 || save.User.FriendPoint < 0 || save.User.Coin < 0 || save.User.CoinFree < 0 ||
 		save.User.TutorialFlag < 0 ||
@@ -536,7 +537,7 @@ func ValidateSave(save saveState) error {
 			(save.BattlePoint.RecoverySeconds <= 0 ||
 				save.BattlePoint.NextRecoveryUnix < 0 ||
 				(save.User.BP < save.User.BPMax && save.BattlePoint.NextRecoveryUnix == 0) ||
-				(save.User.BP == save.User.BPMax && save.BattlePoint.NextRecoveryUnix != 0))) {
+				(save.User.BP >= save.User.BPMax && save.BattlePoint.NextRecoveryUnix != 0))) {
 		return errors.New("CN save battle point recovery configuration is invalid")
 	}
 	if save.PVPConfigVersion < 0 || save.PVP.Challenge < 0 || save.PVP.ChallengeDay < 0 || save.PVP.NextBattleID < 0 ||
@@ -647,8 +648,7 @@ func ValidateSave(save saveState) error {
 		for _, gacha := range save.Gachas {
 			if gacha.GachaID <= 0 || gacha.Name == "" || gacha.BuyMessage == "" ||
 				gacha.CategoryNum <= 0 || gacha.CategoryPictID <= 0 || gacha.OrderNum < 0 ||
-				gacha.GroupID <= 0 || gacha.GachaType < 0 || gacha.GachaType > 4 ||
-				gacha.ArthurType < 0 || gacha.ArthurType > 4 ||
+				gacha.GroupID <= 0 ||
 				(gacha.PayType != 2 && gacha.PayType != 3 && gacha.PayType != 4 && gacha.PayType != 6) ||
 				(gacha.PayType == 4 && gacha.PayTypeID <= 0) ||
 				(gacha.PayType != 4 && gacha.PayTypeID != 0) ||
@@ -658,14 +658,14 @@ func ValidateSave(save saveState) error {
 				gacha.PlayCount < 0 || (len(gacha.CardIDs) == 0 && len(gacha.RewardPool) == 0) ||
 				len(gacha.CardWeights) != len(gacha.CardIDs) ||
 				!validGachaResultPolicy(gacha) {
-				return errors.New("CN save gacha profile is invalid")
+				return fmt.Errorf("CN save gacha %d profile is invalid (arthur_type=%d)", gacha.GachaID, gacha.ArthurType)
 			}
 			if err := gamestate.ValidateGachaRules(gacha); err != nil {
 				return err
 			}
 			if !validGachaBannerKey(gacha.BannerKey) ||
 				!validGachaPublicationKey(gacha.PublicationKey) ||
-				(gacha.PublicationKey != "" && gacha.BannerKey == "") {
+				(gacha.PublicationKey != "" && gacha.PublicationKey != "operator" && gacha.BannerKey == "") {
 				return errors.New("CN save gacha banner policy is invalid")
 			}
 			if gacha.DailyFirstFree {
@@ -708,7 +708,11 @@ func ValidateSave(save saveState) error {
 		seenDailyClaims := make(map[int]struct{}, len(save.GachaDailyClaims))
 		for _, claim := range save.GachaDailyClaims {
 			gacha, exists := seenGachas[claim.GachaID]
-			if !exists || !gacha.DailyFirstFree || !masterdata.LoginBonusDayPattern.MatchString(claim.Day) {
+			// Operator profiles are attached after account load. Keep their claim
+			// dates even while hidden or after changing payment, so restoring the
+			// daily rule cannot grant a second free draw on the same day.
+			operator := claim.GachaID >= gamestate.OperatorGachaFirstID && (!exists || gacha.PublicationKey == "operator")
+			if ((!exists || !gacha.DailyFirstFree) && !operator) || !masterdata.LoginBonusDayPattern.MatchString(claim.Day) {
 				return errors.New("CN save gacha daily claim is invalid")
 			}
 			if _, duplicate := seenDailyClaims[claim.GachaID]; duplicate {
@@ -1028,7 +1032,7 @@ func validGachaBannerKey(value string) bool {
 
 func validGachaPublicationKey(value string) bool {
 	switch value {
-	case "historical_duozi", "historical_tianke", "historical_youmo", "", "water_coin", "element_fire", "element_ice", "element_wind",
+	case "historical_duozi", "historical_tianke", "historical_youmo", "", "water_coin", "operator", "element_fire", "element_ice", "element_wind",
 		"element_light", "element_dark", "rare_ticket_201805", "unowned_ticket_201805", "lucky_bag_opera",
 		"lucky_bag_skuld", "lucky_bag_constantine", "lucky_bag_merchant",
 		"lucky_bag_summer_duo", "lucky_bag_yalin":
@@ -1190,6 +1194,7 @@ func cloneActiveTeamBattleState(source *gamestate.TeamBattleActiveState) *gamest
 		return nil
 	}
 	result := *source
+	result.ClearDecks = gamestate.CloneBattleClearDecks(source.ClearDecks)
 	result.BattleEnemyTypes = append([]int8(nil), source.BattleEnemyTypes...)
 	result.ContinueReceipts = append([]string(nil), source.ContinueReceipts...)
 	result.DropPlan = append([]gamestate.TeamBattleEnemyDrop(nil), source.DropPlan...)

@@ -16,6 +16,8 @@ import (
 )
 
 type TeamBattleContext struct {
+	ClearDecks                []gamestate.BattleClearDeck
+	ScorePolicy               *gamestate.TeamBattleScorePolicy
 	Seed                      int
 	DropPlanSet               bool
 	DropPlan                  []gamestate.TeamBattleEnemyDrop
@@ -75,6 +77,8 @@ func teamBattleContextFromRelease(source *gamestate.TeamBattleActiveState) *Team
 		return nil
 	}
 	result := &TeamBattleContext{
+		ClearDecks:                gamestate.CloneBattleClearDecks(source.ClearDecks),
+		ScorePolicy:               gamestate.CloneTeamBattleScorePolicy(source.ScorePolicy),
 		Seed:                      source.Seed,
 		DropPlanSet:               source.DropPlanSet,
 		DropPlan:                  cloneTeamBattleDropPlan(source.DropPlan),
@@ -131,6 +135,8 @@ func snapshotTeamBattleContext(source *TeamBattleContext) *gamestate.TeamBattleA
 		return nil
 	}
 	result := &gamestate.TeamBattleActiveState{
+		ClearDecks:                gamestate.CloneBattleClearDecks(source.ClearDecks),
+		ScorePolicy:               gamestate.CloneTeamBattleScorePolicy(source.ScorePolicy),
 		Seed:                      source.Seed,
 		DropPlanSet:               source.DropPlanSet,
 		DropPlan:                  cloneTeamBattleDropPlan(source.DropPlan),
@@ -420,7 +426,7 @@ func (s *Account) validateActiveTeamBattleContextLocked(
 	default:
 		if context.ConsumesBattlePoints && context.PrepaidRoomID == 0 {
 			bpUse, found := TeamBattleSoloBossBPUse(s.teamBattleSolo, context.BossID)
-			if !found || bpUse != context.BPUse || context.BPUse > s.bpMax {
+			if !found || bpUse != context.BPUse {
 				return errors.New("local team battle BP cost is invalid")
 			}
 		} else if !context.ConsumesBattlePoints && context.BPUse != 0 {
@@ -653,6 +659,7 @@ func (s *Account) BeginTeamBattle(
 		return TeamBattleContext{}, BattlePointStatus{}, false, err
 	}
 	profile, _ := TeamBattleRewardProfileForContext(profiles, context)
+	context.ScorePolicy = gamestate.CloneTeamBattleScorePolicy(profile.ScorePolicy)
 	plan, err := PlanTeamBattleDrops(profile, context.BattleEnemyTypes, context.FameSeed)
 	if err != nil {
 		return TeamBattleContext{}, BattlePointStatus{}, false, err
@@ -682,7 +689,7 @@ func (s *Account) BeginTeamBattle(
 			return context, s.battlePointStatusLocked(now), false, nil
 		}
 		s.bp -= context.BPUse
-		if s.bpNextRecovery.IsZero() {
+		if s.bp < s.bpMax && s.bpNextRecovery.IsZero() {
 			s.bpNextRecovery = now.Add(s.bpRecoveryInterval)
 		}
 	} else if !context.ConsumesBattlePoints {
@@ -912,18 +919,49 @@ func (s *Account) CompleteTeamBattle(
 		return teamBattleSettlement{}, errors.New("local team battle reward profile is unavailable")
 	}
 	settlement := teamBattleSettlement{Context: context}
+	report := TeamBattleDropReport{}
+	if len(dropReports) > 0 {
+		report = dropReports[0]
+	}
+	// Freeze operator policy at entry; multiplayer carries the room's snapshot.
+	if context.ScorePolicy != nil {
+		profile.ScorePolicy = context.ScorePolicy
+	}
+	if report.ScorePolicy != nil {
+		profile.ScorePolicy = report.ScorePolicy
+	}
+	if context.ScorePolicy == nil && report.ScorePolicy == nil && profile.ScorePolicy != nil && profile.ScorePolicy.SourceState == "LOCAL_POLICY_DAMAGE_SCORE" {
+		// A pre-upgrade ordinary fight has no accepted score contract.
+		profile.ScorePolicy = nil
+	}
+	if profile.ScorePolicy != nil && profile.ScorePolicy.SourceState == "LOCAL_POLICY_DAMAGE_SCORE" {
+		if report.ScoreDamage < 0 || report.ScoreDamage > 1000000000000 {
+			return teamBattleSettlement{}, errors.New("score damage is out of range")
+		}
+		if isClear && !report.ScoreVerified && !report.SoloChallenge {
+			return teamBattleSettlement{}, errors.New("score battle requires verified damage")
+		}
+	}
 	if !isClear {
 		if context.TowerID != 0 {
 			if err := s.settleTowerQuestLocked(context, false); err != nil {
 				return teamBattleSettlement{}, err
 			}
 		}
+		if !report.SoloChallenge && report.ScoreVerified && profile.ScorePolicy != nil && profile.ScorePolicy.SourceState == "LOCAL_POLICY_DAMAGE_SCORE" {
+			progress, rewards, info := planTeamBattleScore(profile.ScorePolicy, s.teamBattleScores[bossID], report)
+			if err := s.validateSettlementRewardsLocked(rewards); err != nil {
+				return teamBattleSettlement{}, err
+			}
+			for _, reward := range rewards {
+				if err := s.applySettlementRewardLocked(reward, &settlement.Score); err != nil {
+					return teamBattleSettlement{}, err
+				}
+			}
+			s.teamBattleScores[bossID], settlement.ScoreInfo = progress, info
+		}
 		s.activeBattle = nil
 		return settlement, nil
-	}
-	report := TeamBattleDropReport{}
-	if len(dropReports) > 0 {
-		report = dropReports[0]
 	}
 	if context.DropPlanSet && !report.Authoritative && len(report.EnemyDeadBits) != len(context.BattleEnemyTypes) {
 		return teamBattleSettlement{}, errors.New("team battle drop report does not match its started plan")
@@ -932,7 +970,7 @@ func (s *Account) CompleteTeamBattle(
 	if report.FameRewardsSet {
 		context.FameRewardsSet, context.FameRewards = true, report.FameRewards
 	}
-	scoreProgress, scoreRewards, scoreInfo := planTeamBattleScore(profile.ScorePolicy, s.teamBattleScores[bossID], report.Turns)
+	scoreProgress, scoreRewards, scoreInfo := planTeamBattleScore(profile.ScorePolicy, s.teamBattleScores[bossID], report)
 	settlement.ScoreInfo = scoreInfo
 
 	updatedMainQuest := append(json.RawMessage(nil), s.mainQuest...)

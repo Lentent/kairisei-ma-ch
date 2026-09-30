@@ -2,7 +2,6 @@ package admin
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 
 	"kairisei.local/server/internal/gamestate"
@@ -36,16 +35,13 @@ func adminJPCardIDs(source json.RawMessage) (map[int]bool, error) {
 	return ids, nil
 }
 
-func adminGachaCardEligible(base gamestate.GachaProfile, entry AdminCatalogEntry, id int) bool {
-	if base.UnownedOnly && entry.Rarity != 6 {
+// Operator pools may offer any existing card (user decision 2026-09-27, LOCAL_POLICY); the
+// unowned-six-star pool keeps its six-star identity because its draw excludes owned card families.
+func adminGachaCardEligible(base gamestate.GachaProfile, entry AdminCatalogEntry) bool {
+	if base.ArthurType >= 1 && base.ArthurType <= 4 && entry.ArthurType != 0 && entry.ArthurType != base.ArthurType {
 		return false
 	}
-	if base.PayType == 2 || entry.GachaEligible {
-		return true
-	}
-	// Lucky-bag presets include their featured six-star cards.
-	return entry.Detail == "" && entry.Rarity == 6 && slices.Contains(base.CardIDs, id) &&
-		strings.HasPrefix(base.BannerKey, "lucky_bag_")
+	return !base.UnownedOnly || entry.Rarity == 6
 }
 
 func cardCrystalGachaSource(text string) bool {

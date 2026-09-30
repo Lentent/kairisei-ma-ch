@@ -81,8 +81,9 @@ func TestActiveBattleUsesRuntimeMemoryAcrossAccountReload(t *testing.T) {
 	state.BurstProgress = [4]uint8{2}
 	state.StoryTeamBattleSession = gamestate.StoryTeamBattleSession{StoryID: 45001020}
 	state.ActiveTeamBattle = &gamestate.TeamBattleActiveState{
-		Seed:   478,
-		BossID: 10000101, BattleEnemyTypes: []int8{1, 1, 1, 1},
+		ClearDecks: []gamestate.BattleClearDeck{{UserID: accountstore.PrimaryUserID, ArthurType: 1, Name: "frozen", HonorIDs: []int{0, 0, 0, 0}, Deck: []byte(`{"name":"frozen deck"}`)}},
+		Seed:       478,
+		BossID:     10000101, BattleEnemyTypes: []int8{1, 1, 1, 1},
 		StageQuestAreaID: 100001, StageQuestStageID: 10000101,
 		BPUse: 7, ConsumesBattlePoints: true, FameSeed: "normal-quest-start",
 		FameSources: []gamestate.TeamBattleFameSourceState{{ArthurType: 1, LeaderFame: 100}},
@@ -101,6 +102,9 @@ func TestActiveBattleUsesRuntimeMemoryAcrossAccountReload(t *testing.T) {
 	}
 	if reloaded.ActiveTeamBattle == nil || len(reloaded.ActiveTeamBattle.DropPlan) != 2 || reloaded.ActiveTeamBattle.Seed != 478 {
 		t.Fatal("active battle drop plan was lost")
+	}
+	if !reflect.DeepEqual(reloaded.ActiveTeamBattle.ClearDecks, state.ActiveTeamBattle.ClearDecks) {
+		t.Fatal("frozen clear deck was lost on handler reload")
 	}
 	if reloaded.Navigation != state.Navigation {
 		t.Fatal("selected story/dungeon context was lost on account reload")

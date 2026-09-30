@@ -726,12 +726,14 @@ func (s *Account) applyRewardLocked(reward gamestate.Reward, result *PresentRece
 	case 10:
 		s.coinFree += reward.Num
 	case 12:
-		if reward.Num >= s.bpMax-s.bp {
+		if s.bp >= s.bpMax {
+			// Capped reward recovery must not discard overflow from a potion.
+		} else if reward.Num >= s.bpMax-s.bp {
 			s.bp = s.bpMax
 		} else {
 			s.bp += reward.Num
 		}
-		if s.bp == s.bpMax {
+		if s.bp >= s.bpMax {
 			s.bpNextRecovery = time.Time{}
 		}
 	case 13:

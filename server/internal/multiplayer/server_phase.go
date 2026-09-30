@@ -85,6 +85,9 @@ func (s *Server) tryAdvanceTurnPhase(roomID int64) error {
 	if current.engineBattleEnd != 0 {
 		return s.completeGoBattleLocked(session, current)
 	}
+	if peers, changed := detachDeadParticipantsLocked(current); changed {
+		return s.retireDeadAtTurnBoundary(session, current, peers)
+	}
 	results, err := current.engine.UserPhase()
 	if err != nil {
 		session.Unlock()

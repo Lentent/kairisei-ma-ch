@@ -243,113 +243,79 @@ func TestContinueDeclineAndTimeout(t *testing.T) {
 			current.engine.enemies[0].HP = 1000000
 			current.engine.enemies[0].MaxHP = 1000000
 			current.engine.enemies[0].BaseMaxHP = 1000000
+			for _, peer := range peers {
+				peer.conn.(*hubCheckingConn).output.Reset()
+				if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Removal waits for the next turn's presentation and all live ACKs.
+			if current.connections[1] != owner {
+				t.Fatal("KO participant left before the turn boundary")
+			}
+			for _, peer := range peers {
+				if err := peer.handleTurnPhaseFinish(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if current.connections[1] != nil || !owner.retired || current.comebackTokens[1] != "" || !current.disconnectedUntil[1].IsZero() || current.engine.players[0].HP != 0 {
+				t.Fatal("KO participant retained identity or changed HP")
+			}
+			frames := owner.conn.(*hubCheckingConn).output.String()
+			if strings.Contains(frames, "ApiUserPhase{") || strings.Count(frames, "ApiGameEnd{\n2,2\n}") != 1 || strings.Count(frames, "GameClose{") != 1 {
+				t.Fatal("KO participant did not receive the native defeat exit", frames)
+			}
+			if tc.onlyAI {
+				if _, ok := s.hub.Snapshot(1); ok || !guest.retired {
+					t.Fatal("AI kept a room after the last human died")
+				}
+				if _, err := s.hub.SettlementFor(1, owner.userID); err == nil {
+					t.Fatal("dead owner obtained a result")
+				}
+				return
+			}
+			if current.connections[2] != guest || !current.userPhaseStarted || current.userAttackStarted {
+				t.Fatal("living human lost input")
+			}
+			if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err == nil {
+				t.Fatal("removed human still submits")
+			}
 			for turn := 0; turn < 2; turn++ {
-				for _, peer := range peers {
-					peer.conn.(*hubCheckingConn).output.Reset()
-				}
 				beforeHP := current.engine.enemies[0].HP
-				for _, peer := range peers {
-					if err := peer.handleChaliceSphrExecEnemyPhaseFinish(); err != nil {
-						t.Fatal(err)
-					}
-				}
-				// The previous stock countdown may arrive after TurnPhase has
-				// started. A KO timeout must not disconnect or open input early.
-				if err := owner.handleCardPlay(strings.Repeat("0,", 11)+"0", true); err != nil {
+				if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
 					t.Fatal(err)
 				}
-				if current.userPhaseStarted || current.userAttackStarted {
-					t.Fatal("late KO timeout advanced the turn presentation")
+				if !current.userAttackStarted || current.engine.enemies[0].HP >= beforeHP {
+					t.Fatal("CPU choices waited for removed human")
 				}
-				if turn == 1 {
-					// Rejoining as a KO spectator must not reintroduce a required
-					// human submission or stand in for another member's phase ACK.
-					if err := owner.close(true); err != nil {
-						t.Fatal(err)
-					}
-					owner = continueTestPeer(t, s, 1)
-					owner.roomID, owner.memberType, owner.userID = 0, 0, 0
-					if err := owner.handleComeback("1001,1,token1,0"); err != nil {
-						t.Fatal(err)
-					}
-					if err := owner.handleReadyToComeback(""); err != nil {
-						t.Fatal(err)
-					}
-					peers[0] = owner
-					if current.userPhaseStarted || owner.comebackPending || current.connections[1] != owner {
-						t.Fatal("KO comeback bypassed the living connection's turn ACK")
-					}
-				}
-				for _, peer := range peers {
-					if err := peer.handleTurnPhaseFinish(); err != nil {
-						t.Fatal(err)
-					}
-				}
-				if !tc.onlyAI {
-					if selection, submitted := current.cardPlaySubmissions[1]; !submitted || selectedActionCount(selection) != 0 || current.userAttackStarted {
-						t.Fatal("KO input must be empty while the living human still chooses")
-					}
-				}
-				selection, submitted := current.engine.selectedPlays[4]
-				if !submitted || (selectedCardCount(selection) > 0) != tc.canPlay || current.userAttackStarted != tc.onlyAI {
-					t.Fatal("CPU choice or automatic AI-only advancement is incorrect")
-				}
-				beforeRNG := current.engine.rng
-				beforeFrames := guest.conn.(*hubCheckingConn).output.String()
-				if err := s.submitAutomaticRoomCards(1); err != nil {
-					t.Fatal(err)
-				}
-				if current.engine.rng != beforeRNG || guest.conn.(*hubCheckingConn).output.String() != beforeFrames {
-					t.Fatal("automatic retry changed confirmed CPU input")
-				}
-				// No KO client submits. Only a surviving human must choose;
-				// AI-only rooms must already have advanced, on both turns.
-				if !tc.onlyAI {
-					if current.engine.enemies[0].HP != beforeHP {
-						t.Fatal("CPU attacked before the living human submitted")
-					}
-					if err := guest.handleCardPlay(strings.Repeat("0,", 11)+"0", false); err != nil {
-						t.Fatal(err)
-					}
-				}
-				if !current.userAttackStarted || (current.engine.enemies[0].HP < beforeHP) != tc.canPlay {
-					t.Fatal("CPU attack still waited for KO input")
-				}
-				for _, peer := range peers {
-					frames := peer.conn.(*hubCheckingConn).output.String()
-					input, confirm, attack := strings.Index(frames, "ApiUserPhase{"), strings.Index(frames, "ApiCardPlayR{"), strings.Index(frames, "ApiUserAttack{")
-					if input < 0 || confirm <= input || attack <= confirm || strings.Count(frames, "ApiUserAttack{") != 1 {
-						t.Fatal("input, CPU confirmation and attack are missing or out of order", frames)
-					}
-					for slot := 1; slot <= maxRoomMembers; slot++ {
-						if current.engine.players[slot-1].HP <= 0 && strings.Contains(frames, fmt.Sprintf("28,%d\n", slot)) {
-							t.Fatal("KO member received a synthetic pass notification")
-						}
-					}
-					beforeRNG = current.engine.rng
-					if err := peer.handleCardPlay(strings.Repeat("0,", 11)+"0", true); err != nil {
-						t.Fatal(err)
-					}
-					if err := s.tryAdvanceCardPlay(1); err != nil {
-						t.Fatal(err)
-					}
-					if current.engine.rng != beforeRNG || peer.conn.(*hubCheckingConn).output.String() != frames {
-						t.Fatal("late timeout replayed the attack")
-					}
+				frames = guest.conn.(*hubCheckingConn).output.String()
+				if strings.Contains(frames, "GameClose{") || strings.Contains(frames, fmt.Sprintf("28,%d\n", owner.memberType)) {
+					t.Fatal("living peer got defeat or synthetic KO skip")
 				}
 				if turn == 0 {
-					for _, finish := range []func(*clientConn) error{
-						(*clientConn).handleUserAttackFinish,
-						(*clientConn).handleChaliceSphrExecUserPhaseFinish,
-						(*clientConn).handleEnemyPhaseFinish,
-					} {
-						for _, peer := range peers {
-							if err := finish(peer); err != nil {
-								t.Fatal(err)
-							}
+					for _, finish := range []func(*clientConn) error{(*clientConn).handleUserAttackFinish, (*clientConn).handleChaliceSphrExecUserPhaseFinish, (*clientConn).handleEnemyPhaseFinish, (*clientConn).handleChaliceSphrExecEnemyPhaseFinish, (*clientConn).handleTurnPhaseFinish} {
+						if err := finish(guest); err != nil {
+							t.Fatal(err)
 						}
 					}
 				}
+			}
+			if current.engine.players[0].HP != 0 {
+				t.Fatal("dead actor was revived by CPU takeover")
+			}
+			current.engineBattleEnd = 1
+			session := s.hub.lockRoomSession(1)
+			err := completeBattleLocked(s.hub, current, time.Now())
+			session.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.hub.SettlementFor(1, owner.userID); err == nil {
+				t.Fatal("dead owner retained reward eligibility")
+			}
+			settled, err := s.hub.SettlementFor(1, guest.userID)
+			if err != nil || len(settled.OnlineUserIDs) != 1 || settled.OnlineUserIDs[0] != guest.userID {
+				t.Fatal("fame eligibility includes removed owner", err)
 			}
 		})
 	}

@@ -4,11 +4,22 @@ import (
 	"strings"
 	"testing"
 
+	"kairisei.local/server/internal/game"
 	"kairisei.local/server/internal/gamestate"
 )
 
 func TestRarityFiveTicketGachaUsesDedicatedLoopbackBanner(t *testing.T) {
 	api := &API{baseURL: "http://10.0.2.2:26020"}
+	limited := api.gachaInfos([]gamestate.GachaProfile{
+		{GachaID: 10, CardNum: 10, CardNumMax: 10, PlayCount: 2, GroupPlayCount: 4, PlayCountMax: 5},
+		{GachaID: 11, CardNum: 1, CardNumMax: 10, PlayCount: 2, GroupPlayCount: 4, PlayCountMax: 5},
+	})
+	for i, wantMax := range []int{5, 0} {
+		row := limited[i].(map[string]any)
+		if row["play_count"] != 4 || row["play_count_max"] != wantMax {
+			t.Fatalf("request quota wire contract: %+v", row)
+		}
+	}
 	infos := api.gachaInfos([]gamestate.GachaProfile{
 		{GachaID: 1},
 		{GachaID: 2, BannerKey: "five_star_ticket"},
@@ -27,6 +38,14 @@ func TestRarityFiveTicketGachaUsesDedicatedLoopbackBanner(t *testing.T) {
 	if !strings.HasSuffix(elementBanner, "/local/gacha/element_fire.png") ||
 		elementBanner == defaultBanner {
 		t.Fatalf("element banner = %q, default = %q", elementBanner, defaultBanner)
+	}
+	api.account = &game.Account{}
+	covered := []gamestate.GachaProfile{{GachaID: 4, BannerKey: "element_fire", CoverPath: "gacha-covers/a.png"}}
+	for source, want := range map[string]string{"server": "http://10.0.2.2:26020/local/gacha-covers/a.png", "storage": "https://cdn.example.com/k/gacha-covers/a.png"} {
+		api.account.ApplyRuntimeSettings(game.RuntimeSettings{GachaCoverSource: source, GachaCoverBaseURL: "https://cdn.example.com/k/"})
+		if got := api.gachaInfos(covered)[0].(map[string]any)["image_s_url"]; got != want {
+			t.Fatalf("%s cover = %q", source, got)
+		}
 	}
 }
 

@@ -43,44 +43,87 @@ func (storage *Database) ReadDocument(key string) (Document, error) {
 // The revision guard and audit entry commit together. A stale browser cannot
 // overwrite an operator's newer draft or publication.
 func (storage *Database) WriteDocument(key string, expected int, value any, operation string) (Document, error) {
-	if expected < 0 {
-		return Document{}, ErrDocumentConflict
-	}
-	body, err := json.Marshal(value)
+	docs, err := storage.WriteDocuments([]DocumentWrite{{Key: key, Expected: expected, Value: value, Operation: operation}})
 	if err != nil {
 		return Document{}, err
 	}
-	digest := sha256.Sum256(body)
-	doc := Document{Revision: expected + 1, UpdatedUTC: time.Now().UTC().Format(time.RFC3339Nano), SHA256: hex.EncodeToString(digest[:]), Payload: body}
+	return docs[0], nil
+}
+
+type DocumentWrite struct {
+	Key       string
+	Expected  int
+	Value     any
+	Operation string
+}
+
+// WriteDocuments commits a related configuration change and every audit entry
+// in one transaction. Any stale revision or write failure rolls back the batch.
+func (storage *Database) WriteDocuments(writes []DocumentWrite) ([]Document, error) {
+	if len(writes) == 0 {
+		return nil, errors.New("empty document batch")
+	}
+	docs := make([]Document, len(writes))
+	seen := make(map[string]bool, len(writes))
+	stamp := time.Now().UTC().Format(time.RFC3339Nano)
+	for i, write := range writes {
+		if write.Expected < 0 {
+			return nil, ErrDocumentConflict
+		}
+		if write.Key == "" || seen[write.Key] {
+			return nil, errors.New("empty or duplicate document key")
+		}
+		seen[write.Key] = true
+		body, err := json.Marshal(write.Value)
+		if err != nil {
+			return nil, err
+		}
+		digest := sha256.Sum256(body)
+		docs[i] = Document{Revision: write.Expected + 1, UpdatedUTC: stamp, SHA256: hex.EncodeToString(digest[:]), Payload: body}
+	}
 	db, err := storage.Open()
 	if err != nil {
-		return doc, err
+		return nil, err
 	}
 	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
-		return doc, err
+		return nil, err
 	}
 	defer tx.Rollback()
+	for i, write := range writes {
+		if err := writeDocumentTx(tx, write, docs[i]); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
+func writeDocumentTx(tx *sql.Tx, write DocumentWrite, doc Document) error {
+	key, expected, body, operation := write.Key, write.Expected, doc.Payload, write.Operation
 	var result sql.Result
+	var err error
 	if expected == 0 {
 		result, err = tx.Exec(`INSERT INTO cn_global_operation (operation_key, revision, updated_utc, payload_json, payload_sha256) VALUES (?, 1, ?, ?, ?) ON CONFLICT(operation_key) DO NOTHING`, key, doc.UpdatedUTC, body, doc.SHA256)
 	} else {
 		result, err = tx.Exec(`UPDATE cn_global_operation SET revision=revision+1, updated_utc=?, payload_json=?, payload_sha256=? WHERE operation_key=? AND revision=?`, doc.UpdatedUTC, body, doc.SHA256, key, expected)
 	}
 	if err != nil {
-		return doc, err
+		return err
 	}
 	count, err := result.RowsAffected()
 	if err != nil {
-		return doc, err
+		return err
 	}
 	if count != 1 {
-		return doc, ErrDocumentConflict
+		return ErrDocumentConflict
 	}
 	if _, err = tx.Exec(`INSERT INTO cn_admin_audit (created_utc, operation, target, payload_json, payload_sha256) VALUES (?, ?, ?, ?, ?)`, doc.UpdatedUTC, operation, key, body, doc.SHA256); err != nil {
-		return doc, err
+		return err
 	}
-	return doc, tx.Commit()
+	return nil
 }
 
 func (storage *Database) ActionReceipt(key string, userID int, requestSHA string) (json.RawMessage, error) {
@@ -135,6 +178,10 @@ type AccountFilter struct {
 	Sort          string
 	ActiveOnly    bool
 	ActiveIDs     []int
+	// Optional projection filters; zero means unrestricted.
+	LevelMin   int
+	LevelMax   int
+	ArthurType int
 }
 
 func (accounts *Accounts) QueryFilteredAccounts(filter AccountFilter, limit, offset int, ids ...int) ([]AccountListItem, int, error) {
@@ -150,6 +197,8 @@ func (accounts *Accounts) QueryFilteredAccounts(filter AccountFilter, limit, off
 		LEFT JOIN cn_save_snapshot s ON s.singleton=1 AND a.user_id=?
 		LEFT JOIN cn_account_snapshot x ON x.user_id=a.user_id`
 	name := `COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.name'),'')`
+	level := `COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.level'),0)`
+	job := `COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.active_arthur_type'),0)`
 	where := ` WHERE (? OR a.user_id<?)`
 	args := []any{PrimaryUserID, filter.IncludeSystem, SystemPartnerUserIDBase}
 	for _, q := range strings.Fields(strings.ToLower(filter.Search)) {
@@ -175,6 +224,18 @@ func (accounts *Accounts) QueryFilteredAccounts(filter AccountFilter, limit, off
 			where += ` AND julianday(` + condition.column + `)` + condition.op + `julianday(?)`
 			args = append(args, condition.value)
 		}
+	}
+	if filter.LevelMin > 0 {
+		where += ` AND ` + level + `>=?`
+		args = append(args, filter.LevelMin)
+	}
+	if filter.LevelMax > 0 {
+		where += ` AND ` + level + `<=?`
+		args = append(args, filter.LevelMax)
+	}
+	if filter.ArthurType > 0 {
+		where += ` AND ` + job + `=?`
+		args = append(args, filter.ArthurType)
 	}
 	if filter.ActiveOnly {
 		if len(filter.ActiveIDs) == 0 {
@@ -202,10 +263,12 @@ func (accounts *Accounts) QueryFilteredAccounts(filter AccountFilter, limit, off
 		order = "a.created_utc DESC,a.user_id DESC"
 	case "login":
 		order = "a.last_login_utc DESC,a.user_id DESC"
+	case "level":
+		order = level + " DESC,a.user_id"
 	}
 	query := `SELECT a.user_id,a.login_uuid,COALESCE(c.username,''),` + name + `,a.created_utc,a.last_login_utc,COALESCE(s.revision,x.revision,0),COALESCE(s.updated_utc,x.updated_utc,''),
-		COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.level'),0),
-		COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.active_arthur_type'),0),
+		` + level + `,
+		` + job + `,
 		COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.gold'),0),
 		COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.coin'),0)+COALESCE(json_extract(CAST(p.payload_json AS TEXT),'$.user.coin_free'),0)` + from + where + ` ORDER BY ` + order
 	if limit > 0 {
@@ -296,19 +359,35 @@ type AuditRecord struct {
 	SHA256     string          `json:"sha256"`
 }
 
+// AuditFilter narrows the admin audit list; empty fields are unrestricted.
+// After/Before are RFC3339 UTC bounds on created_utc (inclusive / exclusive).
+type AuditFilter struct {
+	Search    string
+	Operation string
+	After     string
+	Before    string
+}
+
 func (accounts *Accounts) AuditRecords(q, op string, limit, offset int) ([]AuditRecord, int, error) {
+	return accounts.QueryAuditRecords(AuditFilter{Search: q, Operation: op}, limit, offset)
+}
+
+func (accounts *Accounts) QueryAuditRecords(filter AuditFilter, limit, offset int) ([]AuditRecord, int, error) {
 	database, err := accounts.storage.OpenRead()
 	if err != nil {
 		return nil, 0, err
 	}
-	where := ` WHERE (?='' OR operation=?) AND (?='' OR instr(lower(target||' '||operation||' '||CAST(payload_json AS TEXT)),lower(?))>0)`
+	q, op := filter.Search, filter.Operation
+	where := ` WHERE (?='' OR operation=?) AND (?='' OR instr(lower(target||' '||operation||' '||CAST(payload_json AS TEXT)),lower(?))>0)` +
+		` AND (?='' OR julianday(created_utc)>=julianday(?)) AND (?='' OR julianday(created_utc)<julianday(?))`
+	args := []any{op, op, q, q, filter.After, filter.After, filter.Before, filter.Before}
 	var total int
-	if err := database.QueryRow(`SELECT count(*) FROM cn_admin_audit`+where, op, op, q, q).Scan(&total); err != nil {
+	if err := database.QueryRow(`SELECT count(*) FROM cn_admin_audit`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := database.Query(
 		`SELECT audit_id, created_utc, operation, target, payload_json, payload_sha256
-		 FROM cn_admin_audit`+where+` ORDER BY audit_id DESC LIMIT ? OFFSET ?`, op, op, q, q, limit, offset,
+		 FROM cn_admin_audit`+where+` ORDER BY audit_id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -368,18 +447,29 @@ type DocumentSummary struct {
 	ReceiptCount    int
 }
 
-func (storage *Database) ListDocuments(prefix string, limit, offset int) ([]DocumentSummary, int, error) {
+// ListBatchDocuments lists batch documents whose payload carries "title" and "user_ids".
+// search matches the key or title literally; unfinished keeps batches with fewer receipts than recipients.
+func (storage *Database) ListBatchDocuments(prefix, search string, unfinished bool, limit, offset int) ([]DocumentSummary, int, error) {
 	db, err := storage.OpenRead()
 	if err != nil {
 		return nil, 0, err
 	}
+	receipts := `(SELECT count(*) FROM cn_admin_action_receipt WHERE operation_key=op.operation_key)`
+	where := ` WHERE operation_key LIKE ?`
+	args := []any{prefix + "%"}
+	if search = strings.TrimSpace(search); search != "" {
+		where += ` AND instr(lower(operation_key||' '||COALESCE(json_extract(CAST(payload_json AS TEXT),'$.title'),'')),lower(?))>0`
+		args = append(args, search)
+	}
+	if unfinished {
+		where += ` AND ` + receipts + `<COALESCE(json_array_length(CAST(payload_json AS TEXT),'$.user_ids'),0)`
+	}
 	var total int
-	if err := db.QueryRow(`SELECT count(*) FROM cn_global_operation WHERE operation_key LIKE ?`, prefix+"%").Scan(&total); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM cn_global_operation op`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := db.Query(`SELECT operation_key,updated_utc,payload_json,
-  (SELECT count(*) FROM cn_admin_action_receipt WHERE operation_key=op.operation_key)
-  FROM cn_global_operation op WHERE operation_key LIKE ? ORDER BY updated_utc DESC LIMIT ? OFFSET ?`, prefix+"%", limit, offset)
+	rows, err := db.Query(`SELECT operation_key,updated_utc,payload_json,`+receipts+`
+  FROM cn_global_operation op`+where+` ORDER BY updated_utc DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
