@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "template_item_id": 8887,
+  "item": {
+    "item_id": 9999,
+    "name": "黑暗切尔莉吞噬者礼盒",
+    "pict_id": 10120,
+    "item_type": "GACHA",
+    "function": "GACHA_EXEC",
+    "function_value": 69999999,
+    "love_up_price": 0,
+    "max_owned": 99999,
+    "daily_limited": 0,
+    "description": "打开随机获得以下奖励之一：黑暗琪拉莉、漆黑琪拉莉、极黑琪拉莉、百万珠艾莉、百万切尔莉各1个（各18.8%），妮妙变身皮肤1个（3%），或称号「超弩级黑暗切尔莉吞噬者挑战者」（3%）。"
+  },
+  "item_gacha_profile": {
+    "item_id": 9999,
+    "function_value": 69999999,
+    "rewards": [],
+    "reward_pool": [
+      {
+        "reward": {
+          "type": 13,
+          "num": 1,
+          "reward_typeid": 20000014,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 188
+      },
+      {
+        "reward": {
+          "type": 13,
+          "num": 1,
+          "reward_typeid": 20000019,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 188
+      },
+      {
+        "reward": {
+          "type": 13,
+          "num": 1,
+          "reward_typeid": 20000024,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 188
+      },
+      {
+        "reward": {
+          "type": 13,
+          "num": 1,
+          "reward_typeid": 20000029,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 188
+      },
+      {
+        "reward": {
+          "type": 13,
+          "num": 1,
+          "reward_typeid": 20000004,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 188
+      },
+      {
+        "reward": {
+          "type": 14,
+          "num": 1,
+          "reward_typeid": 16,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 30
+      },
+      {
+        "reward": {
+          "type": 18,
+          "num": 1,
+          "reward_typeid": 26093002,
+          "card_lv": 0,
+          "card_fame": 0,
+          "card_love": 0,
+          "card_skill_lv": []
+        },
+        "weight": 30
+      }
+    ],
+    "evidence": "USER_LOCAL_CUSTOM_BOX_20260930_TEMPLATE_8887"
+  },
+  "required_honor": {
+    "honor_id": 26093002,
+    "name": "超弩级黑暗切尔莉吞噬者挑战者",
+    "slot_mask": 8,
+    "same_card_id": 0,
+    "get_type": 0,
+    "default_owned": false
+  }
+}
