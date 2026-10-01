@@ -73,6 +73,7 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 type Operations struct {
 	noticeSigningKey        [32]byte
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
+	missionPolicy           atomic.Pointer[missionPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
 	playerNaviNames         map[int8]string

@@ -295,6 +295,9 @@ func New(config Config) (http.Handler, error) {
 			return nil, fmt.Errorf("validate saved tutorial mail: %w", err)
 		}
 	}
+	if err := admin.validateSavedMissionRewards(); err != nil {
+		return nil, fmt.Errorf("validate saved mission rewards: %w", err)
+	}
 	if config.Operations.content != nil {
 		for _, config := range config.Operations.content.drops {
 			if err := admin.validateDropConfig(config); err != nil {
@@ -322,6 +325,13 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/player-policy", admin.playerPolicy)
 	router.Get("/api/player-policy/notice-preview", admin.operations.LocalNotice)
 	router.Put("/api/player-policy", admin.savePlayerPolicy)
+	router.Get("/api/missions", admin.missions)
+	router.Put("/api/missions", admin.saveMissions)
+	router.Get("/missions.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(adminMissionsJS)
+	})
 	router.Get("/player-policy.js", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")

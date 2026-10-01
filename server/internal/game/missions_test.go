@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -17,6 +18,73 @@ func missionByID(t *testing.T, s *Account, id int) gamestate.Mission {
 	}
 	t.Fatalf("missing mission %d", id)
 	return gamestate.Mission{}
+}
+
+func TestMissionTabsMatchCNClientCategories(t *testing.T) {
+	s := &Account{}
+	missions := s.MissionInfos()
+	if len(missions) != 9 {
+		t.Fatalf("mission count: %d", len(missions))
+	}
+	for _, mission := range missions {
+		want := 0 // Client MISSION_TAB_TYPE.PERMANENT (achievements).
+		if mission.MissionID == 910001 || mission.MissionID == dailyExploreMissionID {
+			want = 2 // Client MISSION_TAB_TYPE.DAILY.
+		}
+		if mission.TabType != want {
+			t.Errorf("mission %d: client tab=%d, want %d", mission.MissionID, mission.TabType, want)
+		}
+	}
+}
+
+func TestPersistedMissionTabsUpgradeWithoutResettingClaims(t *testing.T) {
+	s := &Account{currentLevel: 10}
+	s.MissionInfos()
+	if _, _, err := s.ReceiveMissionRewards([]int{910001, 920001}); err != nil {
+		t.Fatal(err)
+	}
+	// Persist the tabs emitted by the previous server, with unfinished,
+	// completed and claimed tasks present in the same account.
+	for i := range s.missions {
+		if s.missions[i].Info.MissionID == 910001 || s.missions[i].Info.MissionID == dailyExploreMissionID {
+			s.missions[i].Info.TabType = 0
+		} else {
+			s.missions[i].Info.TabType = 1
+		}
+	}
+	s.missions[1].Info.State = 1
+	s.missions[1].Info.ProgressNow = s.missions[1].Info.ProgressMax
+	data, err := json.Marshal(gamestate.EngagementState{Missions: s.missions, Presents: s.presents})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored gamestate.EngagementState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	before := cloneMissions(restored.Missions)
+	reloaded := &Account{currentLevel: 10, missions: restored.Missions, presents: restored.Presents}
+	reloaded.MissionInfos()
+	for _, previous := range before {
+		next := missionByID(t, reloaded, previous.Info.MissionID)
+		want := 0
+		if previous.Info.MissionID == 910001 || previous.Info.MissionID == dailyExploreMissionID {
+			want = 2
+		}
+		if next.Info.TabType != want {
+			t.Errorf("persisted mission %d: client tab=%d, want %d", previous.Info.MissionID, next.Info.TabType, want)
+		}
+		if next.Info.State != previous.Info.State || next.Info.ProgressNow != previous.Info.ProgressNow ||
+			next.Period != previous.Period || !reflect.DeepEqual(next.RewardPresent, previous.RewardPresent) {
+			t.Fatalf("classification repair reset mission %d", previous.Info.MissionID)
+		}
+	}
+	if !reflect.DeepEqual(reloaded.presents, s.presents) {
+		t.Fatal("classification repair changed issued rewards")
+	}
+	if _, _, err := reloaded.ReceiveMissionRewards([]int{910001, 920001}); err == nil {
+		t.Fatal("classification repair allowed duplicate reward claim")
+	}
 }
 
 func TestMissionClaimIsAtomicAndCannotRepeat(t *testing.T) {

@@ -3,6 +3,7 @@ const playerPolicy={saved:null,defaults:null,revision:0,names:{},mailRewards:[],
 const playerLoginKinds=['cycle','beginner','total_milestones'];
 function normalizePlayerNotices(p){
   const result=structuredClone(p),n=result.notice;
+  delete result.missions;
   const entries=Array.isArray(n.entries)?n.entries:[{enabled:true,title:n.title,body:n.body}];
   n.entries=entries.map(e=>({enabled:!!e.enabled,pinned:!!e.pinned,title:e.title,body:e.body}));
   return result;
@@ -68,7 +69,6 @@ function playerPolicyDraft(){
   p.notice={...p.notice,enabled:$('#player-notice-enabled').checked,entries:playerNoticeDraft()};
   p.tutorial_completion_mail={enabled:$('#player-mail-enabled').checked,title:$('#player-mail-title').value.trim(),message:$('#player-mail-message').value.trim(),rewards:playerMailDraft()};
   p.story_first_clear_crystals=Number($('#player-story-crystals').value);
-  p.missions=$$('#player-missions tr').map(row=>({...playerPolicy.saved.missions.find(m=>m.id===Number(row.dataset.id)),enabled:row.querySelector('.mission-enabled').checked,title:row.querySelector('.mission-title').value.trim(),target:Number(row.querySelector('.mission-target').value),crystals:Number(row.querySelector('.mission-crystals').value)}));
   for(const kind of playerLoginKinds)p.login_rewards[kind]=$$(`#player-login-${kind} tr`).map((row,i)=>{
     const day=structuredClone(p.login_rewards[kind][i]);day.reward.type=Number(row.querySelector('.login-kind').value);day.reward.num=Number(row.querySelector('.login-amount').value);day.comment=row.querySelector('.login-comment').value.trim();return day;
   });
@@ -78,8 +78,6 @@ function playerPolicyDraft(){
 function playerPolicyDirty(){return !!playerPolicy.saved&&JSON.stringify(playerPolicy.saved)!==JSON.stringify(playerPolicyDraft())}
 function playerPolicyChanged(){updatePlayerNotices();const dirty=playerPolicyDirty();$('#player-policy-save').disabled=!dirty;$('#player-policy-state').textContent=dirty?'有未保存的修改':'已保存'}
 function renderPlayerPolicy(p){
-  const missionKinds={login:'签到天数',explore:'探索次数',level:'玩家等级',collection:'图鉴种数'};
-  $('#player-missions').innerHTML=(p.missions||[]).map(m=>`<tr data-id="${m.id}"><td><input class="mission-enabled" type="checkbox" ${m.enabled?'checked':''} aria-label="启用任务"></td><td><input class="mission-title" required maxlength="60" value="${esc(m.title)}" aria-label="任务标题"><span class="sub">${m.id}</span></td><td>${m.daily?'每日':'成长'} · ${m.daily&&m.kind==='login'?'当天登录':missionKinds[m.kind]}</td><td><input class="mission-target" type="number" required step="1" min="1" max="${m.daily&&m.kind==='login'?1:10000000}" value="${m.target}" ${m.daily&&m.kind==='login'?'readonly':''} aria-label="任务目标"></td><td><input class="mission-crystals" type="number" required step="1" min="1" max="10000000" value="${m.crystals}" aria-label="任务水晶奖励"></td></tr>`).join('');
   $('#player-policy-version').textContent=`配置 v${playerPolicy.revision}`;
   $('#player-notice-enabled').checked=p.notice.enabled;renderPlayerNotices(p.notice.entries);
   const mail=p.tutorial_completion_mail;$('#player-mail-enabled').checked=mail.enabled;$('#player-mail-title').value=mail.title;$('#player-mail-message').value=mail.message;playerPolicy.mailRewards=structuredClone(mail.rewards||[]);renderPlayerMail();$('#player-story-crystals').value=p.story_first_clear_crystals;
@@ -105,7 +103,7 @@ $('#player-navi-batch').onclick=()=>{const price=Number($('#player-navi-batch-pr
 $('#player-policy-save').onclick=()=>{
   if(!validatePlayerPolicyForm())return;
   return contentAction('player-policy',async()=>{
-  const config=playerPolicyDraft(),mail=config.tutorial_completion_mail;if(mail.enabled&&(!mail.title||!mail.message||!mail.rewards.length)){toast('请填写邮件标题、正文并选择奖励',true);return}if(!confirm(`保存公告、签到、新手毕业邮件、剧情奖励、任务和看板购买配置？\n毕业邮件${mail.enabled?'开启':'关闭'}，共${mail.rewards.length}种奖励，仅在整个新手训练完成时发放。\n已有领取记录和看板所有权保留。`))return;
+  const config=playerPolicyDraft(),mail=config.tutorial_completion_mail;if(mail.enabled&&(!mail.title||!mail.message||!mail.rewards.length)){toast('请填写邮件标题、正文并选择奖励',true);return}if(!confirm(`保存公告、签到、新手毕业邮件、剧情奖励和看板购买配置？\n毕业邮件${mail.enabled?'开启':'关闭'}，共${mail.rewards.length}种奖励，仅在整个新手训练完成时发放。\n已有领取记录和看板所有权保留。`))return;
   const data=await api('/api/player-policy',{method:'PUT',body:JSON.stringify({expected_revision:playerPolicy.revision,config})});playerPolicy.saved=normalizePlayerNotices(data.config);playerPolicy.revision=data.revision;rememberPlayerMailEntries(data.mail_reward_entries);renderPlayerPolicy(playerPolicy.saved);state.loaded.delete('audit');toast('公告与奖励配置已保存');
   });
 };

@@ -26,7 +26,7 @@ type multiplayerBattleContinuer interface {
 	ChargeMultiplayerContinue(multiplayer.BattleContinue) (multiplayer.ContinueBalance, error)
 }
 
-const idleAccountCacheLimit = 32
+const idleAccountCacheLimit = 64
 
 // Read once at startup; inherited by both desktop and headless launchers.
 func ConfiguredAccountCacheLimit() (int, error) {

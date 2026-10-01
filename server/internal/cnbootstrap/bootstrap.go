@@ -24,7 +24,7 @@ const (
 	cn602LocalSession   = "local-cn-session-key"
 	// UI availability bits are independent of the fixed HTTP route set.
 	cn602LocalModuleSwitchState = int64(protocol.ModuleEverydayTask | protocol.ModuleActivity |
-		protocol.ModuleRecommendDeck | protocol.ModuleStrategyButton | protocol.ModulePVP |
+		protocol.ModuleRecommendDeck | protocol.ModuleGiftCode | protocol.ModuleStrategyButton | protocol.ModulePVP |
 		protocol.ModuleFailureAdvise | protocol.ModuleCopyCard | protocol.ModuleChangeCloth |
 		protocol.ModuleChangeModel | protocol.ModuleReturnToDungeon)
 )

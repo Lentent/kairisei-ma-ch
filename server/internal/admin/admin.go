@@ -57,6 +57,9 @@ var adminContentJS []byte
 //go:embed web/admin_player_policy.js
 var adminPlayerPolicyJS []byte
 
+//go:embed web/admin_missions.js
+var adminMissionsJS []byte
+
 //go:embed web/admin_insights.js
 var adminInsightsJS []byte
 

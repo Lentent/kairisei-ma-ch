@@ -7,6 +7,7 @@ const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],grou
 const titles={'player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 titles.collections='称号与礼盒';
 titles.cdk='礼包兑换码';
+titles.missions='任务管理';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>Number(v||0).toLocaleString('zh-CN');
@@ -19,6 +20,7 @@ async function loadView(name,force=false){
   state.loading.add(name);updatePolicyControls();
   try{
     if(name==='player-policy')await loadPlayerPolicy();
+    else if(name==='missions')await loadMissions();
     else if(name==='dashboard'){state.status=await api('/api/status');renderDashboard()}
     else if(name==='accounts')await loadAccountsPage();
     else if(name==='mail')await loadMailWorkspace();
@@ -76,7 +78,8 @@ $$('#boss-kinds button').forEach(b=>b.onclick=()=>{state.bossKind=b.dataset.kind
 $('#mode-all').onclick=()=>{state.mode='all';renderBosses()};$('#mode-selected').onclick=()=>{state.mode='allowlist';renderBosses()};$('#select-visible').onclick=()=>{filteredGroups().forEach(g=>state.selected.add(g.group_id));state.mode='allowlist';renderBosses()};$('#clear-selected').onclick=()=>{state.selected.clear();state.mode='allowlist';renderBosses()};
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
-  for(const name of ['bosses','gachas','pool-editor','settings','drops','exchanges','player-policy','collections'])$('#'+name).inert=policyBusy(name);
+  for(const name of ['bosses','gachas','pool-editor','settings','drops','exchanges','player-policy','collections','missions'])$('#'+name).inert=policyBusy(name);
+  if(typeof updateMissionControls==='function')updateMissionControls();
   if(typeof updatePoolControls==='function')updatePoolControls();
   $('#save-policy').disabled=policyBusy('bosses')||!state.policy;
   $('#gacha-save').disabled=policyBusy('gachas')||!state.gachaPolicy;

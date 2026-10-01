@@ -379,6 +379,9 @@ func TestCN602ModuleSwitchBootstrap(t *testing.T) {
 	if payload.ResponseCode != 0 || payload.ModuleState != cn602LocalModuleSwitchState {
 		t.Fatalf("unexpected payload: %+v", payload)
 	}
+	if payload.ModuleState&(int64(1)<<7) == 0 {
+		t.Fatalf("Gift code module switch is closed: %d", payload.ModuleState)
+	}
 	if payload.ModuleState&(int64(1)<<31) == 0 {
 		t.Fatalf("Card development module switch is closed: %d", payload.ModuleState)
 	}
