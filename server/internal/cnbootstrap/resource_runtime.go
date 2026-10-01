@@ -8,6 +8,7 @@ import (
 
 // clientResources is a validated, read-only inventory shared by every account.
 type clientResources struct {
+	BannerAssets        *bannerAssets
 	GachaBanner         string
 	FiveStarGachaBanner string
 	HomeBanner          string
@@ -48,6 +49,21 @@ func loadClientResources(config ResourcesConfig) (*clientResources, error) {
 	if err != nil {
 		return nil, err
 	}
+	bannerFiles := map[string]string{
+		"/local/home/banner.png":            absoluteHomeBanner,
+		"/local/home/event-banner.png":      homeEventBanner,
+		"/local/gacha/banner.png":           absoluteGachaBanner,
+		"/local/gacha/five-star-banner.png": absoluteFiveStarGachaBanner,
+	}
+	for key, file := range gachaBannerPaths {
+		if key != "five_star_ticket" {
+			bannerFiles["/local/gacha/"+key+".png"] = file
+		}
+	}
+	banners, err := loadBannerAssets(bannerFiles)
+	if err != nil {
+		return nil, err
+	}
 	cpkAliases, err := cpk.LoadAliases(config.CPKRoot, config.CPKAliases)
 	if err != nil {
 		return nil, err
@@ -75,6 +91,7 @@ func loadClientResources(config ResourcesConfig) (*clientResources, error) {
 		return nil, err
 	}
 	return &clientResources{
+		BannerAssets:        banners,
 		GachaBanner:         absoluteGachaBanner,
 		FiveStarGachaBanner: absoluteFiveStarGachaBanner,
 		HomeBanner:          absoluteHomeBanner,

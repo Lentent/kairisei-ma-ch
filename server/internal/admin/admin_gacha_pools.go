@@ -43,13 +43,14 @@ var gachaCoverPathPattern = regexp.MustCompile(`^gacha-covers/[0-9a-f]{64}\.(png
 var gachaCoverDecodeSlot = make(chan struct{}, 1)
 
 type customGachaPool struct {
-	GachaID     int    `json:"gacha_id"`
-	GroupID     int    `json:"group_id"`
-	TemplateID  int    `json:"template_id"`
-	Name        string `json:"name"`
-	Deleted     bool   `json:"deleted,omitempty"`
-	RuleVersion int    `json:"rule_version,omitempty"` // 0: legacy copy; 1: complete built-in rule template.
-	ArthurType  int8   `json:"arthur_type,omitempty"`  // Native profession picker: 1–4 professions, 5 mixed.
+	GachaID       int                     `json:"gacha_id"`
+	GroupID       int                     `json:"group_id"`
+	TemplateID    int                     `json:"template_id"`
+	Name          string                  `json:"name"`
+	Deleted       bool                    `json:"deleted,omitempty"`
+	LegacyProfile *gamestate.GachaProfile `json:"legacy_profile,omitempty"`
+	RuleVersion   int                     `json:"rule_version,omitempty"` // 0: legacy copy; 1: built-in rule template; 2: full custom snapshot.
+	ArthurType    int8                    `json:"arthur_type,omitempty"`  // Native profession picker: 1–4 professions, 5 mixed.
 }
 
 type customGachaDocument struct {
@@ -110,6 +111,23 @@ func (operations *Operations) loadCustomGachas() error {
 }
 
 func (operations *Operations) registerCustomGacha(pool customGachaPool) error {
+	if pool.RuleVersion == 2 {
+		if pool.LegacyProfile == nil || pool.GachaID < 70000000 || pool.GachaID >= 80000000 || pool.GroupID < 70000000 || pool.GroupID >= 80000000 || pool.LegacyProfile.GachaID != pool.GachaID || pool.LegacyProfile.GroupID != pool.GroupID || pool.LegacyProfile.PublicationKey != "custom" {
+			return errors.New("invalid legacy custom gacha identity")
+		}
+		if _, taken := operations.gachaBases[pool.GachaID]; taken {
+			return errors.New("duplicate legacy custom gacha identity")
+		}
+		operations.gachaBases[pool.GachaID] = gamestate.CloneGachas([]gamestate.GachaProfile{*pool.LegacyProfile})[0]
+		operations.customGachas[pool.GachaID] = pool
+		operations.managedGachaGroups[pool.GroupID] = struct{}{}
+		operations.managedGachaGroupByID[pool.GachaID] = pool.GroupID
+		if operations.legacyCustomGachas == nil {
+			operations.legacyCustomGachas = map[int]bool{}
+		}
+		operations.legacyCustomGachas[pool.GachaID] = true
+		return nil
+	}
 	template, exists := operations.gachaBases[pool.TemplateID]
 	allowed := customGachaTemplateAllowed(template)
 	if pool.RuleVersion == 1 {
@@ -257,6 +275,7 @@ func (admin *API) createCustomGacha(w http.ResponseWriter, r *http.Request) {
 			if pool.GachaID != 0 {
 				delete(o.gachaBases, pool.GachaID)
 				delete(o.customGachas, pool.GachaID)
+				delete(o.legacyCustomGachas, pool.GachaID)
 				delete(o.managedGachaGroupByID, pool.GachaID)
 			}
 		}
@@ -281,6 +300,15 @@ func (admin *API) createCustomGacha(w http.ResponseWriter, r *http.Request) {
 		pool := customGachaPool{GachaID: first + i, GroupID: first, TemplateID: templateID, Name: name, RuleVersion: ruleVersion, ArthurType: variant.profession}
 		if source, ok := o.customGachas[sourceID]; ok && pool.ArthurType == 0 {
 			pool.ArthurType = source.ArthurType
+		}
+		if old, ok := o.customGachas[sourceID]; ok && old.LegacyProfile != nil {
+			profile := adminConfiguredGacha(o.gachaBases[sourceID], content).Profile
+			profile.GachaID, profile.GroupID, profile.Name, profile.PlayCount = pool.GachaID, pool.GroupID, name, 0
+			if pool.ArthurType != 0 {
+				profile.ArthurType = pool.ArthurType
+			}
+			pool.RuleVersion = 2
+			pool.LegacyProfile = &profile
 		}
 		if err := o.registerCustomGacha(pool); err != nil {
 			undo()
@@ -320,6 +348,7 @@ func (admin *API) createCustomGacha(w http.ResponseWriter, r *http.Request) {
 	}
 	o.customGachaRevision = documents[0].Revision
 	o.gachaConfigurations = nextConfigs
+	o.syncCustomGachaCatalog()
 	o.gachaRevision++
 	// New content starts as drafts: publish the whole group, then open it in
 	// 扭蛋发布. Until then players cannot see it.
@@ -379,6 +408,7 @@ func (admin *API) changeCustomGachaDeletion(w http.ResponseWriter, r *http.Reque
 	}
 	o.customGachaRevision = doc.Revision
 	o.gachaConfigurations = nextConfigs
+	o.syncCustomGachaCatalog()
 	o.gachaRevision++
 	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": doc.Revision})
 }
@@ -511,6 +541,14 @@ func (admin *API) customGachaPresets() []AdminGachaPreset {
 			}
 		}
 		base := o.gachaBases[pool.GachaID]
+		if pool.LegacyProfile != nil {
+			preset.PublicationKey, preset.BannerKey, preset.ImageURL = "custom", base.BannerKey, "/gacha-assets/"+base.BannerKey+".png"
+			preset.PaymentItemID, preset.DrawCount = base.PayTypeID, base.CardNum
+			preset.PaymentItem = map[int]string{2: "友情点", 3: "水晶", 6: "付费水晶"}[base.PayType]
+			if base.PayType == 4 {
+				preset.PaymentItem = admin.catalogByKey[adminCatalogKey(8, base.PayTypeID)].Name
+			}
+		}
 		preset.Name, preset.Price, preset.CardCount = base.Name, base.Price, len(base.CardIDs)
 		result = append(result, preset)
 	}

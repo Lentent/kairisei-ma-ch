@@ -95,9 +95,11 @@ type Account struct {
 	cardCollectionPages         [][10]int
 	buddySlots                  int
 	missions                    []gamestate.Mission
+	missionDefinitions          []MissionDefinition
 	presents                    []gamestate.Present
 	presentHistories            []gamestate.Present
 	popupReadIDs                map[int]struct{}
+	noticePublication           NoticePublication
 	loginBonusPolicy            gamestate.LoginBonusPolicy
 	tutorialCompletionMail      TutorialCompletionMail
 	loginBonusState             gamestate.LoginBonusState
@@ -290,6 +292,11 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 func New(state gamestate.State) (*Account, error) {
 	if err := gamestate.ValidateItemShopProgress(state.ItemShopPurchases, state.ItemShopPeriods); err != nil {
 		return nil, err
+	}
+	// Upgrade the original capacity when loading existing accounts or older seeds.
+	// Follow and follower capacity share this value; mutual friends have a separate cap.
+	if state.Friends.FollowMax == 50 {
+		state.Friends.FollowMax = 500
 	}
 	if state.PlayerProgressionPolicy.ConfigVersion > 0 {
 		policy := state.PlayerProgressionPolicy
@@ -999,7 +1006,7 @@ func New(state gamestate.State) (*Account, error) {
 			return nil, err
 		}
 		if gacha.PayType == 4 {
-			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || definition.ItemType != "GACHA_TICKET" {
+			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || (gacha.PublicationKey != "custom" && definition.ItemType != "GACHA_TICKET") {
 				return nil, fmt.Errorf("gacha %d references an invalid ticket item", gacha.GachaID)
 			}
 		}
@@ -1013,7 +1020,7 @@ func New(state gamestate.State) (*Account, error) {
 		definition, exists := result.itemDefinitions[itemID]
 		if !exists || definition.ItemType != "GACHA" || definition.Function != "GACHA_EXEC" ||
 			definition.FunctionValue != profile.FunctionValue || (len(profile.Rewards) == 0 && len(profile.RewardPool) == 0) ||
-			(profile.Evidence != "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE" && profile.Evidence != "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION") {
+			!gamestate.ValidItemGachaEvidence(profile.Evidence) {
 			return nil, fmt.Errorf("item gacha profile %d is invalid", itemID)
 		}
 		for _, reward := range profile.Rewards {
@@ -1022,7 +1029,7 @@ func New(state gamestate.State) (*Account, error) {
 			}
 		}
 		if len(profile.RewardPool) > 0 {
-			if err := gamestate.ValidateRewardPool(profile.RewardPool); err != nil {
+			if err := gamestate.ValidateItemGachaRewardPool(profile.RewardPool); err != nil {
 				return nil, err
 			}
 			for _, entry := range profile.RewardPool {

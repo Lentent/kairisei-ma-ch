@@ -132,6 +132,8 @@ func TestPlayerPolicySaveRestartAndNewAccounts(t *testing.T) {
 		t.Fatal("existing database blocked catalog expansion", err)
 	}
 	want := config
+	want.Missions = game.DefaultMissions()
+	want.Notice.PublicationRevision = 3
 	want.Navigators = append(append([]game.NaviSetting(nil), config.Navigators...), newNavigator)
 	if got := restarted.playerPolicy.Load(); got.Revision != 3 || !reflect.DeepEqual(got.Value, want) || !reflect.DeepEqual(got.Runtime.Navigators, want.Navigators) {
 		t.Fatalf("catalog expansion reset saved settings or omitted new navigator: %+v", got)

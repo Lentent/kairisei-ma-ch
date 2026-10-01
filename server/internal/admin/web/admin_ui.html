@@ -56,6 +56,8 @@
       <button data-view="player-policy"><svg class="icon"><use href="#i-megaphone"/></svg><span>公告与奖励</span></button>
       <button data-view="settings"><svg class="icon"><use href="#i-sliders"/></svg><span>运营设置</span></button>
       <button data-view="audit"><svg class="icon"><use href="#i-scroll"/></svg><span>操作审计</span></button>
+      <button data-view="collections"><svg class="icon"><use href="#i-gift"/></svg><span>称号与礼盒</span></button>
+      <button data-view="cdk"><svg class="icon"><use href="#i-gift"/></svg><span>礼包兑换码</span></button>
       <button data-view="maintenance"><svg class="icon"><use href="#i-wrench"/></svg><span>维护工具</span><span class="nav-flag" id="nav-maintenance-flag" hidden>维护中</span></button>
     </nav>
     <div class="sidebar-foot">
@@ -72,6 +74,50 @@
       <button class="secondary refresh" id="refresh" title="重新读取当前页面"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新数据</span></button>
     </header>
     <div class="maint-banner" id="maintenance-banner" role="status" hidden><svg class="icon"><use href="#i-alert"/></svg><span><b>服务器维护中</b>：注册、登录和游戏请求已暂停，玩家无法进入游戏。</span><button class="secondary sm" type="button" data-jump="maintenance">前往维护工具</button></div>
+
+    <section class="view content-editor" id="collections">
+      <div class="panel"><div class="panel-head"><h2>称号与礼盒</h2><span class="pill gold" id="collection-version">配置 v0</span></div><div class="panel-body">
+        <p class="sub">新增称号、礼盒及开箱奖励。保存后生成资源更新包，停服覆盖并重启，再让客户端下载更新资源。无需修改 APK。</p>
+        <div class="toolbar"><button class="primary" id="collection-save">保存配置</button><button class="secondary" id="collection-package">生成资源更新包</button><button class="secondary" id="collection-json">导出配置 JSON</button><label class="secondary">导入配置 <input type="file" id="collection-import" accept="application/json,.json" hidden></label></div>
+        <p class="sub" id="collection-status" aria-live="polite">配置保存为草稿，覆盖资源并重启后在游戏中生效。</p>
+      </div></div>
+      <div class="grid2" style="margin-top:20px">
+        <div class="panel"><div class="panel-head"><h2>自定义称号</h2><button class="secondary" id="honor-new">新增称号</button></div><div class="panel-body">
+          <div class="field"><label for="honor-select">选择称号</label><select id="honor-select"></select></div>
+          <fieldset class="editor-fields" id="honor-fields"><div class="field"><label for="honor-id">称号 ID（自动分配）</label><input id="honor-id" readonly></div><div class="field"><label for="honor-name">称号名称</label><input id="honor-name" maxlength="60"></div>
+          <div class="field"><label>可佩戴位置</label><div class="toolbar" id="honor-slots"><label><input type="checkbox" value="1"> A</label><label><input type="checkbox" value="2"> B</label><label><input type="checkbox" value="4"> C</label><label><input type="checkbox" value="8"> 特殊称号</label></div></div></fieldset>
+          <p class="sub">新增称号不会自动授予玩家。可放入礼盒奖池，应用资源更新后也可通过礼物发放。</p>
+        </div></div>
+        <div class="panel"><div class="panel-head"><h2>自定义礼盒</h2><button class="secondary" id="box-new">新增礼盒</button></div><div class="panel-body">
+          <div class="field"><label for="box-select">选择礼盒</label><select id="box-select"></select></div>
+          <fieldset class="editor-fields" id="box-fields"><div class="field"><label for="box-id">道具 ID（自动分配）</label><input id="box-id" readonly></div><div class="field"><label for="box-name">礼盒名称</label><input id="box-name" maxlength="60"></div><div class="field"><label for="box-description">客户端说明</label><textarea id="box-description" maxlength="500" rows="3"></textarea></div>
+          <div class="toolbar"><div class="field"><label for="box-icon">复用已有礼盒图标</label><select id="box-icon"></select></div><div class="field"><label for="box-maximum">最大持有数量</label><input id="box-maximum" type="number" min="1" max="99999"></div></div></fieldset>
+          <p class="sub">每次开箱扣除一个礼盒，按奖池概率随机发放一项。新增礼盒需另行配置发放或掉落。</p>
+        </div></div>
+      </div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2>当前礼盒奖池</h2><span class="pill" id="box-pool-summary">请选择礼盒</span></div><div class="panel-body">
+        <div class="toolbar"><button class="secondary" id="box-add-rewards">从奖励目录添加</button><select id="box-custom-honor" aria-label="自定义称号"></select><button class="secondary" id="box-add-honor">添加自定义称号</button></div>
+        <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>权重</th><th>概率</th><th>卡牌等级</th><th>操作</th></tr></thead><tbody id="box-reward-rows"></tbody></table></div>
+        <p class="sub">概率 = 当前权重 ÷ 全部权重。例：五项素材各188，皮肤和称号各30，总权重1000，对应18.8%和3%。收藏类奖励数量固定为1。</p>
+      </div>
+    </section>
+
+    <section class="view" id="cdk">
+      <div class="panel"><div class="panel-head"><h2>创建礼包兑换码</h2></div><div class="panel-body">
+        <p class="sub">通用码：每账号限领一次，可设置全服总次数。一次性码：全服仅可兑换一次。每种奖励发送一封游戏礼物。</p>
+        <p class="sub">玩家可直接使用游戏内礼包码窗口。网页备用入口：<a id="cdk-player-link" target="_blank" rel="noopener">正在读取…</a></p>
+        <div class="toolbar"><div class="field"><label for="cdk-mode">类型</label><select id="cdk-mode"><option value="shared">通用码</option><option value="single">一次性码</option></select></div><div class="field"><label for="cdk-count">生成数量</label><input id="cdk-count" type="number" min="1" max="100" value="1"></div><div class="field"><label for="cdk-code">指定码（留空自动生成）</label><input id="cdk-code" maxlength="64" placeholder="6–64位字母、数字、短横线"></div></div>
+        <div class="toolbar"><div class="field"><label for="cdk-title">邮件标题</label><input id="cdk-title" maxlength="40" value="礼包兑换奖励"></div><div class="field"><label for="cdk-max-uses">全服总次数（0为不限）</label><input id="cdk-max-uses" type="number" min="0" max="10000000" value="0"></div></div>
+        <div class="field"><label for="cdk-message">邮件正文</label><textarea id="cdk-message" maxlength="200" rows="2">感谢游玩，请收下礼包奖励。</textarea></div>
+        <div class="toolbar"><div class="field"><label for="cdk-start">开始时间（本机时区，留空立即生效）</label><input id="cdk-start" type="datetime-local"></div><div class="field"><label for="cdk-expiry">结束时间（本机时区，留空长期有效）</label><input id="cdk-expiry" type="datetime-local"></div></div>
+        <button class="secondary" id="cdk-add">从奖励目录添加</button>
+        <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>等级 / 名声 / 爱情</th><th>操作</th></tr></thead><tbody id="cdk-rewards"></tbody></table></div>
+        <div class="toolbar"><button class="primary" id="cdk-create">创建兑换码</button><span id="cdk-create-status" role="status"></span></div>
+        <div class="field"><label for="cdk-generated">本次生成结果（可复制或下载保存）</label><textarea id="cdk-generated" readonly rows="4"></textarea></div><button class="secondary" id="cdk-download" disabled>下载本次兑换码</button>
+      </div></div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2>兑换码列表</h2><button class="secondary" id="cdk-list-refresh">刷新</button></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>兑换码 / 奖励</th><th>类型 / 次数</th><th>状态 / 有效期</th><th>操作</th></tr></thead><tbody id="cdk-rows"></tbody></table></div><div class="toolbar pager"><button class="secondary" id="cdk-prev">上一页</button><span id="cdk-page-info"></span><label>跳至 <input id="cdk-page" type="number" min="1" value="1"> 页</label><button class="secondary" id="cdk-next">下一页</button></div></div></div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2 id="cdk-record-title">兑换记录</h2></div><div class="panel-body"><p id="cdk-record-rewards" class="sub"></p><div class="table-wrap"><table><thead><tr><th>角色 UID</th><th>兑换时间</th><th>奖励邮件编号</th></tr></thead><tbody id="cdk-records"><tr><td colspan="3">选择一个兑换码查看记录</td></tr></tbody></table></div><div class="toolbar pager" id="cdk-record-pager" hidden><button class="secondary" id="cdk-record-prev">上一页</button><span id="cdk-record-page-info"></span><label>跳至 <input id="cdk-record-page" type="number" min="1" value="1"> 页</label><button class="secondary" id="cdk-record-next">下一页</button></div></div></div>
+    </section>
 
     <!-- 运行概览 -->
     <section class="view active" id="dashboard">
@@ -308,7 +354,7 @@
       <div class="view-alert" role="alert" hidden></div>
       <div class="panel"><div class="panel-head"><div><h2>选择卡池</h2><span class="hint">筛选不会切换正在编辑的卡池。开放由「扭蛋发布」统一控制。</span></div></div><div class="panel-body">
         <div class="filterbar"><input id="pool-name-search" class="search" type="search" placeholder="搜索卡池名称或 ID"><select id="pool-config-status" aria-label="配置状态"><option value="">全部配置状态</option><option value="open">排期内</option><option value="closed">未开始／已结束</option><option value="draft">有未发布草稿</option><option value="custom">后台新建</option><option value="deleted">已删除</option></select><span class="hint" id="pool-filter-count"></span></div>
-        <div class="toolbar"><select id="pool-select" aria-label="选择卡池"></select><button class="secondary" id="pool-create" type="button"><svg class="icon"><use href="#i-plus"/></svg>新建卡池</button><button class="danger" id="pool-delete" type="button" hidden>移入回收站</button><button class="secondary" id="pool-restore" type="button" hidden>恢复卡池</button><span class="spacer"></span><button class="secondary" id="pool-export">导出配置</button><label class="secondary file-button" tabindex="0">导入配置<input id="pool-import" type="file" accept=".json" hidden></label></div>
+        <div class="toolbar"><select id="pool-select" aria-label="选择卡池"></select><button class="secondary" id="pool-create" type="button"><svg class="icon"><use href="#i-plus"/></svg>新建卡池</button><button class="secondary" id="pool-custom-new" type="button">自定义卡池</button><button class="danger" id="pool-delete" type="button" hidden>移入回收站</button><button class="secondary" id="pool-restore" type="button" hidden>恢复卡池</button><span class="spacer"></span><button class="secondary" id="pool-export">导出配置</button><label class="secondary file-button" tabindex="0">导入配置<input id="pool-import" type="file" accept=".json" hidden></label></div>
         <details id="pool-trash-panel" class="tool-drawer"><summary id="pool-trash-summary">卡池回收站</summary><p class="hint">这里保留可恢复的配置及抽取计数。永久删除须到维护工具预览、备份后执行。</p><div class="table-wrap"><table><thead><tr><th>卡池</th><th>分池</th><th>配置状态</th><th>操作</th></tr></thead><tbody id="pool-trash-rows"></tbody></table></div></details>
       </div></div>
       <div class="editing"><span id="pool-current"></span><span class="hint" id="pool-contract"></span></div>
@@ -363,10 +409,12 @@
         <div class="kind-tabs stage-tabs" id="pool-stage-tabs" role="group" aria-label="阶段" hidden></div>
         <div class="stage-settings"><div class="field"><label id="pool-stage-price-label" for="pool-stage-price">本阶段价格</label><input id="pool-stage-price" type="number" min="1" max="10000000"></div>
           <div class="field" id="pool-stage-payment"><label for="pool-stage-pay-type">本阶段消耗</label><div class="stage-pay"><select id="pool-stage-pay-type"><option value="0">沿用抽法设置</option><option value="3">水晶</option><option value="4">道具</option><option value="6">付费水晶</option></select><input id="pool-stage-item-search" type="search" placeholder="筛选道具" aria-label="筛选阶段消耗道具"><select id="pool-stage-pay-item" aria-label="阶段消耗道具"></select></div></div></div>
-        <div class="filterbar"><input id="pool-mixed-search" class="search" type="search" placeholder="搜索奖励名称或 ID"><span class="hint" id="pool-mixed-total"></span></div>
+        <div class="toolbar" id="pool-custom-mixed" hidden><button class="secondary" id="pool-reward-add">添加奖励</button><button class="secondary" id="pool-stage-add">增加阶段</button><button class="secondary" id="pool-stage-delete">删除当前阶段</button></div><div class="filterbar"><input id="pool-mixed-search" class="search" type="search" placeholder="搜索奖励名称或 ID"><span class="hint" id="pool-mixed-total"></span></div>
         <div class="table-wrap"><table class="pool-mixed-table"><thead><tr><th>奖励</th><th class="num">数量</th><th>权重</th></tr></thead><tbody id="pool-mixed-rows"></tbody></table></div>
         <div class="pager"><button id="pool-mixed-prev" class="secondary">上一页</button><span id="pool-mixed-page" class="page-info"></span><button id="pool-mixed-next" class="secondary">下一页</button></div><p id="pool-mixed-gifts" class="hint"></p>
       </div></div>
+<div class="panel" id="pool-custom-settings" hidden><div class="panel-head"><h2>自定义抽取规则</h2></div><div class="panel-body"><div class="form-grid"><div class="field"><label for="pool-draw-count">每次抽数（同组入口按模板固定）</label><input id="pool-draw-count" type="number" min="1" max="11"></div><div class="field"><label for="pool-banner">卡池横幅</label><select id="pool-banner"></select></div><div class="field"><label for="pool-banner-upload">上传PNG横幅（最多4 MiB）</label><input id="pool-banner-upload" type="file" accept="image/png"></div></div><img id="pool-banner-preview" alt="卡池横幅预览" style="max-width:440px;width:100%"></div></div>
+<div class="panel" id="pool-custom-gifts" hidden><div class="panel-head"><h2>累计抽取赠礼</h2></div><div class="panel-body"><p class="hint">按成功抽取次数累计；连抽也计一次。结束次数为0表示持续赠送。修改不清零进度。</p><button class="secondary" id="pool-gift-add">增加赠礼规则</button><div id="pool-gift-rows"></div></div></div>
       <div class="panel preview-panel"><div class="panel-head"><h2>预览</h2></div><div id="pool-preview" class="panel-body"></div></div>
       <div class="savebar"><div class="savebar-status"><ol class="flow" id="pool-flow" aria-label="发布流程"><li data-flow="edit">编辑</li><li data-flow="preview">保存草稿并预览</li><li data-flow="publish">发布</li></ol><span class="pill gold" id="pool-version">—</span></div><div class="savebar-actions"><button class="secondary" id="pool-discard" title="放弃已保存的草稿和未保存的修改，恢复为已发布版本">放弃草稿</button><button class="secondary" id="pool-save-preview" data-save-shortcut>保存草稿并预览</button><button class="primary" id="pool-publish" disabled>发布已预览草稿</button></div></div>
     </section>
@@ -375,12 +423,11 @@
     <section class="view" id="player-policy">
       <div class="view-alert" role="alert" hidden></div>
       <nav class="section-nav sticky" aria-label="本页分区"><a href="#pp-notice">游戏公告</a><a href="#pp-mail">新手毕业邮件</a><a href="#pp-story">剧情首通</a><a href="#pp-login">签到奖励</a><a href="#pp-navi">看板购买</a><span class="hint">整页一次保存，保存后生效并在重启后保留；签到与剧情保留领取进度。</span></nav>
-      <div class="panel" id="pp-notice"><div class="panel-head"><h2>游戏公告</h2><a href="/api/player-policy/notice-preview" target="_blank" rel="noopener">查看已发布公告 ↗</a></div><div class="panel-body">
-        <label class="switch"><input id="player-notice-enabled" type="checkbox"><span>显示公告内容</span></label>
-        <div class="form-grid three"><div class="field"><label for="player-notice-title">标题</label><input id="player-notice-title" maxlength="80"></div><div class="field"><label for="player-notice-start">开始显示（本机时区，留空立即）</label><input id="player-notice-start" type="datetime-local"></div><div class="field"><label for="player-notice-end">结束显示（留空不限）</label><input id="player-notice-end" type="datetime-local"></div></div>
-        <p class="hint" id="player-notice-schedule"></p>
-        <div class="field"><label for="player-notice-body">正文（纯文字，支持换行）</label><textarea id="player-notice-body" maxlength="8000" rows="6"></textarea></div>
-        <p class="hint">关闭时公告页显示“暂无公告”，游戏入口保留。</p>
+      <div class="panel" id="pp-notice"><div class="panel-head"><h2>游戏公告</h2><a href="/api/player-policy/notice-preview" target="_blank" rel="noopener">查看已发布公告</a></div><div class="panel-body">
+        <div class="checks"><label><input id="player-notice-enabled" type="checkbox"> 显示公告内容（总开关）</label></div>
+        <div class="toolbar"><button type="button" class="secondary" id="player-notice-add">新增公告</button><span class="sub" id="player-notice-count"></span></div>
+        <p class="sub">游戏内直接展开全部已上架公告的正文。置顶公告优先，同类公告按下方顺序显示；修改后点击上方“保存配置”生效。已发布内容更新后，玩家下次进入主页自动打开公告，打开后不重复提示；新手训练期间暂不弹出。仅调整置顶、顺序或未发布草稿不触发。总开关关闭时显示“暂无公告”，已有内容保留。</p>
+        <div class="form-grid"><div class="field"><label for="player-notice-start">公告开始时间（留空立即）</label><input id="player-notice-start" type="datetime-local"></div><div class="field"><label for="player-notice-end">公告结束时间（留空不限）</label><input id="player-notice-end" type="datetime-local"></div></div><div id="player-notices"></div>
       </div></div>
       <div class="panel" id="pp-mail"><div class="panel-head"><h2>新手毕业邮件</h2><span class="pill" id="player-mail-count"></span></div><div class="panel-body">
         <label class="switch"><input id="player-mail-enabled" type="checkbox"><span>全部新手训练完成后发送</span></label>
@@ -399,9 +446,14 @@
         <div><h3>新手签到</h3><div class="table-wrap"><table class="dense"><thead><tr><th>天数</th><th>奖励</th><th>数量</th><th>说明</th></tr></thead><tbody id="player-login-beginner"></tbody></table></div></div>
         <div><h3>累计登录</h3><div class="table-wrap"><table class="dense"><thead><tr><th>累计天数</th><th>奖励</th><th>数量</th><th>说明</th></tr></thead><tbody id="player-login-total_milestones"></tbody></table></div></div>
       </div></div>
+      <div class="panel"><div class="panel-head"><h2>任务配置</h2></div><div class="panel-body">
+        <p class="sub">修改后点击本页顶部“保存配置”。玩家下一次请求生效；未领取任务使用新目标和新奖励，已领取记录及礼物箱奖励保留。停用后任务隐藏且不能领取，重新启用不会重置领取记录。</p>
+        <p class="sub">每日任务北京时间00:00刷新；探索只统计启用期间成功结算的次数。成长任务使用已有等级、图鉴和累计签到数据。每日登录目标固定为1。</p>
+        <div class="table-wrap"><table><thead><tr><th>启用</th><th>任务标题</th><th>类型／条件</th><th>目标</th><th>水晶奖励</th></tr></thead><tbody id="player-missions"></tbody></table></div>
+      </div></div>
       <div class="panel" id="pp-navi"><div class="panel-head"><div><h2>看板购买</h2><span class="hint">只能配置已有完整资源的看板。妖精乌莎哈为初始看板；关闭购买后已拥有的玩家仍可使用。</span></div></div><div class="panel-body">
         <div class="toolbar"><label class="inline-field">批量价格 <input id="player-navi-batch-price" type="number" min="1" max="10000000" value="500"></label><button class="secondary sm" id="player-navi-batch">应用到全部看板</button></div>
-        <div class="navi-grid" id="player-navis"></div>
+        <div class="table-wrap"><table><thead><tr><th>开放购买</th><th>看板</th><th>水晶价格</th></tr></thead><tbody id="player-navis"></tbody></table></div>
       </div></div>
       <div class="savebar"><div class="savebar-status"><span class="pill" id="player-policy-version">正在读取</span><span id="player-policy-state" aria-live="polite"></span></div><div class="savebar-actions"><button class="secondary" id="player-policy-default">载入包内默认值</button><button class="primary" id="player-policy-save" data-save-shortcut disabled>保存配置</button></div></div>
     </section>
@@ -572,14 +624,18 @@
   </div>
   <div class="dialog-actions"><button id="credentials-unbind" class="danger" hidden>解除绑定</button><span class="spacer"></span><button id="credentials-cancel" class="secondary" data-dismiss>取消</button><button id="credentials-apply" class="primary">保存</button></div>
 </div></div>
+<div class="modal" id="pool-custom-create-modal" role="dialog" aria-modal="true" aria-labelledby="pool-custom-title"><div class="dialog"><h2 id="pool-custom-title">自定义卡池</h2><div class="field"><label for="pool-custom-name">卡池名称</label><input id="pool-custom-name" maxlength="60"></div><div class="field"><label for="pool-custom-source">复制来源</label><select id="pool-custom-source"></select></div><div class="field"><label for="pool-custom-mode">空白卡池类型</label><select id="pool-custom-mode"><option value="ordinary">卡牌池</option><option value="mixed">混合奖励／阶段池</option></select></div><p class="hint">复制时保留整组抽法，创建后独立配置卡牌、阶段与赠礼。先保存预览，再发布并开放。</p><div class="dialog-actions"><button class="secondary" id="pool-custom-cancel" data-dismiss>取消</button><button class="primary" id="pool-custom-apply">创建草稿</button></div></div></div>
 <div class="toast-stack" id="toast-stack"></div>
 <script defer src="/admin.js"></script>
 <script defer src="/operations.js"></script>
+<script defer src="/gacha-legacy.js"></script>
 <script defer src="/accounts.js"></script>
 <script defer src="/mail.js"></script>
 <script defer src="/settings.js"></script>
 <script defer src="/evolution.js"></script>
 <script defer src="/content.js"></script>
+<script defer src="/cdk-admin.js"></script>
+<script defer src="/collections.js"></script>
 <script defer src="/player-policy.js"></script>
 <script defer src="/insights.js"></script>
 </body>

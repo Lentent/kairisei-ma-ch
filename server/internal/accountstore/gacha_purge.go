@@ -63,7 +63,7 @@ func gachaPurgeDocuments(ctx context.Context, tx *sql.Tx, plan *GachaPurgePlan) 
 		if write.Expected < 0 {
 			return nil, ErrDocumentConflict
 		}
-		if write.Key != "gacha-custom" && write.Key != "gacha_publication" {
+		if write.Key != "gacha-custom" && write.Key != "gacha_publication" && write.Key != "custom-gacha-catalog" {
 			return nil, errors.New("purge cannot change unrelated configuration")
 		}
 		hasRegistry = hasRegistry || write.Key == "gacha-custom"

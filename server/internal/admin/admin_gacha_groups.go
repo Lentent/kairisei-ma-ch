@@ -207,6 +207,7 @@ func (admin *API) gachaGroupAction(w http.ResponseWriter, r *http.Request) {
 // applyPublishedGacha swaps one variant's live configuration while the caller holds configMu.
 // No account cache or player save is bulk rewritten; accounts pick it up on their next request.
 func (operations *Operations) applyPublishedGacha(config AdminGachaConfig) {
+	defer operations.syncCustomGachaCatalog()
 	configured := operations.configuredGacha(config.GachaID, config)
 	for i := range operations.gachaConfigurations {
 		if operations.gachaConfigurations[i].Profile.GachaID == config.GachaID {

@@ -17,6 +17,9 @@ import (
 )
 
 type AdminGachaConfig struct {
+	CardNum      int                        `json:"card_num,omitempty"`
+	BannerKey    string                     `json:"banner_key,omitempty"`
+	Gifts        []gamestate.GachaGiftRule  `json:"gift_rules,omitempty"`
 	PayType      int                        `json:"pay_type,omitempty"` // Zero inherits the original payment for old documents.
 	PayTypeID    int                        `json:"pay_typeid,omitempty"`
 	GachaID      int                        `json:"gacha_id"`
@@ -38,7 +41,7 @@ type AdminGachaConfig struct {
 
 func AdminGachaConfigFromProfile(profile gamestate.GachaProfile) AdminGachaConfig {
 	profile = gamestate.CloneGachas([]gamestate.GachaProfile{profile})[0]
-	return AdminGachaConfig{GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
+	return AdminGachaConfig{PayType: profile.PayType, PayTypeID: profile.PayTypeID, CardNum: profile.CardNum, BannerKey: profile.BannerKey, Gifts: profile.Gifts, GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
 }
 
 func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) game.GachaConfiguration {
@@ -49,6 +52,12 @@ func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) 
 			base.DailyFirstFree = false
 		}
 		base.PayType, base.PayTypeID = config.PayType, config.PayTypeID
+	}
+	if config.CardNum > 0 && base.PublicationKey == "custom" && !base.FixedDrawCount {
+		base.CardNum, base.CardNumMax = config.CardNum, config.CardNum
+	}
+	if base.PublicationKey == "custom" {
+		base.BannerKey, base.Gifts = config.BannerKey, config.Gifts
 	}
 	base.Name, base.Price = config.Name, config.Price
 	base.PlayCountMax = config.PlayCountMax
@@ -119,6 +128,7 @@ func (operations *Operations) reloadGachaConfigurations() error {
 		return err
 	}
 	operations.gachaConfigurations, operations.gachaRevision = configs, revision
+	operations.syncCustomGachaCatalog()
 	return nil
 }
 
@@ -137,7 +147,7 @@ func (operations *Operations) readGachaConfigurations() ([]game.GachaConfigurati
 			return nil, 0, err
 		}
 		_, custom := operations.customGachas[id]
-		if doc.Revision == 0 && !custom {
+		if doc.Revision == 0 && (!custom || operations.legacyCustomGachas[id]) {
 			continue
 		}
 		// Operator pools always carry a configuration so accounts can append (or hide) them.
@@ -212,6 +222,14 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 	}
 	if config.StartUnix < 0 || config.EndUnix < 0 || config.StartUnix > 2147483647 || config.EndUnix > 2147483647 || (config.EndUnix != 0 && config.EndUnix <= config.StartUnix) {
 		return nil, errors.New("排期无效：结束时间须晚于开始时间且早于 2038-01-19")
+	}
+	if admin.operations.legacyCustomGachas[config.GachaID] {
+		if err := admin.validateCustomGachaMetadata(base, config); err != nil {
+			return nil, err
+		}
+		if len(base.RewardPool) > 0 {
+			return admin.validateCustomMixedGacha(base, config)
+		}
 	}
 	if len(base.RewardPool) > 0 {
 		if len(config.CardFames) > 0 {
@@ -315,10 +333,15 @@ func (admin *API) gachaEditorList(writer http.ResponseWriter, request *http.Requ
 			}
 		}
 		pool, custom := admin.operations.customGachas[id]
-		rows = append(rows, map[string]any{"gacha_id": id, "config": config, "base": base, "live": live, "draft": draft, "custom": custom, "deleted": pool.Deleted, "template_id": pool.TemplateID, "banner_url": "/gacha-assets/" + base.BannerKey + ".png"})
+		rows = append(rows, map[string]any{"gacha_id": id, "config": config, "base": base, "live": live, "draft": draft, "custom": custom, "legacy": admin.operations.legacyCustomGachas[id], "deleted": pool.Deleted, "template_id": pool.TemplateID, "banner_url": "/gacha-assets/" + base.BannerKey + ".png"})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i]["gacha_id"].(int) < rows[j]["gacha_id"].(int) })
-	WriteAdminJSON(writer, 200, map[string]any{"state": "PASS", "pools": rows, "custom_revision": admin.operations.customGachaRevision, "rule_templates": admin.gachaRuleTemplates()})
+	banners := []string{}
+	for key := range admin.gachaBannerPaths {
+		banners = append(banners, key)
+	}
+	sort.Strings(banners)
+	WriteAdminJSON(writer, 200, map[string]any{"state": "PASS", "banners": banners, "pools": rows, "custom_revision": admin.operations.customGachaRevision, "rule_templates": admin.gachaRuleTemplates()})
 }
 
 func (admin *API) gachaEditorAction(writer http.ResponseWriter, request *http.Request) {
@@ -358,7 +381,7 @@ func (admin *API) gachaEditorAction(writer http.ResponseWriter, request *http.Re
 			WriteAdminError(writer, 500, err.Error())
 			return
 		}
-		if base, ok := admin.operations.gachaBases[body.Config.GachaID]; ok && len(admin.operations.gachaGroupMembers(base.GroupID)) > 1 {
+		if base, ok := admin.operations.gachaBases[body.Config.GachaID]; ok && !admin.operations.legacyCustomGachas[body.Config.GachaID] && len(admin.operations.gachaGroupMembers(base.GroupID)) > 1 {
 			WriteAdminError(writer, 400, "此卡池包含多种抽法，请重新加载页面后整池发布")
 			return
 		}
@@ -395,6 +418,7 @@ func (admin *API) gachaEditorAction(writer http.ResponseWriter, request *http.Re
 	}
 	if action == "publish" {
 		admin.operations.applyPublishedGacha(body.Config)
+		admin.operations.syncCustomGachaCatalog()
 	}
 	result := map[string]any{"state": "PASS", "document": docs[0], "preview": preview}
 	if action == "publish" {

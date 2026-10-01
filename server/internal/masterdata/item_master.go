@@ -172,7 +172,7 @@ func validateItemRuntimeMaster(master ItemRuntimeMaster) error {
 		definition, exists := definitions[profile.ItemID]
 		if !exists || definition.ItemType != "GACHA" || definition.Function != "GACHA_EXEC" ||
 			definition.FunctionValue != profile.FunctionValue || (len(profile.Rewards) == 0 && len(profile.RewardPool) == 0) ||
-			(profile.Evidence != "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE" && profile.Evidence != "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION") {
+			!gamestate.ValidItemGachaEvidence(profile.Evidence) {
 			return fmt.Errorf("invalid CN item gacha profile %d", profile.ItemID)
 		}
 		if _, duplicate := coveredGachaItems[profile.ItemID]; duplicate {
@@ -182,12 +182,12 @@ func validateItemRuntimeMaster(master ItemRuntimeMaster) error {
 			return fmt.Errorf("duplicate CN item gacha function value %d", profile.FunctionValue)
 		}
 		for _, reward := range profile.Rewards {
-			if gamestate.ValidateGachaReward(reward) != nil {
+			if gamestate.ValidateItemGachaReward(reward) != nil {
 				return fmt.Errorf("invalid CN item gacha reward for item %d", profile.ItemID)
 			}
 		}
 		if len(profile.RewardPool) > 0 {
-			if err := gamestate.ValidateRewardPool(profile.RewardPool); err != nil {
+			if err := gamestate.ValidateItemGachaRewardPool(profile.RewardPool); err != nil {
 				return err
 			}
 		}

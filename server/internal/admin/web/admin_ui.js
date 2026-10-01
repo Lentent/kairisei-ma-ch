@@ -5,7 +5,9 @@ const cardStars=card=>card.rarity?`${card.rarity} 星`:'';
 const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={maintenance:'维护工具',evolution:'卡牌进化链','activity-rewards':'圣剑杯与探索','player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置',shop:'道具商店','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
+titles.collections="称号与礼盒";titles.cdk="礼包兑换码";
 const viewMeta={
+ collections:["系统","称号、礼盒与开箱奖励"],cdk:["玩家","创建礼包码、查看兑换记录与发奖"],
   evolution:['扭蛋与商店','按星级查看进化链，独立控制每条进化方向的开放状态'],
   dashboard:['概览','服务状态、玩家活跃、待处理事项与组队房间'],
   accounts:['玩家','筛选玩家、查看存档、调整资源与绑定，跨页选择收件人'],
@@ -134,6 +136,7 @@ async function loadView(name,force=false){
     else if(name==='dashboard'){state.status=await api('/api/status');renderDashboard();loadDashboardTodos()}
     else if(name==='accounts')await loadAccountsPage();
     else if(name==='mail')await loadMailWorkspace();
+    else if(name==='cdk')await loadCDKWorkspace();
     else if(name==='bosses')await loadBossPublication(state.bossCatalog);
     else if(name==='gachas'){
       const [presets,policy]=await Promise.all([api('/api/gacha-presets'),api('/api/gacha-policy')]);
@@ -141,6 +144,7 @@ async function loadView(name,force=false){
       state.gachaSelected=new Set(state.gachaPolicy.group_ids||[]);renderGachas();
     }
     else if(name==='pool-editor')await loadPoolEditor();
+    else if(name==='collections')await loadCollections();
     else if(name==='audit')await loadAuditPage();
     else if(name==='settings')await loadRuntimeSettings();
     else if(name==='shop')await loadItemShop();
@@ -237,7 +241,7 @@ $('#mode-all').onclick=()=>{state.mode='all';renderBosses()};$('#mode-selected')
 $('#boss-start').onchange=$('#boss-end').onchange=()=>renderBosses();
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
-  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','activity-rewards','evolution'])$('#'+name).inert=policyBusy(name);
+  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','activity-rewards','evolution'])$('#'+name).inert=policyBusy(name);
   for(const name of Object.keys(titles)){const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
   document.body.classList.toggle('busy',policyBusy(state.currentView));
   if(typeof updatePoolControls==='function')updatePoolControls();

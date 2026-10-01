@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>礼包兑换 · 乖离性百万亚瑟王</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101c2a;color:#eaf1fa;font:16px/1.6 system-ui,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:100%;max-width:470px;background:#192a3c;border:1px solid #344961;border-radius:18px;padding:32px}h1{margin:0 0 8px;font-size:28px}p{color:#b8c9dc;margin:0 0 24px}label{display:block;margin:18px 0 6px}input,button{width:100%;padding:12px 14px;border-radius:8px;font:inherit}input{background:#101c2a;color:#fff;border:1px solid #526a83}input:focus{outline:2px solid #e6bd72}button{margin-top:24px;background:#e6bd72;color:#172130;font-weight:700;border:0;cursor:pointer}button:disabled{opacity:.6;cursor:wait}#status{margin-top:20px;margin-bottom:0;white-space:pre-wrap}small{display:block;margin-top:18px;color:#b8c9dc}a{color:#e6bd72}
+</style><script defer src="/cdk.js"></script></head><body><main><h1>礼包兑换</h1><p>使用游戏内已绑定的账号验证身份，奖励将发送到该角色的礼物箱。</p>
+<form id="redeem-form"><label for="username">登录账号</label><input id="username" autocomplete="username" minlength="3" maxlength="32" required>
+<label for="password">密码</label><input id="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required>
+<label for="code">礼包兑换码</label><input id="code" autocomplete="off" minlength="6" maxlength="64" placeholder="输入兑换码，不区分大小写" required>
+<button id="submit" type="submit">验证账号并兑换</button></form><p id="status" role="status" aria-live="polite"></p>
+<small>游客请先在游戏「菜单 → 设置 → 用户中心」绑定账号。每个账号对同一码只能兑换一次。兑换不会切换游戏登录。</small></main></body></html>

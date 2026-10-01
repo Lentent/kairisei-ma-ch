@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,7 @@ type Operations struct {
 	evolutionRevision       int
 	evolutionPolicy         *game.EvolutionRestrictions
 	maintenance             maintenanceGate
+	noticeSigningKey        [32]byte
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
@@ -87,6 +89,7 @@ type Operations struct {
 	itemShopProducts        map[[2]int]gamestate.ItemDefinition
 	storage                 *accountstore.Database
 	configMu                sync.RWMutex
+	legacyCustomGachas      map[int]bool
 	gachaBases              map[int]gamestate.GachaProfile
 	gachaCardJobs           map[int]int8
 	gachaConfigurations     []game.GachaConfiguration
@@ -134,6 +137,9 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 		storage: storage, managedGachaGroups: managedGroups,
 		managedGachaGroupByID: groupByID, defaultGachaPublication: defaults, gachaBases: bases,
 	}
+	if _, err := rand.Read(operations.noticeSigningKey[:]); err != nil {
+		return nil, fmt.Errorf("initialize notice signing key: %w", err)
+	}
 	catalog, err := storage.CatalogState()
 	if err != nil {
 		return nil, err
@@ -167,6 +173,9 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 	if err := operations.loadCustomGachas(); err != nil {
 		return nil, err
 	}
+	if err := operations.loadLegacyCustomGachas(); err != nil {
+		return nil, err
+	}
 	if err := operations.reloadGachaConfigurations(); err != nil {
 		return nil, err
 	}
@@ -198,6 +207,24 @@ func (operations *Operations) setGachaPublication(publication gachaPublication) 
 			unique = append(unique, groupID)
 		}
 	}
+	for _, groupID := range unique {
+		for id := range operations.legacyCustomGachas {
+			if operations.gachaBases[id].GroupID != groupID {
+				continue
+			}
+			live := false
+			for _, c := range operations.gachaConfigurations {
+				if c.Profile.GachaID == id {
+					live = true
+					break
+				}
+			}
+			if !live {
+				return accountstore.Document{}, errors.New("请先分别保存、预览并发布该组所有抽取入口，再统一开放")
+			}
+		}
+	}
+
 	publication.GroupIDs = unique
 	// A deleted operator pool stays hidden by its configuration. Keeping it in an existing publication lets a
 	// restore bring it back as before; only newly opening a deleted pool is refused.
@@ -270,13 +297,19 @@ func cloneIntSet(source map[int]struct{}) map[int]struct{} {
 func (operations *Operations) GachaIDPublished(gachaID int, active map[int]struct{}) bool {
 	operations.configMu.RLock()
 	defer operations.configMu.RUnlock()
+	_, custom := operations.customGachas[gachaID]
+	live := !custom
 	for _, config := range operations.gachaConfigurations {
 		if config.Profile.GachaID == gachaID {
+			live = true
 			now := time.Now().Unix()
 			if config.Disabled || now < config.StartUnix || (config.EndUnix != 0 && now >= config.EndUnix) {
 				return false
 			}
 		}
+	}
+	if !live {
+		return false
 	}
 	groupID, managed := operations.managedGachaGroupByID[gachaID]
 	if !managed {

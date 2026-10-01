@@ -113,6 +113,12 @@ func assembleApplication(config Config) (*application, error) {
 		return nil, err
 	}
 	saveDatabase.SetCatalog(catalog)
+	// Load operator-created identities before restoring account-owned selections
+	// and play counts, including the primary account used to bootstrap handlers.
+	operationStore, err := adminapi.NewOperations(saveDatabase, catalog.Gachas)
+	if err != nil {
+		return nil, err
+	}
 	primaryState, err := saveDatabase.LoadOrImport()
 	if err != nil {
 		return nil, err
@@ -122,10 +128,6 @@ func assembleApplication(config Config) (*application, error) {
 		return nil, err
 	}
 	if err := config.Multiplayer.AttachCompletionRepository(accountStore); err != nil {
-		return nil, err
-	}
-	operationStore, err := adminapi.NewOperations(saveDatabase, primaryState.Gachas)
-	if err != nil {
 		return nil, err
 	}
 	if err := config.Multiplayer.AttachGameSpeed(operationStore.TeamBattleSpeed); err != nil {
@@ -148,6 +150,7 @@ func assembleApplication(config Config) (*application, error) {
 	buildBusinessHandler := func(userID int, state gamestate.State) (http.Handler, error) {
 		return newCNBusinessHandler(httpapi.Config{
 			InitialState:        state,
+			BannerPaths:         resources.BannerAssets.paths,
 			BaseURL:             "http://" + config.Network.AdvertiseHost + ":" + strconv.Itoa(config.Network.HTTPPort),
 			Logger:              config.Logger,
 			PersistState:        func(next gamestate.State) error { return accountStore.PersistState(userID, next) },

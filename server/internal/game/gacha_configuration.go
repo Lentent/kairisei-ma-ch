@@ -35,7 +35,7 @@ func (s *Account) ApplyGachaConfiguration(revision uint64, configs []GachaConfig
 		listed[config.Profile.GachaID] = true
 	}
 	s.gachas = slices.DeleteFunc(s.gachas, func(profile gamestate.GachaProfile) bool {
-		if profile.PublicationKey != "operator" || listed[profile.GachaID] {
+		if (profile.PublicationKey != "operator" && profile.PublicationKey != "custom") || listed[profile.GachaID] {
 			return false
 		}
 		delete(s.operatorGachaPlays, profile.GachaID)
@@ -45,9 +45,14 @@ func (s *Account) ApplyGachaConfiguration(revision uint64, configs []GachaConfig
 	})
 	for _, config := range configs {
 		current := findGachaProfile(s.gachas, config.Profile.GachaID)
-		if current == nil && config.Operator {
+		if isOnboardingGachaID(config.Profile.GachaID) {
+			continue
+		}
+		if current == nil && (config.Operator || (config.Profile.GachaID >= 70000000 && config.Profile.GachaID < 80000000)) {
 			profile := CloneGachaProfiles([]gamestate.GachaProfile{config.Profile})[0]
-			profile.PublicationKey = "operator"
+			if profile.PublicationKey != "custom" {
+				profile.PublicationKey = "operator"
+			}
 			profile.PlayCount = s.operatorGachaPlays[profile.GachaID]
 			delete(s.operatorGachaPlays, profile.GachaID)
 			s.gachas = append(s.gachas, profile)
@@ -58,7 +63,9 @@ func (s *Account) ApplyGachaConfiguration(revision uint64, configs []GachaConfig
 		}
 		profile := CloneGachaProfiles([]gamestate.GachaProfile{config.Profile})[0]
 		if config.Operator {
-			profile.PublicationKey = "operator"
+			if profile.PublicationKey != "custom" {
+				profile.PublicationKey = "operator"
+			}
 		}
 		profile.PlayCount = current.PlayCount
 		*current = profile

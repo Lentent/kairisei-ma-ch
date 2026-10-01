@@ -345,7 +345,7 @@ func (a *API) gachaInfos(gachas []gamestate.GachaProfile) []any {
 		} else if gacha.BannerKey != "" {
 			bannerPath = "/local/gacha/" + gacha.BannerKey + ".png"
 		}
-		bannerURL := a.baseURL + bannerPath
+		bannerURL := a.bannerURL(bannerPath)
 		if gacha.CoverPath != "" {
 			bannerURL = a.baseURL + "/local/" + gacha.CoverPath
 			if base := a.account.GachaCoverBaseURL(); base != "" {

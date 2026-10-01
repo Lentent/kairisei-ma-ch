@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -27,6 +28,7 @@ const (
 )
 
 type Database struct {
+	operationGachas    atomic.Pointer[[]gamestate.GachaProfile]
 	schemaOnce         sync.Once
 	schemaErr          error
 	poolMu             sync.Mutex

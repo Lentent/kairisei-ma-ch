@@ -36,6 +36,9 @@ var adminHTML []byte
 //go:embed web/admin_operations.js
 var adminOperationsJS []byte
 
+//go:embed web/admin_gacha_legacy.js
+var adminGachaLegacyJS []byte
+
 //go:embed web/admin_ui.js
 var adminJS []byte
 
@@ -62,6 +65,9 @@ var adminPlayerPolicyJS []byte
 
 //go:embed web/admin_insights.js
 var adminInsightsJS []byte
+
+//go:embed web/admin_collections.js
+var adminCollectionsJS []byte
 
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
@@ -123,25 +129,26 @@ type adminAssetManifest struct {
 }
 
 type API struct {
-	accounts         *accountstore.Accounts
-	business         AccountRuntime
-	operations       *Operations
-	groups           []AdminBattleGroup
-	catalog          []AdminCatalogEntry
-	catalogByKey     map[string]AdminCatalogEntry
-	assetURLs        map[string]struct{}
-	assetsRoot       string
-	knownGroups      map[int]struct{}
-	pastGroups       []AdminBattleGroup
-	bossCount        int
-	multiplayerHub   *multiplayer.Hub
-	advertiseHost    string
-	gamePort         int
-	logger           *slog.Logger
-	progression      gamestate.PlayerProgressionPolicy
-	gachaPresets     []AdminGachaPreset
-	gachaCoverDir    string
-	gachaBannerPaths map[string]string
+	accounts               *accountstore.Accounts
+	business               AccountRuntime
+	operations             *Operations
+	groups                 []AdminBattleGroup
+	catalog                []AdminCatalogEntry
+	catalogByKey           map[string]AdminCatalogEntry
+	assetURLs              map[string]struct{}
+	assetsRoot             string
+	knownGroups            map[int]struct{}
+	pastGroups             []AdminBattleGroup
+	bossCount              int
+	multiplayerHub         *multiplayer.Hub
+	advertiseHost          string
+	gamePort               int
+	logger                 *slog.Logger
+	progression            gamestate.PlayerProgressionPolicy
+	gachaPresets           []AdminGachaPreset
+	collectionResourceRoot string
+	gachaCoverDir          string
+	gachaBannerPaths       map[string]string
 }
 
 type AdminGachaPreset struct {
@@ -1268,6 +1275,10 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (admin *API) gachaAsset(writer http.ResponseWriter, request *http.Request) {
+	if strings.HasPrefix(chi.URLParam(request, "file"), "custom_") {
+		admin.operations.CustomGachaBanner(writer, request)
+		return
+	}
 	fileName := chi.URLParam(request, "file")
 	if filepath.Base(fileName) != fileName || filepath.Ext(fileName) != ".png" {
 		WriteAdminError(writer, http.StatusNotFound, "gacha asset not found")

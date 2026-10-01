@@ -11,6 +11,16 @@ type PlayerConfiguration struct {
 	StoryCrystals int
 	Navigators    []NaviSetting
 	TutorialMail  TutorialCompletionMail
+	Notice        NoticePublication
+	Missions      []MissionDefinition
+}
+
+type NoticePublication struct {
+	Revision   int
+	Enabled    bool
+	StartUnix  int64
+	EndUnix    int64
+	SigningKey [32]byte
 }
 
 // Public policy, not account state. The terminal onboarding transition and its
@@ -38,6 +48,10 @@ func (s *Account) ApplyPlayerConfiguration(config PlayerConfiguration) {
 	}
 	s.loginBonusPolicy = config.LoginBonus
 	s.tutorialCompletionMail = config.TutorialMail
+	s.noticePublication = config.Notice
+	if config.Missions != nil {
+		s.missionDefinitions = append([]MissionDefinition{}, config.Missions...)
+	}
 	s.storyRewardPolicy.MainFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.SubFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.EventFirstClear.Num = config.StoryCrystals

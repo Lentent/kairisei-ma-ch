@@ -143,7 +143,7 @@ func New(config Config) (http.Handler, error) {
 	}
 	presetsByGroup := make(map[int]*AdminGachaPreset)
 	for _, gacha := range primaryState.Gachas {
-		if gacha.GachaID == 90000100 || gacha.GachaID == 90000200 {
+		if gacha.GachaID == 90000100 || gacha.GachaID == 90000200 || config.Operations.legacyCustomGachas[gacha.GachaID] {
 			continue
 		}
 		bannerPath, exists := config.GachaBanners[gacha.BannerKey]
@@ -286,6 +286,9 @@ func New(config Config) (http.Handler, error) {
 	if err := admin.validateStoredGachas(); err != nil {
 		return nil, err
 	}
+	if len(config.AssetMaps) > 0 {
+		admin.collectionResourceRoot = filepath.Dir(config.AssetMaps[0])
+	}
 	if policy := config.Operations.playerPolicy.Load(); policy != nil {
 		if err := admin.validateTutorialMail(policy.Value.TutorialMail); err != nil {
 			return nil, fmt.Errorf("validate saved tutorial mail: %w", err)
@@ -317,6 +320,13 @@ func New(config Config) (http.Handler, error) {
 	router.Post("/api/maintenance/cleanup", admin.cleanupOperationalState)
 	router.Get("/api/evolution-policy", admin.evolutionEditor)
 	router.Put("/api/evolution-policy", admin.saveEvolutionPolicy)
+	router.Get("/api/collections", admin.collections)
+	router.Put("/api/collections", admin.saveCollections)
+	router.Post("/api/collections/export", admin.exportCollections)
+	router.Get("/collections.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminCollectionsJS)
+	})
 	router.Get("/api/player-policy", admin.playerPolicy)
 	router.Get("/api/player-policy/notice-preview", admin.operations.LocalNotice)
 	router.Put("/api/player-policy", admin.savePlayerPolicy)
@@ -350,6 +360,14 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/mail-batches/{batchID}", admin.mailBatchStatus)
 	router.Post("/api/mail-batches/{batchID}/run", admin.runMailBatch)
 	router.Get("/api/health", admin.health)
+	router.Get("/api/cdk", admin.listCDK)
+	router.Post("/api/cdk", admin.createCDK)
+	router.Put("/api/cdk/{code}/enabled", admin.setCDKEnabled)
+	router.Get("/api/cdk/{code}/records", admin.cdkRecords)
+	router.Get("/cdk-admin.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminCDKJS)
+	})
 	router.Get("/api/status", admin.status)
 	router.Get("/api/settings", admin.runtimeSettings)
 	router.Get("/content.js", func(w http.ResponseWriter, _ *http.Request) {
@@ -384,10 +402,16 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/boss-policy", admin.bossPolicy)
 	router.Put("/api/boss-policy", admin.setBossPolicy)
 	router.Get("/api/gacha-editor", admin.gachaEditorList)
+	router.Get("/gacha-legacy.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminGachaLegacyJS)
+	})
 	router.Post("/api/gacha-pools", admin.createCustomGacha)
 	router.Post("/api/gacha-pools/{gachaID}/{action:delete|restore}", admin.changeCustomGachaDeletion)
 	router.Post("/api/gacha-covers", admin.uploadGachaCover)
 	router.Get("/gacha-covers/{file}", ServeGachaCover(config.GachaCoverDir))
+	router.Post("/api/gacha-create", admin.gachaCreate)
+	router.Post("/api/gacha-banner", admin.gachaBannerUpload)
 	router.Post("/api/gacha-editor/{action}", admin.gachaEditorAction)
 	router.Post("/api/gacha-editor/group/{action:draft|publish|discard}", admin.gachaGroupAction)
 	router.Get("/api/gacha-presets", admin.gachaPresetList)
@@ -398,5 +422,5 @@ func New(config Config) (http.Handler, error) {
 	router.NotFound(func(writer http.ResponseWriter, _ *http.Request) {
 		WriteAdminError(writer, http.StatusNotFound, "admin route not found")
 	})
-	return router, nil
+	return &cdkAdminHandler{Handler: router, public: admin.cdkPublicRouter(), service: admin}, nil
 }

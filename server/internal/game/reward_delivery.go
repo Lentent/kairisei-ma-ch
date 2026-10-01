@@ -44,7 +44,7 @@ func (s *Account) applyRewardOrPresentLocked(reward gamestate.Reward, result *Pr
 	return nil
 }
 
-func (s *Account) appendRewardPresentLocked(reward gamestate.Reward, title, comment string) gamestate.Reward {
+func (s *Account) nextPresentIDLocked() int64 {
 	// Account request serialization and the store lock keep allocation and the
 	// completion receipt in the same saved state. Include unclaimed mission IDs.
 	used := make(map[int64]bool, len(s.presents)+len(s.presentHistories)+len(s.missions))
@@ -60,6 +60,11 @@ func (s *Account) appendRewardPresentLocked(reward gamestate.Reward, title, comm
 	for used[presentID] {
 		presentID++
 	}
+	return presentID
+}
+
+func (s *Account) appendRewardPresentLocked(reward gamestate.Reward, title, comment string) gamestate.Reward {
+	presentID := s.nextPresentIDLocked()
 	stored := cloneReward(reward)
 	if stored.CardSkillLevels == nil {
 		stored.CardSkillLevels = []int16{}

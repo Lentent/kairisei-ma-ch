@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>游戏公告</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#17130d;color:#f4e7bd;font-family:sans-serif}
+    main{max-width:760px;margin:auto;padding:24px 18px 40px}h1{color:#ffd66b;border-bottom:1px solid #8b6a2c;padding-bottom:14px}
+    h2{color:#ffd66b;font-size:20px;margin:0 0 14px;word-wrap:break-word;overflow-wrap:anywhere}
+    article,.empty{background:#282116;border:1px solid #8b6a2c;border-radius:10px;padding:18px;margin:16px 0}
+    .notice-body{line-height:1.8;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+    .count{color:#c5b68f;font-size:14px}
+    .pin{display:inline-block;padding:2px 7px;margin-right:8px;border:1px solid #a17b31;border-radius:5px;color:#ffd66b;font-size:12px;vertical-align:middle}
+  </style>
+</head>
+<body><main>
+  <h1>游戏公告</h1>
+  {{if .}}
+  <p class="count">共 {{len .}} 条公告</p>
+  {{range .}}<article>
+    <h2>{{if .Pinned}}<span class="pin">置顶</span>{{end}}{{.Title}}</h2>
+    <div class="notice-body">{{.Body}}</div>
+  </article>{{end}}
+  {{else}}<p class="empty">暂无公告。</p>{{end}}
+</main></body>
+</html>
