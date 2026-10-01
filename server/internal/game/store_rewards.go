@@ -331,10 +331,11 @@ func (s *Account) DeletePresents(presentID int64) ([]int64, error) {
 }
 
 func (s *Account) MissionState() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
 	for _, mission := range s.missions {
-		if mission.Info.State == 1 {
+		if mission.Info.State == 1 && s.missionEnabledLocked(mission.Info.MissionID) {
 			return true
 		}
 	}
@@ -342,11 +343,14 @@ func (s *Account) MissionState() bool {
 }
 
 func (s *Account) MissionInfos() []gamestate.MissionInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]gamestate.MissionInfo, len(s.missions))
-	for index, mission := range s.missions {
-		result[index] = cloneMissionInfo(mission.Info)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
+	result := make([]gamestate.MissionInfo, 0, len(s.missions))
+	for _, mission := range s.missions {
+		if s.missionEnabledLocked(mission.Info.MissionID) {
+			result = append(result, cloneMissionInfo(mission.Info))
+		}
 	}
 	return result
 }
@@ -418,6 +422,7 @@ func isLocalMissionCommand(command string) bool {
 func (s *Account) ReceiveMissionRewards(missionIDs []int) ([]gamestate.MissionInfo, []gamestate.MissionInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
 	if len(missionIDs) == 0 {
 		return nil, nil, errors.New("mission selection is empty")
 	}
@@ -435,7 +440,7 @@ func (s *Account) ReceiveMissionRewards(missionIDs []int) ([]gamestate.MissionIn
 				break
 			}
 		}
-		if index < 0 || s.missions[index].Info.State != 1 {
+		if index < 0 || s.missions[index].Info.State != 1 || !s.missionEnabledLocked(missionID) {
 			return nil, nil, errors.New("mission is not claimable")
 		}
 		if err := s.validateRewardLocked(s.missions[index].RewardPresent.Reward); err != nil {
@@ -458,7 +463,7 @@ func (s *Account) ReceiveMissionRewards(missionIDs []int) ([]gamestate.MissionIn
 	}
 	receiveMissions := make([]gamestate.MissionInfo, 0, len(s.missions)-len(indices))
 	for _, mission := range s.missions {
-		if mission.Info.State != 2 {
+		if mission.Info.State != 2 && s.missionEnabledLocked(mission.Info.MissionID) {
 			receiveMissions = append(receiveMissions, cloneMissionInfo(mission.Info))
 		}
 	}
@@ -849,6 +854,7 @@ func cloneMissions(missions []gamestate.Mission) []gamestate.Mission {
 		result[index] = gamestate.Mission{
 			Info:          cloneMissionInfo(mission.Info),
 			RewardPresent: clonePresent(mission.RewardPresent),
+			Period:        mission.Period,
 		}
 	}
 	return result

@@ -12,6 +12,7 @@ type PlayerConfiguration struct {
 	Navigators    []NaviSetting
 	TutorialMail  TutorialCompletionMail
 	Notice        NoticePublication
+	Missions      []MissionDefinition
 }
 
 type NoticePublication struct {
@@ -46,6 +47,9 @@ func (s *Account) ApplyPlayerConfiguration(config PlayerConfiguration) {
 	s.loginBonusPolicy = config.LoginBonus
 	s.tutorialCompletionMail = config.TutorialMail
 	s.noticePublication = config.Notice
+	if config.Missions != nil {
+		s.missionDefinitions = append([]MissionDefinition{}, config.Missions...)
+	}
 	s.storyRewardPolicy.MainFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.SubFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.EventFirstClear.Num = config.StoryCrystals

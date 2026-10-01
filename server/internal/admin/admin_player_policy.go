@@ -22,6 +22,7 @@ type loginRewards struct {
 }
 
 type PlayerPolicy struct {
+	Missions      []game.MissionDefinition    `json:"missions"`
 	Notice        noticePolicy                `json:"notice"`
 	TutorialMail  game.TutorialCompletionMail `json:"tutorial_completion_mail"`
 	Login         loginRewards                `json:"login_rewards"`
@@ -43,6 +44,7 @@ func (o *Operations) InitializePlayerPolicy(base gamestate.State, naviPath strin
 		return err
 	}
 	defaults := PlayerPolicy{
+		Missions:      game.DefaultMissions(),
 		Notice:        noticePolicy{Enabled: true, Title: "本地服务公告", Body: "欢迎来到不列颠！祝各位亚瑟游戏愉快。"},
 		TutorialMail:  game.TutorialCompletionMail{Title: "新手毕业礼物", Message: "恭喜完成全部新手训练，祝冒险愉快！", Rewards: []gamestate.Reward{}},
 		Login:         loginRewards{Cycle: base.LoginBonusPolicy.Cycle, Beginner: base.LoginBonusPolicy.Beginner, Total: base.LoginBonusPolicy.TotalMilestones},
@@ -86,6 +88,9 @@ func (o *Operations) loadPlayerPolicy() error {
 	} else {
 		value = *o.playerDefaults
 	}
+	if value.Missions == nil {
+		value.Missions = game.DefaultMissions()
+	}
 	if err := o.validatePlayerPolicy(value); err != nil {
 		return fmt.Errorf("player policy: %w", err)
 	}
@@ -99,6 +104,7 @@ func (o *Operations) playerSnapshot(p PlayerPolicy, revision int) *playerPolicyS
 	return &playerPolicySnapshot{Value: p, Revision: revision, Runtime: game.PlayerConfiguration{
 		Revision: uint64(revision) + 1, LoginBonus: login, StoryCrystals: p.StoryCrystals, Navigators: p.Navigators,
 		TutorialMail: p.TutorialMail,
+		Missions:     p.Missions,
 		Notice:       game.NoticePublication{Revision: max(1, p.Notice.PublicationRevision), Enabled: p.Notice.publicContent() != "[]", SigningKey: o.noticeSigningKey},
 	}}
 }
@@ -110,6 +116,9 @@ func validPolicyAmount(amount int, allowZero bool) bool {
 func (o *Operations) validatePlayerPolicy(p PlayerPolicy) error {
 	if o.playerDefaults == nil {
 		return errors.New("运营目录尚未载入")
+	}
+	if err := validateMissionPolicy(p.Missions); err != nil {
+		return err
 	}
 	if err := validateNoticePolicy(p.Notice); err != nil {
 		return err
@@ -207,6 +216,10 @@ func (a *API) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o := a.operations
+	// Older admin clients omit this new field; preserve the current task policy.
+	if body.Config.Missions == nil {
+		body.Config.Missions = o.playerPolicy.Load().Value.Missions
+	}
 	if err := o.validatePlayerPolicy(*body.Config); err != nil {
 		WriteAdminError(w, 400, err.Error())
 		return

@@ -91,6 +91,7 @@ type Account struct {
 	cardCollectionPages         [][10]int
 	buddySlots                  int
 	missions                    []gamestate.Mission
+	missionDefinitions          []MissionDefinition
 	presents                    []gamestate.Present
 	presentHistories            []gamestate.Present
 	popupReadIDs                map[int]struct{}
