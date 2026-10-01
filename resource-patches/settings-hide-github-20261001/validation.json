@@ -1,0 +1,30 @@
+{
+  "change": "Clear only settings GitHub label",
+  "object_path_id": -7815472476857301814,
+  "other_objects_unchanged": true,
+  "bundle_reloaded": true,
+  "crc32": "5F2451F7",
+  "device_verified": false,
+  "files": [
+    {
+      "path": "resources/patch/main_c/ui/ui_option.dat",
+      "sha256": "90496c922edff82264c315a1995d8a14a536ab2ab1139e99b7e7169ef1d320f6",
+      "bytes": 194476
+    },
+    {
+      "path": "resources/patch/version.dat",
+      "sha256": "5450423b0157ee11835fd8bd231f4379e45f0ce6baf5817a10f5759bc9e5ec00",
+      "bytes": 378481
+    },
+    {
+      "path": "asset-map.json",
+      "sha256": "a1255d2f8cca0041bcf65f567321700f570909539f33cb43f83a692516c14eaf",
+      "bytes": 55061300
+    },
+    {
+      "path": "resource-set.json",
+      "sha256": "a291d94c6b5db786d94ad42695b77acb7bafb043569b875eb6a079a941d20368",
+      "bytes": 4712786
+    }
+  ]
+}
