@@ -2,6 +2,16 @@ package gamestate
 
 import "errors"
 
+// Both master loading and account construction accept the same provenance.
+func ValidItemGachaEvidence(value string) bool {
+	switch value {
+	case "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE", "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION", "USER_LOCAL_CUSTOM_BOX_20260930_TEMPLATE_8887", "LOCAL_POLICY_ADMIN_CUSTOM_BOX":
+		return true
+	default:
+		return false
+	}
+}
+
 // Item boxes use the generic collection reward delivery path. Ordinary paid
 // gacha keeps its existing reward restrictions and client presentation contract.
 func ValidateItemGachaReward(r Reward) error {

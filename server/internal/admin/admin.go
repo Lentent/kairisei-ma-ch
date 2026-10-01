@@ -60,6 +60,9 @@ var adminPlayerPolicyJS []byte
 //go:embed web/admin_insights.js
 var adminInsightsJS []byte
 
+//go:embed web/admin_collections.js
+var adminCollectionsJS []byte
+
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
 // owner of calculated deck rank and no card or deck data is rewritten here.
@@ -120,25 +123,26 @@ type adminAssetManifest struct {
 }
 
 type API struct {
-	accounts         *accountstore.Accounts
-	business         AccountRuntime
-	operations       *Operations
-	groups           []AdminBattleGroup
-	catalog          []AdminCatalogEntry
-	catalogByKey     map[string]AdminCatalogEntry
-	assetURLs        map[string]struct{}
-	assetsRoot       string
-	knownGroups      map[int]struct{}
-	pastGroups       []AdminBattleGroup
-	bossCount        int
-	multiplayerHub   *multiplayer.Hub
-	advertiseHost    string
-	gamePort         int
-	logger           *slog.Logger
-	progression      gamestate.PlayerProgressionPolicy
-	gachaPresets     []AdminGachaPreset
-	knownGachaGroups map[int]struct{}
-	gachaBannerPaths map[string]string
+	accounts               *accountstore.Accounts
+	business               AccountRuntime
+	operations             *Operations
+	groups                 []AdminBattleGroup
+	catalog                []AdminCatalogEntry
+	catalogByKey           map[string]AdminCatalogEntry
+	assetURLs              map[string]struct{}
+	assetsRoot             string
+	knownGroups            map[int]struct{}
+	pastGroups             []AdminBattleGroup
+	bossCount              int
+	multiplayerHub         *multiplayer.Hub
+	advertiseHost          string
+	gamePort               int
+	logger                 *slog.Logger
+	progression            gamestate.PlayerProgressionPolicy
+	gachaPresets           []AdminGachaPreset
+	knownGachaGroups       map[int]struct{}
+	gachaBannerPaths       map[string]string
+	collectionResourceRoot string
 }
 
 type AdminGachaPreset struct {

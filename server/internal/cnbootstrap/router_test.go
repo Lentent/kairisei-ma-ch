@@ -25,7 +25,7 @@ import (
 	"kairisei.local/server/internal/testfixture"
 )
 
-func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
+func newTestHandler(t *testing.T, root string, logPath string, unlockedFeatures ...uint) http.Handler {
 	t.Helper()
 	savePath := testfixture.WriteTestSave(t, root)
 	// These transport fixtures model an established account. Seed SQLite
@@ -47,6 +47,7 @@ func newTestHandler(t *testing.T, root string, logPath string) http.Handler {
 		t.Fatal(err)
 	}
 	fixture.User.UnlockedFeatureIDs = append(fixture.User.UnlockedFeatureIDs, 15, 30)
+	fixture.User.UnlockedFeatureIDs = append(fixture.User.UnlockedFeatureIDs, unlockedFeatures...)
 	if err := storage.Persist(fixture); err != nil {
 		t.Fatal(err)
 	}

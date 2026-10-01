@@ -283,6 +283,11 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 }
 
 func New(state gamestate.State) (*Account, error) {
+	// Upgrade the original capacity when loading existing accounts or older seeds.
+	// Follow and follower capacity share this value; mutual friends have a separate cap.
+	if state.Friends.FollowMax == 50 {
+		state.Friends.FollowMax = 500
+	}
 	if state.PlayerProgressionPolicy.ConfigVersion > 0 {
 		policy := state.PlayerProgressionPolicy
 		if state.PlayerProgressionConfigVersion != policy.ConfigVersion ||
@@ -1000,7 +1005,7 @@ func New(state gamestate.State) (*Account, error) {
 		definition, exists := result.itemDefinitions[itemID]
 		if !exists || definition.ItemType != "GACHA" || definition.Function != "GACHA_EXEC" ||
 			definition.FunctionValue != profile.FunctionValue || (len(profile.Rewards) == 0 && len(profile.RewardPool) == 0) ||
-			(profile.Evidence != "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE" && profile.Evidence != "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION" && profile.Evidence != "USER_LOCAL_CUSTOM_BOX_20260930_TEMPLATE_8887") {
+			!gamestate.ValidItemGachaEvidence(profile.Evidence) {
 			return nil, fmt.Errorf("item gacha profile %d is invalid", itemID)
 		}
 		for _, reward := range profile.Rewards {
