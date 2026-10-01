@@ -68,7 +68,7 @@ func (r *recorder) middleware(logger *slog.Logger) func(http.Handler) http.Handl
 				if strings.TrimLeft(request.URL.Path, "/") == "disabled/web/auto" {
 					entry.Query = "" // Do not capture notice acknowledgement tokens.
 				}
-				if strings.HasPrefix(request.URL.Path, "/local/account/") {
+				if strings.HasPrefix("/"+strings.TrimLeft(request.URL.Path, "/"), "/local/account/") || strings.TrimLeft(request.URL.Path, "/") == "api/cdk/redeem" || strings.TrimLeft(request.URL.Path, "/") == "GiftCodeAd" {
 					// Even a raw SHA-256/length would expose a fast password
 					// guessing oracle. Account captures contain routing only.
 					entry.BodySHA, entry.Query, entry.BodyBytes = "", "", 0
@@ -95,7 +95,10 @@ func redactCNSessionBody(body []byte) string {
 
 func redactCNRequestBody(path string, body []byte) string {
 	path = "/" + strings.TrimLeft(path, "/")
-	if path == "/loginSDK.php" || strings.HasPrefix(path, "/local/account/") {
+	if path == "/GiftCodeAd" {
+		return "<cdk-redacted>"
+	}
+	if path == "/loginSDK.php" || strings.HasPrefix(path, "/local/account/") || path == "/api/cdk/redeem" {
 		return "<login-redacted>"
 	}
 	return redactCNSessionBody(body)

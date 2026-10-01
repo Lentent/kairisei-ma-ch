@@ -1,0 +1,10 @@
+# Linux: copy to /etc/cloudflared/cdk.yml and replace BOTH UUID placeholders.
+# Keep the public Host header: the redemption endpoint validates same-origin.
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: cdk.ccgduckcloud.org
+    path: ^/(cdk|cdk\.js|api/cdk/redeem)$
+    service: http://127.0.0.1:26020
+  - service: http_status:404

@@ -6,6 +6,7 @@ const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={'player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 titles.collections='称号与礼盒';
+titles.cdk='礼包兑换码';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>Number(v||0).toLocaleString('zh-CN');
@@ -21,6 +22,7 @@ async function loadView(name,force=false){
     else if(name==='dashboard'){state.status=await api('/api/status');renderDashboard()}
     else if(name==='accounts')await loadAccountsPage();
     else if(name==='mail')await loadMailWorkspace();
+    else if(name==='cdk')await loadCDKWorkspace();
     else if(name==='bosses')await loadBossPublication(state.bossCatalog);
     else if(name==='gachas'){
       const [presets,policy]=await Promise.all([api('/api/gacha-presets'),api('/api/gacha-policy')]);

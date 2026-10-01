@@ -352,6 +352,14 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/mail-batches/{batchID}", admin.mailBatchStatus)
 	router.Post("/api/mail-batches/{batchID}/run", admin.runMailBatch)
 	router.Get("/api/health", admin.health)
+	router.Get("/api/cdk", admin.listCDK)
+	router.Post("/api/cdk", admin.createCDK)
+	router.Put("/api/cdk/{code}/enabled", admin.setCDKEnabled)
+	router.Get("/api/cdk/{code}/records", admin.cdkRecords)
+	router.Get("/cdk-admin.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminCDKJS)
+	})
 	router.Get("/api/status", admin.status)
 	router.Get("/api/settings", admin.runtimeSettings)
 	router.Get("/content.js", func(w http.ResponseWriter, _ *http.Request) {
@@ -394,5 +402,5 @@ func New(config Config) (http.Handler, error) {
 	router.NotFound(func(writer http.ResponseWriter, _ *http.Request) {
 		WriteAdminError(writer, http.StatusNotFound, "admin route not found")
 	})
-	return router, nil
+	return &cdkAdminHandler{Handler: router, public: admin.cdkPublicRouter(), service: admin}, nil
 }

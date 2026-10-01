@@ -14,6 +14,7 @@
       <button class="active" data-view="dashboard">◈　<span>运行概览</span></button>
       <button data-view="accounts">♙　<span>账号管理</span></button>
       <button data-view="mail">✉　<span>礼物发放</span></button>
+      <button data-view="cdk">⌘　<span>礼包兑换码</span></button>
       <button data-view="bosses">⚔　<span>Boss 发布</span></button>
       <button data-view="drops">◇　<span>Boss 掉落</span></button>
       <button data-view="exchanges">⇄　<span>兑换所配置</span></button>
@@ -54,6 +55,23 @@
         <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>权重</th><th>概率</th><th>卡牌等级</th><th>操作</th></tr></thead><tbody id="box-reward-rows"></tbody></table></div>
         <p class="sub">概率 = 当前权重 ÷ 全部权重。例：五项素材各188，皮肤和称号各30，总权重1000，对应18.8%和3%。收藏类奖励数量固定为1。</p>
       </div>
+    </section>
+
+    <section class="view" id="cdk">
+      <div class="panel"><div class="panel-head"><h2>创建礼包兑换码</h2></div><div class="panel-body">
+        <p class="sub">通用码：每账号限领一次，可设置全服总次数。一次性码：全服仅可兑换一次。每种奖励发送一封游戏礼物。</p>
+        <p class="sub">玩家可直接使用游戏内礼包码窗口。网页备用入口：<a id="cdk-player-link" target="_blank" rel="noopener">正在读取…</a></p>
+        <div class="toolbar"><div class="field"><label for="cdk-mode">类型</label><select id="cdk-mode"><option value="shared">通用码</option><option value="single">一次性码</option></select></div><div class="field"><label for="cdk-count">生成数量</label><input id="cdk-count" type="number" min="1" max="100" value="1"></div><div class="field"><label for="cdk-code">指定码（留空自动生成）</label><input id="cdk-code" maxlength="64" placeholder="6–64位字母、数字、短横线"></div></div>
+        <div class="toolbar"><div class="field"><label for="cdk-title">邮件标题</label><input id="cdk-title" maxlength="40" value="礼包兑换奖励"></div><div class="field"><label for="cdk-max-uses">全服总次数（0为不限）</label><input id="cdk-max-uses" type="number" min="0" max="10000000" value="0"></div></div>
+        <div class="field"><label for="cdk-message">邮件正文</label><textarea id="cdk-message" maxlength="200" rows="2">感谢游玩，请收下礼包奖励。</textarea></div>
+        <div class="toolbar"><div class="field"><label for="cdk-start">开始时间（本机时区，留空立即生效）</label><input id="cdk-start" type="datetime-local"></div><div class="field"><label for="cdk-expiry">结束时间（本机时区，留空长期有效）</label><input id="cdk-expiry" type="datetime-local"></div></div>
+        <button class="secondary" id="cdk-add">从奖励目录添加</button>
+        <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>等级 / 名声 / 爱情</th><th>操作</th></tr></thead><tbody id="cdk-rewards"></tbody></table></div>
+        <div class="toolbar"><button class="primary" id="cdk-create">创建兑换码</button><span id="cdk-create-status" role="status"></span></div>
+        <div class="field"><label for="cdk-generated">本次生成结果（可复制或下载保存）</label><textarea id="cdk-generated" readonly rows="4"></textarea></div><button class="secondary" id="cdk-download" disabled>下载本次兑换码</button>
+      </div></div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2>兑换码列表</h2><button class="secondary" id="cdk-list-refresh">刷新</button></div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th>兑换码 / 奖励</th><th>类型 / 次数</th><th>状态 / 有效期</th><th>操作</th></tr></thead><tbody id="cdk-rows"></tbody></table></div><div class="toolbar pager"><button class="secondary" id="cdk-prev">上一页</button><span id="cdk-page-info"></span><label>跳至 <input id="cdk-page" type="number" min="1" value="1"> 页</label><button class="secondary" id="cdk-next">下一页</button></div></div></div>
+      <div class="panel" style="margin-top:20px"><div class="panel-head"><h2 id="cdk-record-title">兑换记录</h2></div><div class="panel-body"><p id="cdk-record-rewards" class="sub"></p><div class="table-wrap"><table><thead><tr><th>角色 UID</th><th>兑换时间</th><th>奖励邮件编号</th></tr></thead><tbody id="cdk-records"><tr><td colspan="3">选择一个兑换码查看记录</td></tr></tbody></table></div><div class="toolbar pager" id="cdk-record-pager" hidden><button class="secondary" id="cdk-record-prev">上一页</button><span id="cdk-record-page-info"></span><label>跳至 <input id="cdk-record-page" type="number" min="1" value="1"> 页</label><button class="secondary" id="cdk-record-next">下一页</button></div></div></div>
     </section>
 
     <section class="view active" id="dashboard">
@@ -256,6 +274,7 @@
 <script defer src="/mail.js"></script>
 <script defer src="/settings.js"></script>
 <script defer src="/content.js"></script>
+<script defer src="/cdk-admin.js"></script>
 <script defer src="/collections.js"></script>
 <script defer src="/player-policy.js"></script>
 <script defer src="/insights.js"></script>

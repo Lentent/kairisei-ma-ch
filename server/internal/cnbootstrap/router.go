@@ -23,6 +23,8 @@ type application struct {
 	business    *accounthttp.Router
 	recorder    *recorder
 	progression gamestate.PlayerProgressionPolicy
+	cdk         http.Handler
+	cdkRedeemer nativeCDKRedeemer
 }
 
 func (app *application) router() chi.Router {
@@ -31,6 +33,14 @@ func (app *application) router() chi.Router {
 	router.Use(app.recorder.middleware(app.config.Logger))
 	router.Use(normalizeLeadingSlashes)
 	router.Use(authenticateCNSessions(app.accounts))
+	if app.cdk != nil {
+		router.Get("/cdk", app.cdk.ServeHTTP)
+		router.Get("/cdk.js", app.cdk.ServeHTTP)
+		router.Post("/api/cdk/redeem", app.cdk.ServeHTTP)
+	}
+	if app.cdkRedeemer != nil {
+		router.Post("/GiftCodeAd", cnBootstrapGiftCodeAd(app.cdkRedeemer))
+	}
 	router.Get("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
@@ -114,5 +124,7 @@ func (app *application) handler() (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize CN admin handler: %w", err)
 	}
+	app.cdk = adminHandler.(interface{ CDKHandler() http.Handler }).CDKHandler()
+	app.cdkRedeemer = adminHandler.(nativeCDKRedeemer)
 	return &cnDeploymentHandler{Handler: app.router(), admin: adminHandler, database: app.accounts.Database()}, nil
 }
