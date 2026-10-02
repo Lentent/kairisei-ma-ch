@@ -12,6 +12,12 @@ func (h *accountBusinessHandler) ApplyPlayerConfiguration(config game.PlayerConf
 	h.api.account.ApplyPlayerConfiguration(config)
 }
 
+func (h *accountBusinessHandler) ApplyMissionConfiguration(config game.MissionConfiguration) {
+	h.api.account.ApplyMissionConfiguration(config)
+}
+
+var _ game.MissionConfigurator = (*accountBusinessHandler)(nil)
+
 func (h *accountBusinessHandler) ApplyGachaConfiguration(revision uint64, configs []game.GachaConfiguration) {
 	h.api.account.ApplyGachaConfiguration(revision, configs)
 }

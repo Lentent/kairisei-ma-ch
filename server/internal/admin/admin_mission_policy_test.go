@@ -6,13 +6,17 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"kairisei.local/server/internal/accounthttp"
+	"kairisei.local/server/internal/accountstore"
 	"kairisei.local/server/internal/game"
 	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/httpapi"
 	"kairisei.local/server/internal/testfixture"
 )
 
@@ -269,5 +273,66 @@ func TestDynamicMissionConcurrentWritersAllocateOnce(t *testing.T) {
 	}
 	if got := a.operations.missionPolicy.Load(); got.Revision != 2 || got.Value.NextID != firstManagedMissionID+1 || got.Value.Config.Missions[0].ID != firstManagedMissionID {
 		t.Fatal("failed save consumed an identity")
+	}
+}
+
+// Use the production business wrapper and cached account router. Testing only
+// game.Account would miss a configuration method omitted by that wrapper.
+func TestDynamicMissionAPIReachesCachedBusinessHandler(t *testing.T) {
+	a, adminHandler := dynamicMissionTestAPI(t)
+	state := testfixture.RuntimeState(t)
+	state.User.UserID = accountstore.PrimaryUserID
+	business, err := httpapi.New(httpapi.Config{InitialState: state, BaseURL: "http://127.0.0.1:26020"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := accounthttp.New(accounthttp.Config{Primary: business, Prepare: a.operations.PrepareBusiness, IdleLimit: 1})
+	list := func() []gamestate.MissionInfo {
+		t.Helper()
+		request := httptest.NewRequest("POST", "/MissionShow", strings.NewReader(`{"is_reward":0}`))
+		request.Header.Set(accounthttp.AccountUserHeader, strconv.Itoa(state.User.UserID))
+		response := httptest.NewRecorder()
+		runtime.ServeHTTP(response, request)
+		lines := strings.Split(strings.TrimSpace(response.Body.String()), "\n")
+		var common struct {
+			Code int `json:"res_code"`
+		}
+		var result struct {
+			Missions []gamestate.MissionInfo `json:"missions"`
+		}
+		if response.Code != 200 || len(lines) != 3 || json.Unmarshal([]byte(lines[0]), &common) != nil || common.Code != 0 || json.Unmarshal([]byte(lines[1]), &result) != nil {
+			t.Fatalf("MissionShow: HTTP %d %s", response.Code, response.Body.String())
+		}
+		return result.Missions
+	}
+	if got := list(); len(got) != 8 { // The migrated legacy level task is disabled.
+		t.Fatalf("initial catalog was not applied: %+v", got)
+	}
+	def := newTestMission()
+	def.Kind, def.Target = "login", 1
+	save := func(expected int, missions []game.MissionDefinition) {
+		t.Helper()
+		testfixture.CallContentAdmin(t, adminHandler, "PUT", "/api/missions", map[string]any{
+			"expected_revision": expected, "config": MissionPolicy{Missions: missions},
+		}, 200)
+	}
+	save(1, []game.MissionDefinition{def})
+	def = a.operations.missionPolicy.Load().Value.Config.Missions[0]
+	if got := list(); len(got) != 1 || got[0].MissionID != def.ID || got[0].Title != def.Title || got[0].State != 1 || got[0].Rewards[0].Num != 20 {
+		t.Fatalf("saved catalog did not reach the cached HTTP business wrapper: %+v", got)
+	}
+	def.Title, def.Description = "立即更新的任务", "更新说明"
+	def.Rewards[0].Num = 35
+	save(2, []game.MissionDefinition{def})
+	if got := list(); len(got) != 1 || got[0].MissionID != def.ID || got[0].Title != def.Title || got[0].Description != def.Description || got[0].Rewards[0].Num != 35 {
+		t.Fatalf("edited task did not update the existing cached handler: %+v", got)
+	}
+	save(3, []game.MissionDefinition{})
+	// A newer unrelated legacy player-policy revision must not restore tasks
+	// after the separate mission document is deliberately emptied.
+	legacy := a.operations.playerPolicy.Load().Value
+	testfixture.CallContentAdmin(t, adminHandler, "PUT", "/policy", map[string]any{"expected_revision": 1, "config": legacy}, 200)
+	if got := list(); len(got) != 0 {
+		t.Fatalf("empty task policy or independent revision did not reach the cached handler: %+v", got)
 	}
 }

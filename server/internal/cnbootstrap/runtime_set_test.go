@@ -130,6 +130,9 @@ func TestCompleteRuntimeSetConstruction(t *testing.T) {
 	auditCompleteSpheres(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	auditCompleteBusinessRecovery(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), cards)
 	auditCompleteCollectionRewards(t, handler, filepath.Join(dir, "save.json"), p("cn-save-seed"), p("cn-stamp-master"), p("cn-honor-master"), cards)
+	t.Run("ManagedMissionsReachCachedClientHandler", func(t *testing.T) {
+		auditCompleteManagedMissions(t, handler)
+	})
 	if profile := os.Getenv("CN602_ACCOUNT_HEAP_PROFILE"); profile != "" {
 		profileCompleteRuntimeAccounts(t, handler, profile)
 	}
