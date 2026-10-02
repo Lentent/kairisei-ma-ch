@@ -122,6 +122,12 @@ func InitializeOnboardingSnapshot(state *gamestate.State, userID int) error {
 	state.User.BuddyMax = gamestate.BuddyCapacityDefault
 	state.Buddy = gamestate.Buddy{}
 	state.Buddies = []gamestate.Buddy{}
+	// A seed is a catalog, not a player's collection. Runtime master application
+	// grants the starter titles after this new account has been initialized.
+	state.Honors = gamestate.HonorCollectionState{
+		DeckHonorIDs: []int{0, 0, 0, 0},
+		HonorIDs:     []int{},
+	}
 	// The profession bit is finalized by UserCreate after the player chooses one
 	// Arthur.  Do not pre-open the other three professions on a clean account.
 	state.User.UnlockedFeatureIDs = []uint{4, 5, 6, 7, 12}

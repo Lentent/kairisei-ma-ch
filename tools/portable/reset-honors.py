@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline honor reset. Preview by default; stop the server before --apply."""
+"""Offline ordinary-honor cleanup; preserve special titles. Preview by default."""
 import argparse
 import datetime
 import hashlib
@@ -16,13 +16,19 @@ def encode(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')
 
 
-def reset(state):
+def reset(state, ordinary_ids):
     honors = state['honors']
     deck = honors['deck_honorids']
     if not isinstance(deck, list) or len(deck) != 4:
         raise ValueError('Expected exactly four honor deck slots')
-    honors['honorids'] = KEEP[:]
-    honors['deck_honorids'] = [value if value in KEEP else 0 for value in deck]
+    owned = honors['honorids']
+    if not isinstance(owned, list):
+        raise ValueError('Expected an honor ownership list')
+    # Only known ordinary titles are removed. Special titles (including mixed
+    # slot masks) and IDs absent from this master retain their ownership.
+    remove = ordinary_ids - set(KEEP)
+    honors['honorids'] = KEEP + [value for value in owned if value not in remove and value not in KEEP]
+    honors['deck_honorids'] = [0 if value in remove else value for value in deck]
 
 
 def main():
@@ -39,10 +45,14 @@ def main():
     ids = [row['honor_id'] for row in master['honors']]
     if len(ids) != len(set(ids)) or not set(KEEP).issubset(ids):
         raise ValueError('Honor master is missing requested IDs or contains duplicates; no changes made')
+    if any(not isinstance(row.get('slot_mask'), int) or not 1 <= row['slot_mask'] <= 15 for row in master['honors']):
+        raise ValueError('Honor master must classify every title with a valid slot_mask; no changes made')
+    ordinary_ids = {row['honor_id'] for row in master['honors'] if not row['slot_mask'] & 8}
     for row in master['honors']:
-        row['default_owned'] = row['honor_id'] in KEEP
+        if row['honor_id'] in KEEP or row['honor_id'] in ordinary_ids:
+            row['default_owned'] = row['honor_id'] in KEEP
     seed = json.loads(args.seed.read_text(encoding='utf-8-sig'))
-    reset(seed)
+    reset(seed, ordinary_ids)
     replacements = {args.master: encode(master), args.seed: encode(seed)}
     db = sqlite3.connect(args.db.as_uri() + ('?mode=rw' if args.apply else '?mode=ro'), uri=True, timeout=5)
     backup = None
@@ -58,10 +68,10 @@ def main():
                 if hashlib.sha256(raw).hexdigest() != digest:
                     raise ValueError(f'Checksum mismatch: {table}/{identity}')
                 state = json.loads(raw)
-                reset(state)
+                reset(state, ordinary_ids)
                 content = encode(state)
                 updates.append((table, key, identity, content))
-        print(f'Snapshots: {len(updates)}; default honors: {KEEP}')
+        print(f'Snapshots: {len(updates)}; starter honors: {KEEP}; special titles and their slots are preserved')
         print(f'Database: {args.db}\nSeed: {args.seed}\nMaster: {args.master}')
         if not args.apply:
             print('Preview only. Stop the server, then repeat with --apply.')

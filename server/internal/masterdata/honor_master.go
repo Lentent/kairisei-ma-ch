@@ -14,6 +14,12 @@ import (
 
 const maxHonorMasterBytes = 4 * 1024 * 1024
 
+// Limit starter ownership independently of legacy resource flags. The original
+// master also marks connecting words as defaults; custom titles require rewards.
+func isStarterHonor(honorID int) bool {
+	return honorID == 10000000 || honorID >= 10100001 && honorID <= 10100008
+}
+
 type honorDefinition struct {
 	HonorID      int    `json:"honor_id"`
 	Name         string `json:"name"`
@@ -85,12 +91,12 @@ func validateHonorRuntimeMaster(master honorRuntimeMaster) error {
 			return fmt.Errorf("duplicate CN honor %d", honor.HonorID)
 		}
 		seen[honor.HonorID] = struct{}{}
-		if honor.DefaultOwned {
+		if honor.DefaultOwned && isStarterHonor(honor.HonorID) {
 			defaultCount++
 		}
 	}
 	if defaultCount == 0 {
-		return errors.New("CN honor runtime master has no official default-owned rows")
+		return errors.New("CN honor runtime master has no starter default-owned rows")
 	}
 	return nil
 }
@@ -105,7 +111,7 @@ func ApplyHonorRuntimeMaster(state *gamestate.State, master honorRuntimeMaster) 
 	defaults := make([]int, 0)
 	for _, honor := range master.Honors {
 		available[honor.HonorID] = struct{}{}
-		if honor.DefaultOwned {
+		if honor.DefaultOwned && isStarterHonor(honor.HonorID) {
 			defaults = append(defaults, honor.HonorID)
 		}
 	}
