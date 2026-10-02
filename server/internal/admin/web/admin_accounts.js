@@ -116,6 +116,7 @@ $('#audit-reset').onclick=()=>{$('#audit-search').value='';$('#audit-operation')
 $('#audit-export').onclick=()=>downloadJSON('操作记录.json',auditPage.rows);
 function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDirty();
   if(name==='evolution')return typeof evolutionDirty==='function'&&evolutionDirty();
+  if(name==='missions')return typeof missionPolicyDirty==='function'&&missionPolicyDirty();
   if(name==='collections')return typeof collectionEditor!=='undefined'&&collectionEditor.dirty;
   if(name==='pool-editor')return poolEditor.dirty;
   if(typeof contentDirty==='function'&&contentDirty(name))return true;

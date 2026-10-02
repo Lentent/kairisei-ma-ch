@@ -40,6 +40,23 @@ type NaviSetting struct {
 
 type PlayerConfigurator interface{ ApplyPlayerConfiguration(PlayerConfiguration) }
 
+type MissionConfiguration struct {
+	Revision uint64
+	Missions []MissionDefinition
+}
+
+type MissionConfigurator interface{ ApplyMissionConfiguration(MissionConfiguration) }
+
+func (s *Account) ApplyMissionConfiguration(config MissionConfiguration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if config.Revision == 0 || config.Revision == s.missionConfigurationRevision {
+		return
+	}
+	s.missionDefinitions = cloneMissionDefinitions(config.Missions)
+	s.missionConfigurationRevision = config.Revision
+}
+
 func (s *Account) ApplyPlayerConfiguration(config PlayerConfiguration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -49,8 +66,8 @@ func (s *Account) ApplyPlayerConfiguration(config PlayerConfiguration) {
 	s.loginBonusPolicy = config.LoginBonus
 	s.tutorialCompletionMail = config.TutorialMail
 	s.noticePublication = config.Notice
-	if config.Missions != nil {
-		s.missionDefinitions = append([]MissionDefinition{}, config.Missions...)
+	if s.missionConfigurationRevision == 0 && config.Missions != nil {
+		s.missionDefinitions = cloneMissionDefinitions(config.Missions)
 	}
 	s.storyRewardPolicy.MainFirstClear.Num = config.StoryCrystals
 	s.storyRewardPolicy.SubFirstClear.Num = config.StoryCrystals

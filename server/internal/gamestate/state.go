@@ -739,9 +739,10 @@ type MissionInfo struct {
 // Mission keeps transport data and the configurable present created by a
 // successful claim together without exposing reward_present to ProtoGen.
 type Mission struct {
-	Info          MissionInfo `json:"info"`
-	RewardPresent Present     `json:"reward_present"`
-	Period        string      `json:"period,omitempty"` // Local daily reset key; never sent to the client.
+	Info           MissionInfo `json:"info"`
+	RewardPresent  Present     `json:"reward_present"`
+	RewardPresents []Present   `json:"reward_presents,omitempty"` // Additional rewards, each sent as a separate gift.
+	Period         string      `json:"period,omitempty"`          // Local daily reset key; never sent to the client.
 }
 
 // Present mirrors proto.PresentBoxInfo. reward0..reward2 are intentionally

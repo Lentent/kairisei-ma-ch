@@ -60,7 +60,10 @@ func (o *Operations) InitializePlayerPolicy(base gamestate.State, naviPath strin
 		defaults.Navigators = append(defaults.Navigators, game.NaviSetting{NaviID: id, Enabled: true, Price: base.User.NaviPurchasePrice})
 	}
 	o.playerDefaults = &defaults
-	return o.loadPlayerPolicy()
+	if err := o.loadPlayerPolicy(); err != nil {
+		return err
+	}
+	return o.loadMissionPolicy()
 }
 
 func (o *Operations) loadPlayerPolicy() error {
@@ -170,6 +173,13 @@ func (o *Operations) preparePlayerPolicy(handler http.Handler) {
 	if target, ok := handler.(game.PlayerConfigurator); ok {
 		target.ApplyPlayerConfiguration(p.Runtime)
 	}
+	// Mission policy has its own version. Apply it after the legacy player
+	// configuration, including for already-cached account handlers.
+	if missions := o.missionPolicy.Load(); missions != nil {
+		if target, ok := handler.(game.MissionConfigurator); ok {
+			target.ApplyMissionConfiguration(missions.Runtime)
+		}
+	}
 }
 
 func (a *API) validateTutorialMail(mail game.TutorialCompletionMail) error {
@@ -219,6 +229,11 @@ func (a *API) savePlayerPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o := a.operations
+	// The former editor remains compatible for older admin clients, but its
+	// task field cannot overwrite the independent task management document.
+	if o.missionPolicy.Load() != nil {
+		body.Config.Missions = o.playerPolicy.Load().Value.Missions
+	}
 	// Older admin clients omit this new field; preserve the current task policy.
 	if body.Config.Missions == nil {
 		body.Config.Missions = o.playerPolicy.Load().Value.Missions

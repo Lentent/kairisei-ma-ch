@@ -79,6 +79,7 @@ type Operations struct {
 	maintenance             maintenanceGate
 	noticeSigningKey        [32]byte
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
+	missionPolicy           atomic.Pointer[missionPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
 	playerNaviNames         map[int8]string

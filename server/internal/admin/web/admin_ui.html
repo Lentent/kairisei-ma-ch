@@ -54,6 +54,7 @@
       <button data-view="evolution"><svg class="icon"><use href="#i-branch"/></svg><span>卡牌进化链</span></button>
       <div class="nav-group">系统</div>
       <button data-view="player-policy"><svg class="icon"><use href="#i-megaphone"/></svg><span>公告与奖励</span></button>
+      <button data-view="missions">✓　<span>任务管理</span></button>
       <button data-view="settings"><svg class="icon"><use href="#i-sliders"/></svg><span>运营设置</span></button>
       <button data-view="audit"><svg class="icon"><use href="#i-scroll"/></svg><span>操作审计</span></button>
       <button data-view="collections"><svg class="icon"><use href="#i-gift"/></svg><span>称号与礼盒</span></button>
@@ -420,6 +421,37 @@
     </section>
 
     <!-- 公告与奖励 -->
+    <section class="view" id="missions">
+      <div class="view-alert" role="alert" hidden></div>
+      <div class="panel"><div class="panel-head"><h2>任务管理</h2><span class="pill" id="mission-version">正在读取</span></div><div class="panel-body">
+        <p class="sub">自由添加、复制、移除任务，配置每日或成就分类、完成条件和奖励。保存后玩家重新打开任务页生效，重启后保留。</p>
+        <div class="toolbar"><button class="primary" id="mission-save" disabled>保存任务配置</button><button class="secondary" id="mission-add" disabled>新增任务</button><button class="secondary" id="mission-revert" disabled>放弃未保存修改</button><span class="sub" id="mission-state" role="status" aria-live="polite">正在读取任务…</span></div>
+        <p class="sub">每日任务北京时间 00:00 重置。修改标题、目标或奖励保留领取记录；改变分类或完成条件会创建新任务，原任务从列表移除。</p>
+      </div></div>
+      <div class="mission-layout">
+        <div class="panel"><div class="panel-head"><h2>当前任务</h2><span class="sub" id="mission-count"></span></div><div class="panel-body">
+          <div class="field"><label for="mission-search">搜索任务名称、条件或 ID</label><input id="mission-search" type="search" placeholder="搜索任务"></div>
+          <div class="toolbar mission-filters"><select id="mission-filter-category" aria-label="按任务分类筛选"><option value="all">全部分类</option><option value="daily">每日</option><option value="growth">成就</option></select><select id="mission-filter-state" aria-label="按启用状态筛选"><option value="all">全部状态</option><option value="enabled">已启用</option><option value="disabled">已停用</option></select></div>
+          <div id="mission-list" class="mission-list" aria-label="任务列表"></div>
+        </div></div>
+        <div class="panel"><div class="panel-head"><h2 id="mission-editor-title">选择一个任务</h2><div class="toolbar mission-row-actions"><button class="secondary" id="mission-copy" disabled>复制任务</button><button class="danger" id="mission-remove" disabled>移除任务</button></div></div><div class="panel-body">
+          <p class="sub" id="mission-editor-empty">从左侧选择任务，或点击“新增任务”。可移除全部任务并保存空列表。</p>
+          <fieldset class="editor-fields" id="mission-fields" disabled hidden>
+            <div class="form-grid"><div class="field"><label for="mission-id">任务 ID</label><input id="mission-id" readonly></div><div class="mission-enabled-field"><label><input id="mission-enabled" type="checkbox"> 启用这项任务</label></div></div>
+            <div class="field"><label for="mission-title">任务标题（最多 60 字）</label><input id="mission-title" required maxlength="60" placeholder="例如：每日完成三次探索"></div>
+            <div class="field"><label for="mission-description">任务说明（可留空，最多 200 字）</label><textarea id="mission-description" maxlength="200" rows="3" placeholder="向玩家说明完成条件"></textarea></div>
+            <div class="form-grid"><div class="field"><label for="mission-category">游戏内分类</label><select id="mission-category"><option value="daily">每日任务</option><option value="growth">成就任务</option></select></div><div class="field"><label for="mission-kind">完成条件</label><select id="mission-kind"><option value="login">登录</option><option value="explore">探索结算</option><option value="level">玩家等级</option><option value="collection">卡牌图鉴种数</option></select></div></div>
+            <div class="field"><label for="mission-target" id="mission-target-label">目标次数</label><input id="mission-target" type="number" required min="1" max="10000000" step="1"></div>
+            <p class="sub" id="mission-condition-help"></p><p class="mission-identity-note" id="mission-identity-note" hidden>保存后此项将成为新任务，原任务的领取记录不转移到新任务。</p>
+            <div class="mission-reward-heading"><h3>任务奖励</h3><span class="sub" id="mission-reward-count"></span></div>
+            <div class="toolbar"><button class="secondary" type="button" id="mission-reward-add">从奖励目录添加</button><button class="secondary" type="button" id="mission-card-max-level">卡牌全部满级</button><button class="secondary" type="button" id="mission-card-max-fame">卡牌全部满名声</button></div>
+            <div class="table-wrap"><table><thead><tr><th>奖励</th><th>数量</th><th>等级</th><th>名声</th><th>忠诚度</th><th></th></tr></thead><tbody id="mission-rewards"></tbody></table></div>
+            <p class="sub">每项任务需要 1–4 种奖励。领奖时每种奖励发一封礼物；卡牌、召唤石、传承卡最多 100 个，皮肤、表情、称号数量固定为 1。卡牌属性按所选卡牌上限填写。</p>
+          </fieldset>
+        </div></div>
+      </div>
+    </section>
+
     <section class="view" id="player-policy">
       <div class="view-alert" role="alert" hidden></div>
       <nav class="section-nav sticky" aria-label="本页分区"><a href="#pp-notice">游戏公告</a><a href="#pp-mail">新手毕业邮件</a><a href="#pp-story">剧情首通</a><a href="#pp-login">签到奖励</a><a href="#pp-navi">看板购买</a><span class="hint">整页一次保存，保存后生效并在重启后保留；签到与剧情保留领取进度。</span></nav>
@@ -445,11 +477,6 @@
         <div><h3>循环签到</h3><div class="table-wrap"><table class="dense"><thead><tr><th>天数</th><th>奖励</th><th>数量</th><th>说明</th></tr></thead><tbody id="player-login-cycle"></tbody></table></div></div>
         <div><h3>新手签到</h3><div class="table-wrap"><table class="dense"><thead><tr><th>天数</th><th>奖励</th><th>数量</th><th>说明</th></tr></thead><tbody id="player-login-beginner"></tbody></table></div></div>
         <div><h3>累计登录</h3><div class="table-wrap"><table class="dense"><thead><tr><th>累计天数</th><th>奖励</th><th>数量</th><th>说明</th></tr></thead><tbody id="player-login-total_milestones"></tbody></table></div></div>
-      </div></div>
-      <div class="panel"><div class="panel-head"><h2>任务配置</h2></div><div class="panel-body">
-        <p class="sub">修改后点击本页顶部“保存配置”。玩家下一次请求生效；未领取任务使用新目标和新奖励，已领取记录及礼物箱奖励保留。停用后任务隐藏且不能领取，重新启用不会重置领取记录。</p>
-        <p class="sub">每日任务北京时间00:00刷新；探索只统计启用期间成功结算的次数。成长任务使用已有等级、图鉴和累计签到数据。每日登录目标固定为1。</p>
-        <div class="table-wrap"><table><thead><tr><th>启用</th><th>任务标题</th><th>类型／条件</th><th>目标</th><th>水晶奖励</th></tr></thead><tbody id="player-missions"></tbody></table></div>
       </div></div>
       <div class="panel" id="pp-navi"><div class="panel-head"><div><h2>看板购买</h2><span class="hint">只能配置已有完整资源的看板。妖精乌莎哈为初始看板；关闭购买后已拥有的玩家仍可使用。</span></div></div><div class="panel-body">
         <div class="toolbar"><label class="inline-field">批量价格 <input id="player-navi-batch-price" type="number" min="1" max="10000000" value="500"></label><button class="secondary sm" id="player-navi-batch">应用到全部看板</button></div>
@@ -534,7 +561,7 @@
     <section class="view" id="audit">
       <div class="view-alert" role="alert" hidden></div>
       <div class="panel"><div class="panel-body">
-        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option></select>
+        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option><option value="mission-policy">任务管理</option></select>
           <span class="range" role="group" aria-label="时间范围"><input type="datetime-local" id="audit-after" aria-label="开始时间"><span>–</span><input type="datetime-local" id="audit-before" aria-label="结束时间"></span><button class="secondary" id="audit-reset">清除筛选</button><button id="audit-export" class="secondary">导出本页</button></div>
         <div class="table-wrap"><table><thead><tr><th>ID / 时间</th><th>操作</th><th>目标</th><th>详细内容</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
         <div class="pager" id="audit-pager"><button class="secondary" id="audit-prev">上一页</button><span id="audit-page-info" class="page-info"></span><label>跳至 <input id="audit-page" type="number" min="1" value="1" aria-label="页码"> 页</label><button class="secondary" id="audit-next">下一页</button></div>
@@ -637,6 +664,7 @@
 <script defer src="/cdk-admin.js"></script>
 <script defer src="/collections.js"></script>
 <script defer src="/player-policy.js"></script>
+<script defer src="/missions.js"></script>
 <script defer src="/insights.js"></script>
 </body>
 </html>

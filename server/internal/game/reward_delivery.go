@@ -44,7 +44,7 @@ func (s *Account) applyRewardOrPresentLocked(reward gamestate.Reward, result *Pr
 	return nil
 }
 
-func (s *Account) nextPresentIDLocked() int64 {
+func (s *Account) nextPresentIDLocked(reservedIDs ...int64) int64 {
 	// Account request serialization and the store lock keep allocation and the
 	// completion receipt in the same saved state. Include unclaimed mission IDs.
 	used := make(map[int64]bool, len(s.presents)+len(s.presentHistories)+len(s.missions))
@@ -55,6 +55,12 @@ func (s *Account) nextPresentIDLocked() int64 {
 	}
 	for _, mission := range s.missions {
 		used[mission.RewardPresent.PresentID] = true
+		for _, present := range mission.RewardPresents {
+			used[present.PresentID] = true
+		}
+	}
+	for _, id := range reservedIDs {
+		used[id] = true
 	}
 	presentID := time.Now().UnixNano()
 	for used[presentID] {

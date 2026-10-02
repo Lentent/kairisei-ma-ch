@@ -83,7 +83,7 @@ BOSS详情按难度配置“单人／组队”和“单人（仅自己的卡组�
 
 ## 账号缓存容量
 
-启动前设置环境变量 `KAIRI_ACCOUNT_CACHE_LIMIT` 可调整空闲账号处理器数量，默认32，范围0–4096（0禁用空闲缓存）。Windows启动器和Linux启动脚本均继承此变量；修改后重启服务端生效。PowerShell示例：`$env:KAIRI_ACCOUNT_CACHE_LIMIT='64'`，随后在同一终端启动服务；Linux示例：`KAIRI_ACCOUNT_CACHE_LIMIT=64 sh Start-Server-linux-amd64.sh 192.168.1.100`。
+启动前设置环境变量 `KAIRI_ACCOUNT_CACHE_LIMIT` 可调整空闲账号处理器数量，默认64，范围0–4096（0禁用空闲缓存）。Windows启动器和Linux启动脚本均继承此变量；修改后重启服务端生效。PowerShell示例：`$env:KAIRI_ACCOUNT_CACHE_LIMIT='64'`，随后在同一终端启动服务；Linux示例：`KAIRI_ACCOUNT_CACHE_LIMIT=64 sh Start-Server-linux-amd64.sh 192.168.1.100`。
 
 请求结束即进入空闲缓存，超过数量先淘汰最久未用项；5分钟未使用也会回收。请求执行中的账号不淘汰。增加容量以更多内存换取较少的重复加载；不是在线人数限制。
 
