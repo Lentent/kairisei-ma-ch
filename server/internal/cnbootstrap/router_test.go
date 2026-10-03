@@ -728,12 +728,12 @@ func TestCN602NoPaymentProductsAndLocalCatalog(t *testing.T) {
 			Crystal int    `json:"gold"`
 		} `json:"product_list"`
 	}
-	if products.Code != http.StatusOK || json.Unmarshal(products.Body.Bytes(), &productCatalog) != nil || productCatalog.Code != 200 || len(productCatalog.Products) != 8 {
+	if products.Code != http.StatusOK || json.Unmarshal(products.Body.Bytes(), &productCatalog) != nil || productCatalog.Code != 200 || len(productCatalog.Products) != 2 {
 		t.Fatalf("products: status=%d body=%q", products.Code, products.Body.String())
 	}
 
-	for _, product := range productCatalog.Products {
-		if product.Price != "0" || product.Crystal <= 0 {
+	for index, product := range productCatalog.Products {
+		if product.ID != strconv.Itoa(index+1) || product.Price != "0" || product.Crystal != []int{250, 600}[index] {
 			t.Fatalf("invalid free local product: %#v", product)
 		}
 	}

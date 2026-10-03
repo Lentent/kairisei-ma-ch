@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -53,11 +54,8 @@ func TestLocalShopRetryDailyBoundaryAndFailedCommit(t *testing.T) {
 	if err != nil || result["code"] != 3 || s.coinFree != 450 {
 		t.Fatal("expired card still paid out")
 	}
-	if _, err := s.LocalPurchase("local:8:00000000000000000000000000000002", now, gamestate.State{}, persist); err != nil || s.coinFree != 450+6480 {
-		t.Fatal("crystals do not match the displayed bundle")
-	}
 	s.localCrystalPurchaseEnabled = false
-	blockedOrder := "local:8:00000000000000000000000000000003"
+	blockedOrder := "local:1:00000000000000000000000000000003"
 	balance := s.coinFree
 	result, err = s.LocalPurchase(blockedOrder, now, gamestate.State{}, persist)
 	if err != nil || result["code"] != 1 || result["addcoin"] != 0 || s.coinFree != balance {
@@ -68,6 +66,26 @@ func TestLocalShopRetryDailyBoundaryAndFailedCommit(t *testing.T) {
 	result, err = s.LocalPurchase(blockedOrder, now, gamestate.State{}, persist)
 	if err != nil || result["addcoin"] != 0 || s.coinFree != balance {
 		t.Fatal("enabling purchases backfilled a previously closed order")
+	}
+}
+
+func TestLocalShopRejectsRemovedCrystalBundles(t *testing.T) {
+	now := time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)
+	for _, enabled := range []bool{false, true} {
+		for id := 3; id <= 8; id++ {
+			t.Run(fmt.Sprintf("enabled=%t/product=%d", enabled, id), func(t *testing.T) {
+				s := &Account{localCrystalPurchaseEnabled: enabled, coinFree: 450}
+				order := fmt.Sprintf("local:%d:00000000000000000000000000000002", id)
+				persisted := false
+				persist := func(gamestate.State) error { persisted = true; return nil }
+				if _, err := s.LocalPurchase(order, now, gamestate.State{}, persist); err == nil {
+					t.Fatal("removed crystal bundle was accepted")
+				}
+				if persisted || s.coinFree != 450 || len(s.localShop.Orders) != 0 || s.localShop.MonthEndDay != 0 || s.localShop.Forever {
+					t.Fatal("rejected bundle changed account state")
+				}
+			})
+		}
 	}
 }
 
