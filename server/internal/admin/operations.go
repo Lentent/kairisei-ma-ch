@@ -24,11 +24,12 @@ const (
 )
 
 type TeamBattlePublication struct {
-	StartUnix        int64  `json:"start_unix,omitempty"`
-	EndUnix          int64  `json:"end_unix,omitempty"`
-	ExpectedRevision *int   `json:"expected_revision,omitempty"`
-	Mode             string `json:"mode"`
-	GroupIDs         []int  `json:"group_ids,omitempty"`
+	StartUnix        int64                 `json:"start_unix,omitempty"`
+	EndUnix          int64                 `json:"end_unix,omitempty"`
+	ExpectedRevision *int                  `json:"expected_revision,omitempty"`
+	Mode             string                `json:"mode"`
+	GroupIDs         []int                 `json:"group_ids,omitempty"`
+	GroupSchedules   []BattleGroupSchedule `json:"group_schedules,omitempty"`
 }
 
 type gachaPublication struct {
@@ -47,6 +48,9 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 	}
 	if publication.StartUnix < 0 || publication.EndUnix < 0 || (publication.EndUnix != 0 && publication.EndUnix <= publication.StartUnix) {
 		return accountstore.Document{}, errors.New("活动结束时间须晚于开始时间")
+	}
+	if err := normalizeBattleSchedules(publication.GroupSchedules); err != nil {
+		return accountstore.Document{}, err
 	}
 	switch publication.Mode {
 	case "all":
@@ -72,6 +76,7 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 }
 
 type Operations struct {
+	battleGroupIDs          map[string][]int
 	evolutionEdges          map[game.EvolutionPath]int
 	evolutionClosed         []game.EvolutionPath
 	evolutionRevision       int
@@ -142,6 +147,10 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 		return nil, fmt.Errorf("initialize notice signing key: %w", err)
 	}
 	catalog, err := storage.CatalogState()
+	if err != nil {
+		return nil, err
+	}
+	operations.battleGroupIDs, err = battlePublicationGroupIDs(catalog)
 	if err != nil {
 		return nil, err
 	}
@@ -340,25 +349,7 @@ func (operations *Operations) BattleGroupAllowlist(key string) (map[int]struct{}
 	if err := json.Unmarshal(content, &publication); err != nil {
 		return nil, fmt.Errorf("decode CN team battle publication: %w", err)
 	}
-	now := time.Now().Unix()
-	if now < publication.StartUnix || (publication.EndUnix != 0 && now >= publication.EndUnix) {
-		return map[int]struct{}{}, nil
-	}
-	switch publication.Mode {
-	case "all":
-		return nil, nil
-	case "allowlist":
-		allowed := make(map[int]struct{}, len(publication.GroupIDs))
-		for _, groupID := range publication.GroupIDs {
-			if groupID <= 0 {
-				return nil, errors.New("CN team battle publication contains an invalid group ID")
-			}
-			allowed[groupID] = struct{}{}
-		}
-		return allowed, nil
-	default:
-		return nil, errors.New("CN team battle publication mode is invalid")
-	}
+	return battlePublicationAllowlist(publication, operations.battleGroupIDs[key], time.Now())
 }
 
 func (operations *Operations) writeDocument(key string, expected int, value any) (accountstore.Document, error) {

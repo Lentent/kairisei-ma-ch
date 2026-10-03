@@ -215,12 +215,13 @@ type adminAccount struct {
 }
 
 type adminPublicationState struct {
-	StartUnix  int64  `json:"start_unix"`
-	EndUnix    int64  `json:"end_unix"`
-	Mode       string `json:"mode"`
-	GroupIDs   []int  `json:"group_ids"`
-	Revision   int    `json:"revision"`
-	UpdatedUTC string `json:"updated_utc,omitempty"`
+	GroupSchedules []BattleGroupSchedule `json:"group_schedules,omitempty"`
+	StartUnix      int64                 `json:"start_unix"`
+	EndUnix        int64                 `json:"end_unix"`
+	Mode           string                `json:"mode"`
+	GroupIDs       []int                 `json:"group_ids"`
+	Revision       int                   `json:"revision"`
+	UpdatedUTC     string                `json:"updated_utc,omitempty"`
 }
 
 type adminGachaPublicationState struct {
@@ -1214,7 +1215,8 @@ func adminPublicationFromDocument(doc accountstore.Document) (adminPublicationSt
 		publication.GroupIDs = []int{}
 	}
 	return adminPublicationState{
-		Mode: publication.Mode, GroupIDs: publication.GroupIDs, StartUnix: publication.StartUnix, EndUnix: publication.EndUnix,
+		GroupSchedules: publication.GroupSchedules,
+		Mode:           publication.Mode, GroupIDs: publication.GroupIDs, StartUnix: publication.StartUnix, EndUnix: publication.EndUnix,
 		Revision: doc.Revision, UpdatedUTC: doc.UpdatedUTC,
 	}, nil
 }
@@ -1252,6 +1254,12 @@ func (admin *API) setBossPolicy(writer http.ResponseWriter, request *http.Reques
 	if err := decodeAdminJSON(request, &publication); err != nil {
 		WriteAdminError(writer, http.StatusBadRequest, err.Error())
 		return
+	}
+	for _, schedule := range publication.GroupSchedules {
+		if _, exists := known[schedule.GroupID]; !exists {
+			WriteAdminError(writer, http.StatusBadRequest, fmt.Sprintf("unknown schedule group ID %d", schedule.GroupID))
+			return
+		}
 	}
 	if publication.Mode == "allowlist" {
 		for _, groupID := range publication.GroupIDs {

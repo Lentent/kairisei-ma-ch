@@ -124,7 +124,7 @@ function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDir
   if(name==='settings')return runtimeSettingsDirty();
   if(name==='shop')return itemShopDirty();
   const normalized=values=>JSON.stringify([...values].sort((a,b)=>a-b));
-  if(name==='bosses'&&state.policy)return state.mode!==state.policy.mode||normalized(state.selected)!==normalized(state.policy.group_ids||[])||unixInput('#boss-start')!==(state.policy.start_unix||0)||unixInput('#boss-end')!==(state.policy.end_unix||0);
+  if(name==='bosses'&&state.policy)return state.mode!==state.policy.mode||(state.mode==='allowlist'&&normalized(state.selected)!==normalized(state.policy.group_ids||[]))||unixInput('#boss-start')!==(state.policy.start_unix||0)||unixInput('#boss-end')!==(state.policy.end_unix||0)||normalizedBossSchedules(state.bossSchedules.values())!==normalizedBossSchedules(state.policy.group_schedules||[]);
   if(name==='gachas'&&state.gachaPolicy)return normalized(state.gachaSelected)!==normalized(state.gachaPolicy.group_ids||[]);
   return false;
 }

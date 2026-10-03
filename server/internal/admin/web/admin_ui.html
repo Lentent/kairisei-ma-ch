@@ -287,6 +287,7 @@
           <div class="field"><label for="boss-start">目录开始展示（本机时区，留空立即）</label><input type="datetime-local" id="boss-start"></div>
           <div class="field"><label for="boss-end">目录结束展示（留空不限）</label><input type="datetime-local" id="boss-end"></div>
         </div>
+        <p class="hint">每个 Boss 组可在下方「独立排期」设置出现日期及每周开放日，组内各难度一起生效。星期按北京时间（UTC+8）每日 00:00 切换；须同时满足目录开放名单、目录排期和独立排期。</p>
       </div></div>
       <div class="panel"><div class="panel-body">
         <div class="filterbar"><input class="search" id="boss-search" type="search" placeholder="搜索组名、难度、group ID、boss ID"><select id="boss-attribute" aria-label="BOSS属性"></select><select id="boss-difficulty" aria-label="难度"><option value="">全部难度</option></select><select id="boss-published" aria-label="发布状态"><option value="">全部发布状态</option><option value="open">当前开放</option><option value="closed">当前关闭</option></select><button class="secondary" id="boss-reset">清除筛选</button></div>
@@ -633,6 +634,20 @@
     <aside class="picker-selected" aria-label="已选奖励"><div class="picker-selected-head"><b id="content-selected">已选 0 项</b><button class="secondary sm" id="content-clear">清空</button></div><ul id="content-selected-list" class="selected-list"></ul></aside>
   </div>
   <div class="dialog-actions"><button class="secondary" id="content-cancel" data-dismiss>取消</button><button class="primary" id="content-apply">加入已选奖励</button></div>
+</div></div>
+<div class="modal" id="boss-schedule-modal" role="dialog" aria-modal="true" aria-labelledby="boss-schedule-title"><div class="dialog">
+  <div class="dialog-head"><div><h2 id="boss-schedule-title">Boss 独立排期</h2><p class="lead">本组全部难度共用；加入草稿后，点击页面的「发布设置」生效。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
+  <div class="dialog-body">
+    <div class="field"><label for="boss-group-start">开始展示（本机时区，留空立即）</label><input type="datetime-local" id="boss-group-start"></div>
+    <div class="field"><label for="boss-group-end">结束展示（本机时区，留空不限）</label><input type="datetime-local" id="boss-group-end"></div>
+    <fieldset class="boss-weekdays"><legend>每周开放日（北京时间 UTC+8）</legend><div class="checks">
+      <label><input type="checkbox" value="1">周一</label><label><input type="checkbox" value="2">周二</label><label><input type="checkbox" value="3">周三</label><label><input type="checkbox" value="4">周四</label><label><input type="checkbox" value="5">周五</label><label><input type="checkbox" value="6">周六</label><label><input type="checkbox" value="7">周日</label>
+    </div></fieldset>
+    <div class="toolbar"><button type="button" class="secondary sm" data-boss-days="1,2,3,4,5,6,7">每天</button><button type="button" class="secondary sm" data-boss-days="1,3,5,7">一三五日</button><button type="button" class="secondary sm" data-boss-days="2,4,6,7">二四六日</button></div>
+    <p class="hint">开始时间包含在开放范围内，结束时间不包含。未配置独立排期时，沿用目录设置且每天可出现。此处控制目录展示。</p>
+    <p id="boss-schedule-error" class="state-error" role="alert" hidden></p>
+  </div>
+  <div class="dialog-actions"><button type="button" class="secondary" id="boss-schedule-reset">移除独立排期</button><span class="spacer"></span><button type="button" class="secondary" id="boss-schedule-cancel" data-dismiss>取消</button><button type="button" class="primary" id="boss-schedule-apply">加入发布草稿</button></div>
 </div></div>
 <div class="modal" id="boss-detail-modal" role="dialog" aria-modal="true" aria-labelledby="boss-detail-title"><div class="dialog wide">
   <div class="dialog-head"><div><h2 id="boss-detail-title">BOSS 难度与规则</h2><p class="lead">规则保存后用于后续开战；已开始的战斗不变。复活仍按游戏原费用扣除水晶。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
