@@ -72,6 +72,9 @@ var adminInsightsJS []byte
 //go:embed web/admin_collections.js
 var adminCollectionsJS []byte
 
+//go:embed web/admin_custom_cards.js
+var adminCustomCardsJS []byte
+
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
 // owner of calculated deck rank and no card or deck data is rewritten here.
@@ -374,6 +377,18 @@ func applyAdminCatalogAssetCoverage(catalog []AdminCatalogEntry, assetsRoot stri
 }
 
 func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster masterdata.ItemRuntimeMaster) ([]AdminCatalogEntry, map[string]AdminCatalogEntry, error) {
+	var customSource struct {
+		Cards []customCardReceipt `json:"admin_custom_cards"`
+	}
+	if len(cardMaster.Source) > 0 {
+		if err := json.Unmarshal(cardMaster.Source, &customSource); err != nil {
+			return nil, nil, err
+		}
+	}
+	customImages := map[int]bool{}
+	for _, c := range customSource.Cards {
+		customImages[c.ID] = c.Artwork
+	}
 	jpCards, err := adminJPCardIDs(cardMaster.Source)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read catalog import provenance: %w", err)
@@ -390,6 +405,10 @@ func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster maste
 		{Kind: "currency", RewardType: 12, Name: "体力", Detail: "领取时补充 BP，上限封顶"},
 	}
 	for _, card := range cardMaster.CardTemplates {
+		imageURL := fmt.Sprintf("/assets/card/%d.webp", card.CardID)
+		if customImages[card.CardID] {
+			imageURL = fmt.Sprintf("/assets/card/%d.png", card.CardID)
+		}
 		sourceTags := cardSourceTags(card.AcquisitionText)
 		if jpCards[card.CardID] {
 			sourceTags = append(sourceTags, "jp_import")
@@ -400,7 +419,7 @@ func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster maste
 			Name: card.Name, Detail: card.AcquisitionText,
 			SourceTags:    sourceTags,
 			GachaEligible: cardCrystalGachaSource(card.AcquisitionText) && !evolved[card.CardID] && card.RarityRank >= 3,
-			ImageURL:      fmt.Sprintf("/assets/card/%d.webp", card.CardID),
+			ImageURL:      imageURL,
 			Rarity:        card.RarityRank, LevelMax: card.LevelMax,
 			ArthurType: cardMaster.DeckRankPolicy.Cards[card.CardID].ArthurType,
 			FameMax:    card.FameMax, LoveMax: card.LoveMax,
@@ -785,7 +804,7 @@ func matchesAdminSearch(text, query string) bool {
 func (admin *API) catalogAsset(writer http.ResponseWriter, request *http.Request) {
 	kind := chi.URLParam(request, "kind")
 	file := chi.URLParam(request, "file")
-	if kind == "" || file == "" || filepath.Base(file) != file || filepath.Ext(file) != ".webp" {
+	if kind == "" || file == "" || filepath.Base(file) != file || (filepath.Ext(file) != ".webp" && filepath.Ext(file) != ".png") {
 		WriteAdminError(writer, http.StatusNotFound, "admin asset not found")
 		return
 	}
@@ -810,7 +829,11 @@ func (admin *API) catalogAsset(writer http.ResponseWriter, request *http.Request
 		WriteAdminError(writer, http.StatusNotFound, "admin asset not found")
 		return
 	}
-	writer.Header().Set("Content-Type", "image/webp")
+	if strings.HasSuffix(file, ".png") {
+		writer.Header().Set("Content-Type", "image/png")
+	} else {
+		writer.Header().Set("Content-Type", "image/webp")
+	}
 	http.ServeFile(writer, request, absolute)
 }
 

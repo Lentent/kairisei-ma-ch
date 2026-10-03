@@ -52,6 +52,7 @@
       <button data-view="exchanges"><svg class="icon"><use href="#i-exchange"/></svg><span>兑换所配置</span></button>
       <button data-view="shop"><svg class="icon"><use href="#i-bag"/></svg><span>道具商店</span></button>
       <button data-view="evolution"><svg class="icon"><use href="#i-branch"/></svg><span>卡牌进化链</span></button>
+      <button data-view="custom-cards"><svg class="icon"><use href="#i-layers"/></svg><span>自制卡牌</span></button>
       <div class="nav-group">系统</div>
       <button data-view="player-policy"><svg class="icon"><use href="#i-megaphone"/></svg><span>公告与奖励</span></button>
       <button data-view="missions">✓　<span>任务管理</span></button>
@@ -76,6 +77,26 @@
     </header>
     <div class="maint-banner" id="maintenance-banner" role="status" hidden><svg class="icon"><use href="#i-alert"/></svg><span><b>服务器维护中</b>：注册、登录和游戏请求已暂停，玩家无法进入游戏。</span><button class="secondary sm" type="button" data-jump="maintenance">前往维护工具</button></div>
 
+    <section class="view content-editor" id="custom-cards">
+      <div class="panel"><div class="panel-head"><h2>自制卡牌</h2><span class="pill" id="custom-card-version">草稿 v0</span></div><div class="panel-body">
+        <p class="hint">选择现有卡作模板，编辑数值、上传卡面并组合已有技能效果。保存草稿 → 生成资源更新包 → 停服备份、覆盖资源并重启 → 客户端下载更新。</p>
+        <div class="toolbar"><button class="primary" id="custom-card-new">从现有卡复制</button><button class="secondary" id="custom-card-json">导出设计 JSON</button><label class="secondary file-button">导入设计<input type="file" id="custom-card-import" accept="application/json,.json" hidden></label></div>
+      </div></div>
+      <div class="custom-card-workspace">
+        <div class="panel"><div class="panel-head"><h2>我的卡牌</h2><span class="pill" id="custom-card-count">0 张</span></div><div class="panel-body"><input class="search" id="custom-card-search" type="search" placeholder="搜索名称或 ID" aria-label="搜索自制卡牌"><div id="custom-card-list" class="custom-card-list"></div></div></div>
+        <div class="panel"><div class="panel-head"><div><h2 id="custom-card-title">选择或新增一张卡</h2><span class="hint" id="custom-card-template-info"></span></div><button class="danger sm" id="custom-card-remove" disabled>移除草稿</button></div><div class="panel-body">
+          <fieldset id="custom-card-fields" disabled>
+            <div class="custom-card-art"><div id="custom-card-preview" class="custom-card-preview"></div><div><label class="secondary file-button">上传卡面<input type="file" id="custom-card-art" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-art-reset" type="button">沿用模板卡面</button><p class="hint">PNG/JPEG，每张最多4MB。图片保持比例，自动生成卡面和小图；建议使用透明背景立绘。</p><p id="custom-card-art-info" class="hint"></p></div></div>
+            <div class="grid2"><div class="field"><label for="custom-card-name">名称</label><input id="custom-card-name" maxlength="40"></div><div class="field"><label for="custom-card-prefix">冠名</label><input id="custom-card-prefix" maxlength="30" placeholder="例如：新春型"></div></div>
+            <div class="grid3"><div class="field"><label for="custom-card-job">职业</label><select id="custom-card-job"><option value="0">通用</option><option value="1">佣兵</option><option value="2">富豪</option><option value="3">盗贼</option><option value="4">歌姬</option></select></div><div class="field"><label for="custom-card-attr">属性</label><select id="custom-card-attr"><option value="FIRE">火</option><option value="ICE">冰</option><option value="WIND">风</option><option value="LIGHT">光</option><option value="DARK">暗</option></select></div><div class="field"><label for="custom-card-cost">COST</label><input id="custom-card-cost" type="number" min="1" max="10"></div></div>
+            <h3>卡牌四维</h3><p class="hint">设置初始、满级和忠诚度满额加成；等级成长与稀有度沿用模板，名声加成另行计算。</p><div class="table-wrap"><table class="dense"><thead><tr><th>属性</th><th>初始值</th><th>满级值</th><th>满忠诚度加成</th></tr></thead><tbody id="custom-card-stats"></tbody></table></div>
+            <h3>技能与效果</h3><p class="hint">各条件分支沿用模板。可从其他卡牌选取效果，调整数值及顺序。组合后请同步修改技能说明，属性变化不会改写演出颜色。</p><div id="custom-card-skills"></div>
+            <details class="tool-drawer"><summary>效果参数说明</summary><p class="hint">数值参数的含义取决于效果，例如基础值、成长、倍率和持续回合。非数值的目标、类型和引用沿用来源卡；添加后请核对来源说明并进行实战测试。</p></details>
+          </fieldset>
+        </div></div>
+      </div>
+      <div class="savebar"><div class="savebar-status"><span class="hint" id="custom-card-status" aria-live="polite">保存草稿后可生成更新包。</span></div><div class="savebar-actions"><button class="primary" id="custom-card-save" data-save-shortcut>保存草稿</button><button class="secondary" id="custom-card-package">生成资源更新包</button></div></div>
+    </section>
     <section class="view content-editor" id="collections">
       <div class="panel"><div class="panel-head"><h2>称号与礼盒</h2><span class="pill gold" id="collection-version">配置 v0</span></div><div class="panel-body">
         <p class="sub">新增称号、礼盒及开箱奖励。保存后生成资源更新包，停服覆盖并重启，再让客户端下载更新资源。无需修改 APK。</p>
@@ -653,6 +674,7 @@
 </div></div>
 <div class="modal" id="pool-custom-create-modal" role="dialog" aria-modal="true" aria-labelledby="pool-custom-title"><div class="dialog"><h2 id="pool-custom-title">自定义卡池</h2><div class="field"><label for="pool-custom-name">卡池名称</label><input id="pool-custom-name" maxlength="60"></div><div class="field"><label for="pool-custom-source">复制来源</label><select id="pool-custom-source"></select></div><div class="field"><label for="pool-custom-mode">空白卡池类型</label><select id="pool-custom-mode"><option value="ordinary">卡牌池</option><option value="mixed">混合奖励／阶段池</option></select></div><p class="hint">复制时保留整组抽法，创建后独立配置卡牌、阶段与赠礼。先保存预览，再发布并开放。</p><div class="dialog-actions"><button class="secondary" id="pool-custom-cancel" data-dismiss>取消</button><button class="primary" id="pool-custom-apply">创建草稿</button></div></div></div>
 <div class="toast-stack" id="toast-stack"></div>
+<div class="modal" id="custom-effect-modal" role="dialog" aria-modal="true" aria-labelledby="custom-effect-title"><div class="dialog"><div class="dialog-head"><h2 id="custom-effect-title">选择技能效果</h2><button class="icon-button" id="custom-effect-close" type="button" aria-label="关闭">×</button></div><div class="dialog-body"><p class="hint" id="custom-effect-source"></p><div id="custom-effect-options"></div></div></div></div>
 <script defer src="/admin.js"></script>
 <script defer src="/operations.js"></script>
 <script defer src="/gacha-legacy.js"></script>
@@ -663,6 +685,7 @@
 <script defer src="/content.js"></script>
 <script defer src="/cdk-admin.js"></script>
 <script defer src="/collections.js"></script>
+<script defer src="/custom-cards.js"></script>
 <script defer src="/player-policy.js"></script>
 <script defer src="/missions.js"></script>
 <script defer src="/insights.js"></script>

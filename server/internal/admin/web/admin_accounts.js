@@ -118,6 +118,7 @@ function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDir
   if(name==='evolution')return typeof evolutionDirty==='function'&&evolutionDirty();
   if(name==='missions')return typeof missionPolicyDirty==='function'&&missionPolicyDirty();
   if(name==='collections')return typeof collectionEditor!=='undefined'&&collectionEditor.dirty;
+  if(name==='custom-cards')return typeof customCardEditor!=='undefined'&&customCardEditor.dirty;
   if(name==='pool-editor')return poolEditor.dirty;
   if(typeof contentDirty==='function'&&contentDirty(name))return true;
   if(name==='settings')return runtimeSettingsDirty();

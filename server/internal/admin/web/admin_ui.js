@@ -6,7 +6,9 @@ const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={maintenance:'维护工具',evolution:'卡牌进化链','activity-rewards':'圣剑杯与探索','player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置',shop:'道具商店','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 titles.collections="称号与礼盒";titles.cdk="礼包兑换码";titles.missions="任务管理";
+titles['custom-cards']='自制卡牌';
 const viewMeta={
+  'custom-cards':['扭蛋与商店','复制卡牌、上传卡面、组合技能效果并生成资源更新包'],
   missions:['系统','每日与成就任务、完成条件及多种奖励'],
  collections:["系统","称号、礼盒与开箱奖励"],cdk:["玩家","创建礼包码、查看兑换记录与发奖"],
   evolution:['扭蛋与商店','按星级查看进化链，独立控制每条进化方向的开放状态'],
@@ -147,6 +149,7 @@ async function loadView(name,force=false){
     }
     else if(name==='pool-editor')await loadPoolEditor();
     else if(name==='collections')await loadCollections();
+    else if(name==='custom-cards')await loadCustomCards();
     else if(name==='audit')await loadAuditPage();
     else if(name==='settings')await loadRuntimeSettings();
     else if(name==='shop')await loadItemShop();
@@ -244,7 +247,7 @@ $('#boss-start').onchange=$('#boss-end').onchange=()=>renderBosses();
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
   if(typeof updateMissionControls==='function')updateMissionControls();
-  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
+  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','custom-cards','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
   for(const name of Object.keys(titles)){const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
   document.body.classList.toggle('busy',policyBusy(state.currentView));
   if(typeof updatePoolControls==='function')updatePoolControls();

@@ -326,6 +326,15 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/collections", admin.collections)
 	router.Put("/api/collections", admin.saveCollections)
 	router.Post("/api/collections/export", admin.exportCollections)
+	router.Get("/api/custom-cards", admin.customCards)
+	router.Get("/api/custom-cards/template/{id}", admin.customCardTemplate)
+	router.Put("/api/custom-cards", admin.saveCustomCards)
+	router.Post("/api/custom-cards/export", admin.exportCustomCards)
+	router.Get("/custom-cards.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(adminCustomCardsJS)
+	})
 	router.Get("/collections.js", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = w.Write(adminCollectionsJS)

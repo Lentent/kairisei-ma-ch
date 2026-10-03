@@ -1,7 +1,7 @@
 package admin
 
-// The CN container has two editable TextAssets. Preserve all other objects,
-// names, path IDs, type trees and external references when replacing their CSV.
+// Preserve object IDs, type trees and external references when replacing
+// supported TextAssets or Texture2D payloads.
 import (
 	"bytes"
 	"encoding/binary"
@@ -288,9 +288,56 @@ func (b resourceBundle) save() []byte {
 type resourceObject struct{ table, start, size, class int }
 
 func replaceResourceTexts(asset []byte, updates map[string]func(string) (string, error)) (result []byte, err error) {
+	found := map[string]bool{}
+	result, err = rewriteResourceObjects(asset, func(class int, raw []byte) ([]byte, error) {
+		if class != 49 {
+			return raw, nil
+		}
+		r := resourceCursor{b: raw, order: binary.LittleEndian}
+		n := int(r.u32())
+		name := string(r.take(n))
+		r.align(4)
+		scriptPos := r.p
+		length := int(r.u32())
+		script := string(r.take(length))
+		r.align(4)
+		update, ok := updates[name]
+		if !ok {
+			return raw, nil
+		}
+		if found[name] {
+			return nil, fmt.Errorf("表%s重复", name)
+		}
+		next, e := update(script)
+		if e != nil {
+			return nil, e
+		}
+		var replacement bytes.Buffer
+		replacement.Write(raw[:scriptPos])
+		_ = binary.Write(&replacement, binary.LittleEndian, uint32(len(next)))
+		replacement.WriteString(next)
+		for replacement.Len()%4 != 0 {
+			replacement.WriteByte(0)
+		}
+		replacement.Write(raw[r.p:])
+		found[name] = true
+		return replacement.Bytes(), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for name := range updates {
+		if !found[name] {
+			return nil, fmt.Errorf("客户端缺少%s", name)
+		}
+	}
+	return result, nil
+}
+
+func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, error)) (result []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("读取称号/道具表：%v", r)
+			err = fmt.Errorf("读取客户端序列化资源：%v", r)
 		}
 	}()
 	if len(asset) < 20 {
@@ -367,7 +414,6 @@ func replaceResourceTexts(asset []byte, updates map[string]func(string) (string,
 	metadata := bytes.Clone(asset[:offset])
 	var content bytes.Buffer
 	previous := 0
-	found := map[string]bool{}
 	for _, o := range objects {
 		if o.start < previous {
 			return nil, errors.New("对象数据重叠")
@@ -378,34 +424,10 @@ func replaceResourceTexts(asset []byte, updates map[string]func(string) (string,
 		}
 		start := content.Len()
 		raw := asset[offset+o.start : offset+o.start+o.size]
-		if o.class == 49 {
-			r := resourceCursor{b: raw, order: binary.LittleEndian}
-			n := int(r.u32())
-			name := string(r.take(n))
-			r.align(4)
-			scriptPos := r.p
-			length := int(r.u32())
-			script := string(r.take(length))
-			r.align(4)
-			if update, ok := updates[name]; ok {
-				if found[name] {
-					return nil, fmt.Errorf("表%s重复", name)
-				}
-				next, e := update(script)
-				if e != nil {
-					return nil, e
-				}
-				var replacement bytes.Buffer
-				replacement.Write(raw[:scriptPos])
-				_ = binary.Write(&replacement, binary.LittleEndian, uint32(len(next)))
-				replacement.WriteString(next)
-				for replacement.Len()%4 != 0 {
-					replacement.WriteByte(0)
-				}
-				replacement.Write(raw[r.p:])
-				raw = replacement.Bytes()
-				found[name] = true
-			}
+		var e error
+		raw, e = update(o.class, raw)
+		if e != nil {
+			return nil, e
 		}
 		content.Write(raw)
 		binary.LittleEndian.PutUint32(metadata[o.table:], uint32(start))
@@ -413,11 +435,6 @@ func replaceResourceTexts(asset []byte, updates map[string]func(string) (string,
 		previous = o.start + o.size
 	}
 	content.Write(asset[offset+previous:])
-	for name := range updates {
-		if !found[name] {
-			return nil, fmt.Errorf("客户端缺少%s", name)
-		}
-	}
 	result = append(metadata, content.Bytes()...)
 	binary.BigEndian.PutUint32(result[4:], uint32(len(result)))
 	return result, nil
