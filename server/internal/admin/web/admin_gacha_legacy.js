@@ -105,10 +105,10 @@ $('#pool-box-round').onchange=renderGachaBoxPool;
 $('#pool-box-add').onclick=()=>openContentPicker(rows=>{
   const rounds=activeBoxRounds();if(!rounds)return;
   const rewards=rounds[Number($('#pool-box-round').value)].rewards;
-	if(rows.some(row=>![4,6,8,10,12,13,15,19].includes(row.reward_type)))throw new Error('箱池支持金币、免费水晶、体力、卡牌、道具、皮肤、召唤石和传承卡');
+  if(rows.some(row=>![4,6,8,10,12,13,15,19].includes(row.reward_type)))throw new Error('箱池支持金币、免费水晶、体力、卡牌、素材卡、道具、召唤石和传承卡');
   for(const row of rows){if(rewards.length>=50)break;rewards.push({reward:contentReward(row),stock:1});}
   poolChanged();renderGachaBoxPool();
-},['currency','card','material','item','sphere','buddy','costume']);
+},['currency','card','material','item','sphere','buddy']);
 $('#pool-box-rows').oninput=e=>{
   const rounds=activeBoxRounds();if(!rounds)return;
   const rewards=rounds[Number($('#pool-box-round').value)].rewards,el=e.target;

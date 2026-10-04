@@ -97,3 +97,31 @@ func TestCustomGachaBoxPublishRestartAndInventory(t *testing.T) {
 		t.Fatal("published box missing from catalog")
 	}
 }
+
+func TestCustomGachaBoxAllowsBossCurrencyAndMaterials(t *testing.T) {
+	a, _, handler := customGachaTestAPI(t)
+	w := customGachaRequest(t, handler, "/create", map[string]any{"name": "Boss币素材箱池", "mode": "box"})
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var created struct {
+		ID int `json:"gacha_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	a.catalogByKey["8:4000"] = AdminCatalogEntry{Kind: "item", Name: "Boss币", ResourceState: "ready"}
+	a.catalogByKey["13:123"] = AdminCatalogEntry{Kind: "material", Name: "素材卡", ResourceState: "ready"}
+	c := AdminGachaConfigFromProfile(a.operations.gachaBases[created.ID])
+	c.PayType, c.PayTypeID, c.Price = 4, 4000, 2
+	for i := range c.BoxRounds {
+		c.BoxRounds[i].Rewards = []gamestate.GachaBoxReward{{Stock: 50, Reward: gamestate.Reward{Type: 13, RewardTypeID: 123, Num: 3, CardSkillLevels: []int16{}}}}
+	}
+	if _, err := a.validateGachaConfig(c); err != nil {
+		t.Fatal("valid Boss currency/material config rejected", err)
+	}
+	c.PayTypeID = 99999
+	if _, err := a.validateGachaConfig(c); err == nil {
+		t.Fatal("unknown currency accepted")
+	}
+}

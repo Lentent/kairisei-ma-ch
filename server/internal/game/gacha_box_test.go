@@ -97,6 +97,35 @@ func TestGachaBoxSnapshotPreservesInventoryWithoutSharing(t *testing.T) {
 	}
 }
 
+func TestGachaBoxBossCurrencyPaysForStackMaterials(t *testing.T) {
+	s := boxTestAccount()
+	p := &s.gachas[0]
+	p.PayType, p.PayTypeID, p.Price = 4, 4000, 2
+	s.items[4000] = gamestate.Item{ItemID: 4000, Num: 2}
+	s.itemDefinitions[4000] = gamestate.ItemDefinition{ItemID: 4000, Name: "Boss币", ItemType: "TRADE", MaxOwned: 10000}
+	s.stackCardTemplates = map[int]gamestate.CardStack{123: {CardID: 123}}
+	for i := range p.BoxRounds {
+		p.BoxRounds[i].Rewards = []gamestate.GachaBoxReward{{Stock: 50, Reward: gamestate.Reward{Type: 13, RewardTypeID: 123, Num: 3, CardSkillLevels: []int16{}}}}
+	}
+	if err := s.validateGachaRulesLocked(*p); err != nil {
+		t.Fatal(err)
+	}
+	coins := s.coinFree
+	result, err := s.PlayGacha(p.GachaID, 4, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.items[4000].Num != 0 || s.coinFree != coins || result.Item.ItemID != 4000 || len(result.Reward.StackCards) != 1 || result.Reward.StackCards[0].Num != 3 || len(s.stackCards) != 1 || s.stackCards[0].Num != 3 || s.gachaBoxes[p.GroupID].Remaining[0].Stock != 49 {
+		t.Fatal("Boss currency payment or material reward failed", result)
+	}
+	if !strings.Contains(s.GachaBoxOddsMessage(s.GachaState()[0]), "素材卡 123 × 3：剩余 49 份") {
+		t.Fatal("material reward mislabeled")
+	}
+	if _, err := s.PlayGacha(p.GachaID, 4, nil); err == nil || s.stackCards[0].Num != 3 || s.gachaBoxes[p.GroupID].Remaining[0].Stock != 49 {
+		t.Fatal("insufficient Boss currency changed stock or materials")
+	}
+}
+
 func TestGachaBoxFailedDrawAndRepublishPreserveStock(t *testing.T) {
 	s := boxTestAccount()
 	if _, err := s.PlayGacha(70000001, 3, nil); err != nil {

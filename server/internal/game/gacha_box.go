@@ -27,7 +27,7 @@ func (s *Account) GachaBoxOddsMessage(profile gamestate.GachaProfile) string {
 		case 8:
 			name = s.itemDefinitions[reward.RewardTypeID].Name
 		case 13:
-			name = s.avatarDefinitions[reward.RewardTypeID].Name
+			name = fmt.Sprintf("素材卡 %d", reward.RewardTypeID)
 		case 15:
 			name = s.sphereDefinitions[reward.RewardTypeID].Name
 		case 19:
