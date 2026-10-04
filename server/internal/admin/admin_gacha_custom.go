@@ -119,6 +119,12 @@ func (a *API) gachaCreate(w http.ResponseWriter, r *http.Request) {
 				p = gamestate.CloneGachas([]gamestate.GachaProfile{c.Profile})[0]
 			}
 		}
+	} else if body.Mode == "box" {
+		p.CardNum, p.CardNumMax, p.FixedDrawCount = 1, 1, true
+		p.BoxRounds = make([]gamestate.GachaBoxRound, gamestate.GachaBoxTemplates)
+		for i := range p.BoxRounds {
+			p.BoxRounds[i].Rewards = []gamestate.GachaBoxReward{}
+		}
 	} else if body.Mode == "mixed" {
 		// Establish the mixed family; the editor replaces this placeholder before
 		// validation/publication. No placeholder can enter a player's catalog.
@@ -289,7 +295,14 @@ func (a *API) validateCustomGachaReward(r gamestate.Reward) error {
 	if err := gamestate.ValidateGachaReward(r); err != nil {
 		return err
 	}
-	if err := a.validateContentReward(r); err != nil {
+	if r.Type == 4 || r.Type == 10 || r.Type == 12 {
+		if r.CardLevel != 0 || r.CardFame != 0 || r.CardLove != 0 || len(r.CardSkillLevels) != 0 {
+			return errors.New("货币奖励不能填写卡牌属性")
+		}
+		if _, _, err := a.mailReward(AdminMailRequest{RewardType: r.Type, RewardTypeID: r.RewardTypeID, Quantity: r.Num}); err != nil {
+			return err
+		}
+	} else if err := a.validateContentReward(r); err != nil {
 		return err
 	}
 	entry, ok := a.catalogByKey[adminCatalogKey(r.Type, r.RewardTypeID)]

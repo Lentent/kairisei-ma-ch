@@ -80,7 +80,7 @@ func customGachaBase(template gamestate.GachaProfile, pool customGachaPool) game
 }
 
 func customGachaTemplateAllowed(template gamestate.GachaProfile) bool {
-	return len(template.RewardPool) == 0 && len(template.Steps) == 0 && template.GroupID > 0
+	return len(template.RewardPool) == 0 && len(template.Steps) == 0 && len(template.BoxRounds) == 0 && template.GroupID > 0
 }
 
 // loadCustomGachas registers stored operator pools before configurations are built. Called once at start.

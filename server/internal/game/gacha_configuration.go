@@ -103,6 +103,7 @@ type GachaOddsStage struct {
 	CardIDs   []int              `json:"card_ids"`
 	Odds      []int              `json:"odds_scaled"`
 	Rewards   []gamestate.Reward `json:"rewards,omitempty"`
+	Stocks    []int              `json:"stocks,omitempty"`
 }
 
 // PreviewGachaStages follows playGacha's two disjoint rarity pools. Both the

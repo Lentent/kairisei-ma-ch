@@ -40,6 +40,7 @@ type Account struct {
 	playerRevision               uint64
 	gachaRevision                uint64
 	operatorGachaPlays           map[int]int // plays of operator pools not yet appended to gachas
+	gachaBoxes                   map[int]gamestate.GachaBoxProgress
 	gachaCoverBaseURL            string
 	teamBattleScores             map[int]gamestate.TeamBattleScoreProgress
 	localShop                    gamestate.LocalShopState
@@ -291,6 +292,9 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 }
 
 func New(state gamestate.State) (*Account, error) {
+	if err := gamestate.ValidateGachaBoxes(state.GachaBoxes); err != nil {
+		return nil, err
+	}
 	if err := gamestate.ValidateItemShopProgress(state.ItemShopPurchases, state.ItemShopPeriods); err != nil {
 		return nil, err
 	}
@@ -503,6 +507,7 @@ func New(state gamestate.State) (*Account, error) {
 		itemShopPeriods:             maps.Clone(state.ItemShopPeriods),
 		gachas:                      CloneGachaProfiles(state.Gachas),
 		operatorGachaPlays:          maps.Clone(state.OperatorGachaPlays),
+		gachaBoxes:                  gamestate.CloneGachaBoxes(state.GachaBoxes),
 		gachaSelections:             make(map[int][]gamestate.Reward, len(state.GachaSelections)),
 		gachaDailyClaims:            make(map[int]string, len(state.GachaDailyClaims)),
 		bp:                          state.User.BP,
@@ -1001,6 +1006,13 @@ func New(state gamestate.State) (*Account, error) {
 	}
 	if len(result.gachas) == 0 {
 		return nil, errors.New("card store requires a configured CN gacha")
+	}
+	for _, progress := range result.gachaBoxes {
+		for _, entry := range progress.Remaining {
+			if err := result.validateRewardLocked(entry.Reward); err != nil {
+				return nil, fmt.Errorf("saved gacha box reward: %w", err)
+			}
+		}
 	}
 	for _, gacha := range result.gachas {
 		if err := result.validateGachaRulesLocked(gacha); err != nil {

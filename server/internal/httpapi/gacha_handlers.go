@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -313,6 +314,9 @@ func (a *API) gachaOddsShow(writer http.ResponseWriter, request *http.Request) {
 		lineups = append(lineups, map[string]any{"lineup_name": stage.Name, "select_num": stage.DrawCount, "prize_list": prizes})
 	}
 	message := "当前概率按本地配置权重计算。"
+	if selected.BoxRound > 0 {
+		message = a.account.GachaBoxOddsMessage(*selected)
+	}
 	if selected.UserSelectMax > 0 {
 		message += "自选后的实际概率按选中卡牌权重重新归一化。"
 	}
@@ -365,6 +369,9 @@ func (a *API) gachaInfos(gachas []gamestate.GachaProfile) []any {
 		}
 		stepCount, isStep, isLast := 0, 0, 0
 		playCount := gacha.PlayCount
+		if gacha.BoxRound > 0 {
+			playCount = min(playCount, math.MaxInt32)
+		}
 		playCountMax := gacha.PlayCountMax
 		if gacha.PlayCountMax > 0 {
 			playCount = gacha.GroupPlayCount

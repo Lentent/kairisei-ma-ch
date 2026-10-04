@@ -18,6 +18,10 @@ func CloneGachas(source []GachaProfile) []GachaProfile {
 		p.CardWeights = append([]int(nil), p.CardWeights...)
 		p.RewardPool = cloneRewardPool(p.RewardPool)
 		p.Steps = append([]GachaStep(nil), p.Steps...)
+		p.BoxRounds = append([]GachaBoxRound(nil), p.BoxRounds...)
+		for j := range p.BoxRounds {
+			p.BoxRounds[j].Rewards = CloneGachaBoxRewards(p.BoxRounds[j].Rewards)
+		}
 		for j := range p.Steps {
 			p.Steps[j].RewardPool = cloneRewardPool(p.Steps[j].RewardPool)
 		}
@@ -136,6 +140,9 @@ func ValidateGachaRules(p GachaProfile) error {
 	}
 	if p.PlayCountMax < 0 || p.PlayCountMax > 1000000 {
 		return errors.New("invalid gacha play limit")
+	}
+	if len(p.BoxRounds) > 0 {
+		return ValidateGachaBoxRules(p)
 	}
 	mixed := len(p.RewardPool) > 0
 	if mixed {

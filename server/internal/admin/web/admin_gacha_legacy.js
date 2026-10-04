@@ -4,12 +4,14 @@
 // shared workbench while built-in templates retain their fixed contracts.
 function setupLegacyPool() {
   const row=poolActiveRow(),config=poolEditor.legacyByID?.get(row?.gacha_id);
+  const box=poolEditor.boxByID?.has(row?.gacha_id);
+  setupGachaBoxPool();
   $('#pool-custom-settings').hidden=!config;
-  $('#pool-custom-gifts').hidden=!config;
+  $('#pool-custom-gifts').hidden=!config||box;
   $('#pool-custom-mixed').hidden=!config||!poolEditor.mixed;
   if(!config)return;
   $('#pool-draw-count').value=config.card_num;
-  $('#pool-draw-count').disabled=!!row.base.fixed_draw_count;
+  $('#pool-draw-count').disabled=!!row.base.fixed_draw_count||box;
   $('#pool-banner').innerHTML=[...new Set([config.banner_key,...(poolEditor.banners||[])])].filter(Boolean).map(key=>`<option value="${esc(key)}" ${key===config.banner_key?'selected':''}>${esc(key)}</option>`).join('');
   $('#pool-banner-preview').src=`/gacha-assets/${encodeURIComponent(config.banner_key)}.png`;
   renderPoolGifts();
@@ -82,4 +84,48 @@ $('#pool-custom-apply').onclick=()=>{
     $('#pool-custom-create-modal').classList.remove('open');poolEditor.dirty=false;$('#pool-name-search').value='';$('#pool-config-status').value='';
     await loadPoolEditor(result.gacha_id);state.loaded.delete('gachas');state.loaded.delete('audit');toast('已创建自定义卡池，请配置奖励、保存预览、发布后再开放');
   },'新建卡池');
+};
+
+function activeBoxRounds(){return poolEditor.boxByID?.get(poolEditor.activeID);}
+function setupGachaBoxPool(){
+  const rounds=activeBoxRounds();$('#pool-box-editor').hidden=!rounds;
+  $('#pool-play-limit').disabled=!!rounds;
+  if(!rounds)return;
+  $('#pool-play-limit').value=0;
+  $('#pool-box-round').innerHTML=rounds.map((_,i)=>`<option value="${i}">${i===10?'第 11 轮起 · 无限循环模板':`第 ${i+1} 轮`}</option>`).join('');
+  renderGachaBoxPool();
+}
+function renderGachaBoxPool(){
+  const rounds=activeBoxRounds();if(!rounds)return;
+  const rewards=rounds[Number($('#pool-box-round').value)].rewards,total=rewards.reduce((sum,e)=>sum+(Number(e.stock)||0),0);
+  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · ${total}/50 份${total===50?'':'（需调整为 50 份）'}`;
+  $('#pool-box-rows').innerHTML=rewards.map((e,i)=>`<tr><td>${esc(rewardLabel(e.reward))}<span class="sub">ID ${e.reward.reward_typeid}${e.reward.type===6?` · 名声 ${e.reward.card_fame}`:''}</span></td><td><input type="number" min="1" max="9999" value="${e.reward.num}" data-box-num="${i}" aria-label="单次发放数量"></td><td><input type="number" min="1" max="50" value="${e.stock}" data-box-stock="${i}" aria-label="库存份数"></td><td data-box-odds="${i}">${total?(e.stock/total*100).toFixed(3):'0'}%</td><td><button class="secondary sm" data-box-remove="${i}">移除</button></td></tr>`).join('')||emptyRow(5,'本轮尚未配置奖励');
+}
+$('#pool-box-round').onchange=renderGachaBoxPool;
+$('#pool-box-add').onclick=()=>openContentPicker(rows=>{
+  const rounds=activeBoxRounds();if(!rounds)return;
+  const rewards=rounds[Number($('#pool-box-round').value)].rewards;
+	if(rows.some(row=>![4,6,8,10,12,13,15,19].includes(row.reward_type)))throw new Error('箱池支持金币、免费水晶、体力、卡牌、道具、皮肤、召唤石和传承卡');
+  for(const row of rows){if(rewards.length>=50)break;rewards.push({reward:contentReward(row),stock:1});}
+  poolChanged();renderGachaBoxPool();
+},['currency','card','material','item','sphere','buddy','costume']);
+$('#pool-box-rows').oninput=e=>{
+  const rounds=activeBoxRounds();if(!rounds)return;
+  const rewards=rounds[Number($('#pool-box-round').value)].rewards,el=e.target;
+  if(el.dataset.boxNum!==undefined)rewards[Number(el.dataset.boxNum)].reward.num=Number(el.value);
+  if(el.dataset.boxStock!==undefined)rewards[Number(el.dataset.boxStock)].stock=Number(el.value);
+  poolChanged();
+  const total=rewards.reduce((sum,r)=>sum+(Number(r.stock)||0),0);
+  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · ${total}/50 份${total===50?'':'（需调整为 50 份）'}`;
+  $$('#pool-box-rows [data-box-odds]').forEach(el=>el.textContent=`${total?(rewards[Number(el.dataset.boxOdds)].stock/total*100).toFixed(3):'0'}%`);
+};
+$('#pool-box-rows').onclick=e=>{const button=e.target.closest('[data-box-remove]');if(!button)return;activeBoxRounds()[Number($('#pool-box-round').value)].rewards.splice(Number(button.dataset.boxRemove),1);poolChanged();renderGachaBoxPool();};
+$('#pool-box-copy').onclick=()=>{
+  const rounds=activeBoxRounds(),index=Number($('#pool-box-round').value);if(!rounds)return;
+  const targets=prompt('复制到哪些轮？填写 1–11，用逗号分隔；11 表示无限循环模板。','');if(targets===null)return;
+  const ids=[...new Set(targets.split(/[,，\s]+/).filter(Boolean).map(Number))];
+  if(!ids.length||ids.some(id=>!Number.isInteger(id)||id<1||id>11))return toast('请输入 1–11 的轮次',true);
+  if(!confirm(`用当前轮奖励覆盖第 ${ids.join('、')} 套模板？`))return;
+  for(const id of ids)if(id-1!==index)rounds[id-1]=structuredClone(rounds[index]);
+  poolChanged();renderGachaBoxPool();
 };

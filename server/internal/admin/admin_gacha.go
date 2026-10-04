@@ -32,6 +32,7 @@ type AdminGachaConfig struct {
 	Weights      []int                      `json:"weights"`
 	RewardPool   []gamestate.WeightedReward `json:"reward_pool,omitempty"`
 	Steps        []gamestate.GachaStep      `json:"steps,omitempty"`
+	BoxRounds    []gamestate.GachaBoxRound  `json:"box_rounds,omitempty"`
 	CardFames    map[int]int                `json:"card_fames,omitempty"` // card ID → fame when drawn; missing means 1
 	CoverPath    string                     `json:"cover_path,omitempty"` // uploaded cover suffix; empty keeps the banner
 	// Closed hides this draw method while the pool stays open through its other methods (「扭蛋发布」 opens the
@@ -41,7 +42,7 @@ type AdminGachaConfig struct {
 
 func AdminGachaConfigFromProfile(profile gamestate.GachaProfile) AdminGachaConfig {
 	profile = gamestate.CloneGachas([]gamestate.GachaProfile{profile})[0]
-	return AdminGachaConfig{PayType: profile.PayType, PayTypeID: profile.PayTypeID, CardNum: profile.CardNum, BannerKey: profile.BannerKey, Gifts: profile.Gifts, GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
+	return AdminGachaConfig{PayType: profile.PayType, PayTypeID: profile.PayTypeID, CardNum: profile.CardNum, BannerKey: profile.BannerKey, Gifts: profile.Gifts, GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, BoxRounds: profile.BoxRounds, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
 }
 
 func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) game.GachaConfiguration {
@@ -72,6 +73,10 @@ func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) 
 	}
 	base.CardIDs, base.CardWeights = append([]int(nil), config.CardIDs...), append([]int(nil), config.Weights...)
 	base.CoverPath = config.CoverPath
+	if len(base.BoxRounds) > 0 {
+		base.BoxRounds = config.BoxRounds
+		base = gamestate.CloneGachas([]gamestate.GachaProfile{base})[0]
+	}
 	base.CardFames = nil
 	if len(config.CardFames) > 0 {
 		base.CardFames = make(map[int]int, len(config.CardFames))
@@ -205,6 +210,9 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 	if !exists {
 		return nil, errors.New("不能编辑新手保留卡池或未知卡池")
 	}
+	if len(base.BoxRounds) == 0 && len(config.BoxRounds) > 0 {
+		return nil, errors.New("请新建箱池，普通池和阶段池不能添加箱池模板")
+	}
 	if pool, custom := admin.operations.customGachas[config.GachaID]; custom && pool.Deleted {
 		return nil, errors.New("卡池已删除，恢复后才能编辑或发布")
 	}
@@ -224,12 +232,24 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 		return nil, errors.New("排期无效：结束时间须晚于开始时间且早于 2038-01-19")
 	}
 	if admin.operations.legacyCustomGachas[config.GachaID] {
+		if len(base.BoxRounds) > 0 {
+			if len(config.BoxRounds) == 0 {
+				return nil, errors.New("箱池不能移除轮次模板")
+			}
+			if err := admin.validateCustomGachaMetadata(base, config); err != nil {
+				return nil, err
+			}
+			return admin.validateCustomBoxGacha(base, config)
+		}
 		if err := admin.validateCustomGachaMetadata(base, config); err != nil {
 			return nil, err
 		}
 		if len(base.RewardPool) > 0 {
 			return admin.validateCustomMixedGacha(base, config)
 		}
+	}
+	if len(config.BoxRounds) > 0 {
+		return nil, errors.New("普通池或阶段池不能附加箱池模板，请新建箱池")
 	}
 	if len(base.RewardPool) > 0 {
 		if len(config.CardFames) > 0 {

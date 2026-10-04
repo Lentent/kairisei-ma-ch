@@ -12,6 +12,7 @@ import (
 // Only identities and player progress cross the persistence boundary. Names,
 // artwork, costs, enemy definitions and reward lineups come from the catalog.
 type catalogProgress struct {
+	GachaBoxes    map[int]gamestate.GachaBoxProgress     `json:"gacha_boxes,omitempty"`
 	GachaPlays    map[int]int                            `json:"gacha_plays,omitempty"`
 	ShopPurchases map[int]int                            `json:"shop_purchases,omitempty"`
 	ShopPeriods   map[int]gamestate.ItemShopPeriodCounts `json:"shop_periods,omitempty"`
@@ -24,7 +25,11 @@ type catalogProgress struct {
 }
 
 func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
+	if err := gamestate.ValidateGachaBoxes(state.GachaBoxes); err != nil {
+		return catalogProgress{}, err
+	}
 	p := catalogProgress{
+		GachaBoxes: gamestate.CloneGachaBoxes(state.GachaBoxes),
 		GachaPlays: map[int]int{}, ShopPurchases: map[int]int{}, BossStates: map[int]int{},
 		MainStory: map[int]int{}, CNMainStory: map[int]int{}, SubStory: map[int]int{}, EventStory: map[int]int{},
 	}
@@ -120,6 +125,10 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 }
 
 func (p catalogProgress) apply(state *gamestate.State) error {
+	if err := gamestate.ValidateGachaBoxes(p.GachaBoxes); err != nil {
+		return err
+	}
+	state.GachaBoxes = gamestate.CloneGachaBoxes(p.GachaBoxes)
 	if err := gamestate.ValidateItemShopProgress(p.ShopPurchases, p.ShopPeriods); err != nil {
 		return err
 	}
