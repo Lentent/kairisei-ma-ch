@@ -94,7 +94,7 @@ func (app *application) router() chi.Router {
 	router.Get("/disabled/web", app.operations.LocalNotice)
 	router.Get("/disabled/web/auto", app.autoNotice)
 	router.Get("/disabled/web/deck-guide", cnBootstrapDeckGuide)
-	router.Get("/disabled/web/information/2015/7/kechengbiao", cnBootstrapDungeonSchedule)
+	router.Get("/disabled/web/information/2015/7/kechengbiao", app.operations.LocalDungeonSchedule)
 	introHandler, err := newCNIntroHandler(app.resources.GachaBanner)
 	if err != nil {
 		app.config.Logger.Warn("local download guide unavailable", "error", err)

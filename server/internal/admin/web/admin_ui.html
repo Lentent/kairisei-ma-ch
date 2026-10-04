@@ -44,6 +44,7 @@
       <button data-view="mail"><svg class="icon"><use href="#i-gift"/></svg><span>礼物发放</span></button>
       <div class="nav-group">战斗与活动</div>
       <button data-view="bosses"><svg class="icon"><use href="#i-flag"/></svg><span>Boss 发布</span></button>
+      <button data-view="dungeon-schedule"><svg class="icon"><use href="#i-scroll"/></svg><span>副本日程表</span></button>
       <button data-view="drops"><svg class="icon"><use href="#i-gem"/></svg><span>Boss 掉落</span></button>
       <button data-view="activity-rewards"><svg class="icon"><use href="#i-trophy"/></svg><span>圣剑杯与探索</span></button>
       <div class="nav-group">扭蛋与商店</div>
@@ -238,6 +239,24 @@
         <div class="table-wrap"><table class="accounts-table"><thead><tr><th class="check-col"><span class="sr-only">选择</span></th><th>角色 / ID</th><th>等级 / 职业</th><th class="num">金币 / 水晶</th><th>登录账号</th><th>最近登录 / 注册</th><th>操作</th></tr></thead><tbody id="account-rows"></tbody></table></div>
         <div class="pager" id="accounts-pager"><button class="secondary" id="accounts-prev">上一页</button><span id="accounts-page-info" class="page-info"></span><label>跳至 <input id="accounts-page" type="number" min="1" value="1" aria-label="页码"> 页</label><button class="secondary" id="accounts-next">下一页</button></div>
       </div></div>
+    </section>
+
+    <section class="view content-editor" id="dungeon-schedule">
+      <div class="view-alert" role="alert" hidden></div>
+      <div class="panel"><div class="panel-head"><div><h2>日程表页面内容</h2><span class="hint">Boss 名单、类别、开放状态和排期自动读取当前发布设置，保存后玩家重新打开日程表即可看到。</span></div><button class="secondary sm" id="dungeon-schedule-default" type="button" disabled>恢复默认</button></div><div class="panel-body">
+        <fieldset class="editor-fields" id="dungeon-schedule-fields" disabled>
+          <div class="field"><label for="dungeon-schedule-title">页面标题</label><input id="dungeon-schedule-title" maxlength="80" required></div>
+          <div class="form-grid"><div class="field"><label for="dungeon-schedule-description">页面说明（支持换行）</label><textarea id="dungeon-schedule-description" maxlength="4000" rows="5"></textarea></div><div class="field"><label for="dungeon-schedule-footer">页尾提示（支持换行）</label><textarea id="dungeon-schedule-footer" maxlength="4000" rows="5"></textarea></div></div>
+        </fieldset>
+      </div></div>
+      <div class="panel"><div class="panel-head"><div><h2>与已发布 Boss 匹配</h2><span class="hint">可以修改展示名称和备注，名称留空则沿用 Boss 原名。未发布的备注会保留，重新发布该 Boss 时自动显示。</span></div><button class="secondary sm" id="dungeon-schedule-refresh" type="button" disabled><svg class="icon"><use href="#i-refresh"/></svg>刷新发布名单</button></div><div class="panel-body">
+        <div class="filterbar"><input class="search" id="dungeon-schedule-search" type="search" placeholder="搜索 Boss 名称、组 ID 或备注" aria-label="搜索副本日程条目"><select id="dungeon-schedule-catalog" aria-label="副本目录"><option value="all">全部目录</option><option value="activity">活动／素材副本</option><option value="past">往期 Boss</option></select><select id="dungeon-schedule-published" aria-label="发布状态"><option value="published">当前已发布</option><option value="all">全部及已保存备注</option><option value="unpublished">未发布的备注</option></select><button class="secondary" id="dungeon-schedule-clear" type="button">清除筛选</button></div>
+        <p class="hint" id="dungeon-schedule-count" aria-live="polite">正在读取发布名单</p>
+        <div id="dungeon-schedule-rows" class="dungeon-schedule-entries"></div>
+        <div class="pager" id="dungeon-schedule-pager"><button class="secondary" id="dungeon-schedule-prev" type="button">上一页</button><span id="dungeon-schedule-page-info" class="page-info"></span><label>跳至 <input id="dungeon-schedule-page" type="number" min="1" value="1" aria-label="副本日程页码"> 页</label><button class="secondary" id="dungeon-schedule-next" type="button">下一页</button></div>
+      </div></div>
+      <div class="panel"><div class="panel-head"><div><h2>游戏内页面预览</h2><span class="hint" id="dungeon-schedule-preview-state" aria-live="polite">读取后显示已保存内容；修改草稿后点击更新预览。</span></div><button class="secondary sm" id="dungeon-schedule-preview" type="button" disabled>更新草稿预览</button></div><div class="panel-body dungeon-schedule-preview-wrap"><iframe id="dungeon-schedule-frame" title="副本日程表游戏页面预览" sandbox="" referrerpolicy="no-referrer"></iframe></div></div>
+      <div class="savebar"><div class="savebar-status"><span class="pill" id="dungeon-schedule-version">配置 v—</span><span id="dungeon-schedule-state" aria-live="polite">正在读取</span></div><div class="savebar-actions"><button class="secondary" id="dungeon-schedule-export" type="button" disabled><svg class="icon"><use href="#i-download"/></svg>导出当前草稿</button><button class="primary" id="dungeon-schedule-save" type="button" data-save-shortcut disabled>保存日程表</button></div></div>
     </section>
 
     <!-- 礼物发放 -->
@@ -589,7 +608,7 @@
     <section class="view" id="audit">
       <div class="view-alert" role="alert" hidden></div>
       <div class="panel"><div class="panel-body">
-        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option><option value="mission-policy">任务管理</option></select>
+        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="dungeon-schedule">副本日程表</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option><option value="mission-policy">任务管理</option></select>
           <span class="range" role="group" aria-label="时间范围"><input type="datetime-local" id="audit-after" aria-label="开始时间"><span>–</span><input type="datetime-local" id="audit-before" aria-label="结束时间"></span><button class="secondary" id="audit-reset">清除筛选</button><button id="audit-export" class="secondary">导出本页</button></div>
         <div class="table-wrap"><table><thead><tr><th>ID / 时间</th><th>操作</th><th>目标</th><th>详细内容</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
         <div class="pager" id="audit-pager"><button class="secondary" id="audit-prev">上一页</button><span id="audit-page-info" class="page-info"></span><label>跳至 <input id="audit-page" type="number" min="1" value="1" aria-label="页码"> 页</label><button class="secondary" id="audit-next">下一页</button></div>
@@ -708,6 +727,7 @@
 <script defer src="/collections.js"></script>
 <script defer src="/custom-cards.js"></script>
 <script defer src="/player-policy.js"></script>
+<script defer src="/dungeon-schedule.js"></script>
 <script defer src="/missions.js"></script>
 <script defer src="/insights.js"></script>
 </body>

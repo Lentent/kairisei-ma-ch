@@ -103,7 +103,33 @@ func rewriteCustomTexture(raw []byte, newName string, art image.Image) ([]byte, 
 	return out.Bytes(), nil
 }
 
-func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image) (result []byte, cab string, err error) {
+// Card image paths are bucketed by the first two and next three digits of
+// PictID. Renaming the texture alone leaves the client looking in another
+// directory, even though the separate enlarged PNG can still be displayed.
+func customArtworkResourcePath(value string, oldPict, newPict int) string {
+	oldID, newID := fmt.Sprintf("%08d", oldPict), fmt.Sprintf("%08d", newPict)
+	parts := strings.Split(value, "/")
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == oldID[:2] && parts[i+1] == oldID[2:5] {
+			parts[i], parts[i+1] = newID[:2], newID[2:5]
+		}
+	}
+	return strings.ReplaceAll(strings.Join(parts, "/"), oldID, newID)
+}
+
+func rewriteCustomArtworkContainer(object []byte, paths map[string]string, oldPict, newPict int) ([]byte, error) {
+	for oldPath, newPath := range paths {
+		// These fixed-width ID/bucket changes preserve serialized string lengths.
+		if len(oldPath) != len(newPath) {
+			return nil, errors.New("卡面资源路径长度不一致")
+		}
+		object = bytes.ReplaceAll(object, []byte(oldPath), []byte(newPath))
+	}
+	oldID, newID := fmt.Sprintf("%08d", oldPict), fmt.Sprintf("%08d", newPict)
+	return bytes.ReplaceAll(object, []byte(oldID), []byte(newID)), nil
+}
+
+func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string) (result []byte, cab string, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			err = fmt.Errorf("卡面资源格式不支持：%v", v)
@@ -141,7 +167,7 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 			return rewriteCustomTexture(object, strings.TrimSuffix(name, oldID)+newID, art)
 		}
 		if class == 142 {
-			return bytes.ReplaceAll(object, []byte(oldID), []byte(newID)), nil
+			return rewriteCustomArtworkContainer(object, paths, oldPict, newPict)
 		}
 		return object, nil
 	})

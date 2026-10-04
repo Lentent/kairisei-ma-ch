@@ -747,7 +747,8 @@ func TestCN602NoPaymentProductsAndLocalCatalog(t *testing.T) {
 	if schedule.Code != http.StatusOK ||
 		!strings.Contains(schedule.Header().Get("Content-Type"), "text/html") ||
 		!strings.Contains(schedule.Body.String(), "副本日程表") ||
-		!strings.Contains(schedule.Body.String(), "全天开放") {
+		schedule.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(schedule.Body.String(), "暂无已发布副本") {
 		t.Fatalf("schedule: status=%d content-type=%q body=%q", schedule.Code, schedule.Header().Get("Content-Type"), schedule.Body.String())
 	}
 

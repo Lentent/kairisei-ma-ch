@@ -424,7 +424,7 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 		return e
 	}
 	oldPict := customRowInt(s.Cards[c.TemplateID], 36)
-	oldID, newID := fmt.Sprintf("%08d", oldPict), fmt.Sprintf("%08d", c.ID)
+	oldID := fmt.Sprintf("%08d", oldPict)
 	groups := map[string][]map[string]any{}
 	for _, v := range assets["catalog_assets"].([]any) {
 		entry := v.(map[string]any)
@@ -453,7 +453,13 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 		}
 		name := fmt.Sprintf("main_c/image/custom_card_%d_%s.dat", c.ID, resourceHash([]byte(sourceBundle))[:8])
 		path := "resources/patch/" + name
-		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im)
+		containerPaths := map[string]string{}
+		for _, entry := range entries {
+			if oldPath, ok := entry["container_path"].(string); ok && oldPath != "" {
+				containerPaths[oldPath] = customArtworkResourcePath(oldPath, oldPict, c.ID)
+			}
+		}
+		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im, containerPaths)
 		if e != nil {
 			return e
 		}
@@ -488,19 +494,30 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 				copy[k] = v
 			}
 			copy["bundle"] = name
-			copy["name"] = strings.ReplaceAll(entry["name"].(string), oldID, newID)
-			copy["directory"] = strings.ReplaceAll(entry["directory"].(string), oldID, newID)
+			for _, field := range []string{"name", "directory", "container_path"} {
+				if value, ok := entry[field].(string); ok {
+					copy[field] = customArtworkResourcePath(value, oldPict, c.ID)
+				}
+			}
 			found := false
-			for i, v := range catalog {
+			nextCatalog := catalog[:0]
+			for _, v := range catalog {
 				r := v.(map[string]any)
-				if r["directory"] == copy["directory"] && r["name"] == copy["name"] {
-					catalog[i] = copy
+				// Replace older exports by their owned bundle/name as well, so
+				// regenerating an applied card repairs its stale template bucket.
+				if r["bundle"] == name && r["name"] == copy["name"] {
+					if !found {
+						nextCatalog = append(nextCatalog, copy)
+					}
 					found = true
+				} else {
+					nextCatalog = append(nextCatalog, v)
 				}
 			}
 			if !found {
-				catalog = append(catalog, copy)
+				nextCatalog = append(nextCatalog, copy)
 			}
+			catalog = nextCatalog
 		}
 		assets["catalog_assets"] = catalog
 	}

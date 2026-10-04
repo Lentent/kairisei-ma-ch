@@ -77,6 +77,7 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 
 type Operations struct {
 	battleGroupIDs          map[string][]int
+	dungeonScheduleGroups   map[string][]AdminBattleGroup
 	evolutionEdges          map[game.EvolutionPath]int
 	evolutionClosed         []game.EvolutionPath
 	evolutionRevision       int

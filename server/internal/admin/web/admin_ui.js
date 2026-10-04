@@ -6,7 +6,7 @@ const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={maintenance:'维护工具',evolution:'卡牌进化链','activity-rewards':'圣剑杯与探索','player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置',shop:'道具商店','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 titles.collections="称号与礼盒";titles.cdk="礼包兑换码";titles.missions="任务管理";
-titles['custom-cards']='自制卡牌';
+titles['custom-cards']='自制卡牌';titles['dungeon-schedule']='副本日程表';
 const viewMeta={
   'custom-cards':['扭蛋与商店','复制卡牌、上传卡面、组合技能效果并生成资源更新包'],
   missions:['系统','每日与成就任务、完成条件及多种奖励'],
@@ -16,6 +16,7 @@ const viewMeta={
   accounts:['玩家','筛选玩家、查看存档、调整资源与绑定，跨页选择收件人'],
   mail:['玩家','选择收件人与奖励，预览后按批次发放；中断后可从批次继续'],
   bosses:['战斗与活动','活动／往期目录开放名单、每组日期与每周排期，以及各难度入口规则'],
+  'dungeon-schedule':['战斗与活动','编辑游戏内日程表的标题、说明和备注，自动匹配已发布 Boss 与开放排期'],
   drops:['战斗与活动','按难度配置怪物／部位掉落与名声奖励，新开战生效'],
   'activity-rewards':['战斗与活动','圣剑杯九档固定奖励、回合与倍率，探索逐项概率奖励'],
   'pool-editor':['扭蛋与商店','编辑卡池内容与价格 → 保存草稿并预览 → 发布'],
@@ -53,7 +54,7 @@ function toast(message,error=false){
 }
 const conflictHint='配置已被其他页面或操作更新（版本冲突）。当前草稿仍保留在页面上，不会被强制覆盖。';
 function errorText(e){return e?.status===409?conflictHint:e?.status===0?e.message:(e?.message||String(e))}
-const draftExporters={'activity-rewards':'#activity-export',drops:'#drop-export',exchanges:'#exchange-export','pool-editor':'#pool-export'};
+const draftExporters={'activity-rewards':'#activity-export',drops:'#drop-export',exchanges:'#exchange-export','pool-editor':'#pool-export','dungeon-schedule':'#dungeon-schedule-export'};
 function viewAlert(view){return $(`#${view} > .view-alert`)}
 function clearViewAlert(view){const el=viewAlert(view);if(el){el.hidden=true;el.innerHTML=''}}
 function showViewAlert(view,{kind='error',title,message,actions=[]}){
@@ -126,6 +127,7 @@ async function switchView(name){
   document.title=`${titles[name]} · Kairisei MA 本地运营后台`;
   try{history.replaceState(null,'','#'+name)}catch{/* Deep links are optional. */}
   closeNavDrawer();window.scrollTo(0,0);
+  if(name==='dungeon-schedule'&&state.loaded.has(name)&&!adminPolicyDirty(name))state.loaded.delete(name);
   updatePolicyControls();await loadView(name);
 }
 async function loadView(name,force=false){
@@ -142,6 +144,7 @@ async function loadView(name,force=false){
     else if(name==='mail')await loadMailWorkspace();
     else if(name==='cdk')await loadCDKWorkspace();
     else if(name==='bosses')await loadBossPublication(state.bossCatalog);
+    else if(name==='dungeon-schedule')await loadDungeonSchedule();
     else if(name==='gachas'){
       const [presets,policy]=await Promise.all([api('/api/gacha-presets'),api('/api/gacha-policy')]);
       state.gachaPresets=presets.presets;state.gachaPolicy=policy.publication;
@@ -276,10 +279,11 @@ $('#boss-start').onchange=$('#boss-end').onchange=()=>renderBosses();
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
   if(typeof updateMissionControls==='function')updateMissionControls();
-  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','custom-cards','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
+  for(const name of ['bosses','dungeon-schedule','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','custom-cards','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
   for(const name of Object.keys(titles)){const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
   document.body.classList.toggle('busy',policyBusy(state.currentView));
   if(typeof updatePoolControls==='function')updatePoolControls();
+  if(typeof updateDungeonScheduleControls==='function')updateDungeonScheduleControls();
   $('#save-policy').disabled=policyBusy('bosses')||!state.policy;
   $('#gacha-save').disabled=policyBusy('gachas')||!state.gachaPolicy;
   $('#refresh').disabled=policyBusy(state.currentView);
@@ -298,7 +302,7 @@ $('#save-policy').onclick=async()=>{
     const data=await api('/api/boss-policy?catalog='+state.bossCatalog,{method:'PUT',body:JSON.stringify(body)});
     state.policy=data.publication;state.mode=state.policy.mode;state.selected=new Set(state.policy.group_ids||[]);
     state.bossSchedules=new Map((state.policy.group_schedules||[]).map(s=>[s.group_id,structuredClone(s)]));
-    state.loaded.delete('dashboard');state.loaded.delete('audit');clearViewAlert('bosses');renderBosses();toast('Boss 发布设置已保存，按排期开放');
+    state.loaded.delete('dashboard');state.loaded.delete('audit');if(typeof dungeonSchedulePublicationChanged==='function')dungeonSchedulePublicationChanged();clearViewAlert('bosses');renderBosses();toast('Boss 发布设置已保存，按排期开放');
   }catch(e){reportError('bosses',e,'发布')}finally{state.publishing.delete('bosses');updatePolicyControls()}
 };
 $('#gacha-select-all').onclick=()=>{state.gachaSelected=new Set(state.gachaPresets.map(g=>g.group_id));renderGachas()};

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -139,6 +141,151 @@ func TestCustomArtworkRGBAAndInvalidInput(t *testing.T) {
 	}
 }
 
+func TestCustomArtworkContainerUpdatesOnlySelectedAssetPaths(t *testing.T) {
+	const oldPict = 10000222
+	oldPath := "assets/resources/05_image_assets/chr10/10/000/chr10_10000222.pvr"
+	neighborPath := "assets/resources/05_image_assets/chr10/10/000/chr10_10000223.pvr"
+	for _, tc := range []struct {
+		id    int
+		shard string
+	}{{98000001, "98/000"}, {98012345, "98/012"}} {
+		t.Run(strconv.Itoa(tc.id), func(t *testing.T) {
+			newID := strconv.Itoa(tc.id)
+			newPath := "assets/resources/05_image_assets/chr10/" + tc.shard + "/chr10_" + newID + ".pvr"
+			if got := customArtworkResourcePath(oldPath, oldPict, tc.id); got != newPath {
+				t.Fatalf("resource path=%q, want %q", got, newPath)
+			}
+			if got := customArtworkResourcePath("05_image_assets/chr10/10/000", oldPict, tc.id); got != "05_image_assets/chr10/"+tc.shard {
+				t.Fatalf("resource directory=%q", got)
+			}
+			// Use length-prefixed, aligned strings as in an AssetBundle object.
+			// A neighboring card in the same shard must retain its own path.
+			var object bytes.Buffer
+			for _, value := range []string{oldPath, neighborPath, "chr10_10000222"} {
+				_ = binary.Write(&object, binary.LittleEndian, uint32(len(value)))
+				object.WriteString(value)
+				for object.Len()%4 != 0 {
+					object.WriteByte(0)
+				}
+			}
+			original := bytes.Clone(object.Bytes())
+			next, err := rewriteCustomArtworkContainer(object.Bytes(), map[string]string{oldPath: newPath}, oldPict, tc.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(next) != len(original) || !bytes.Equal(object.Bytes(), original) ||
+				!bytes.Contains(next, []byte(newPath)) || !bytes.Contains(next, []byte(neighborPath)) ||
+				!bytes.Contains(next, []byte("chr10_"+newID)) || bytes.Contains(next, []byte(oldPath)) {
+				t.Fatalf("selected path, neighbor, texture name or object layout changed incorrectly: %q", next)
+			}
+		})
+	}
+}
+
+type customArtworkTestAsset struct {
+	Name          string `json:"name"`
+	Directory     string `json:"directory"`
+	ContainerPath string `json:"container_path"`
+	Bundle        string `json:"bundle"`
+}
+
+func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, source, generated []byte, files map[string][]byte, prefix string) map[string]customArtworkTestAsset {
+	t.Helper()
+	var original, exported struct {
+		Assets []customArtworkTestAsset `json:"catalog_assets"`
+	}
+	if err := json.Unmarshal(source, &original); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(generated, &exported); err != nil {
+		t.Fatal(err)
+	}
+	oldPict := customRowInt(s.Cards[c.TemplateID], 36)
+	oldID, newID := fmt.Sprintf("%08d", oldPict), fmt.Sprintf("%08d", c.ID)
+	oldShard := fmt.Sprintf("/%02d/%03d", oldPict/1000000, oldPict/1000%1000)
+	newShard := fmt.Sprintf("/%02d/%03d", c.ID/1000000, c.ID/1000%1000)
+	sources := map[string]customArtworkTestAsset{}
+	art, err := decodeCustomArtwork(c.Artwork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, originalEntry := range original.Assets {
+		if !strings.HasSuffix(originalEntry.Name, "_"+oldID) {
+			continue
+		}
+		name := strings.ReplaceAll(originalEntry.Name, oldID, newID)
+		sources[name] = originalEntry
+		wantDirectory := strings.ReplaceAll(strings.ReplaceAll(originalEntry.Directory, oldShard, newShard), oldID, newID)
+		wantContainer := strings.ReplaceAll(strings.ReplaceAll(originalEntry.ContainerPath, oldShard, newShard), oldID, newID)
+		var entry customArtworkTestAsset
+		count := 0
+		for _, candidate := range exported.Assets {
+			if candidate.Name != name {
+				continue
+			}
+			count++
+			entry = candidate
+			if candidate.Directory != wantDirectory || candidate.ContainerPath != wantContainer {
+				t.Fatalf("asset %s still uses template shard: directory=%q container=%q, want %q / %q", name, candidate.Directory, candidate.ContainerPath, wantDirectory, wantContainer)
+			}
+		}
+		if count != 1 {
+			t.Fatalf("asset %s has %d catalog entries, want one", name, count)
+		}
+		raw, exists := files[prefix+"resources/patch/"+entry.Bundle]
+		if !exists {
+			t.Fatalf("asset %s references an absent generated bundle %s", name, entry.Bundle)
+		}
+		bundle, err := readResourceBundle(raw)
+		if err != nil || len(bundle.nodes) != 1 {
+			t.Fatalf("read artwork bundle %s: %v", entry.Bundle, err)
+		}
+		foundContainer, foundTexture := false, false
+		_, err = rewriteResourceObjects(bundle.nodes[0].data, func(class int, object []byte) ([]byte, error) {
+			if class == 142 {
+				foundContainer = foundContainer || bytes.Contains(object, []byte(wantContainer))
+			}
+			if class != 28 {
+				return object, nil
+			}
+			cursor := resourceCursor{b: object, order: binary.LittleEndian}
+			textureName := string(cursor.take(int(cursor.u32())))
+			if textureName != name {
+				return object, nil
+			}
+			foundTexture = true
+			cursor.align(4)
+			width, height := int(cursor.u32()), int(cursor.u32())
+			cursor.u32()
+			format, mipCount := cursor.u32(), cursor.u32()
+			cursor.take(2)
+			cursor.align(4)
+			if cursor.u32() != 1 || cursor.u32() != 2 || format != 4 || mipCount != 1 {
+				t.Fatalf("asset %s does not contain an inline RGBA32 texture", name)
+			}
+			cursor.take(24)
+			pixels := cursor.take(int(cursor.u32()))
+			fitted := fitCustomArtwork(art, width, height)
+			if len(pixels) != width*height*4 {
+				t.Fatalf("asset %s has an invalid pixel payload", name)
+			}
+			for y := 0; y < height; y++ {
+				if !bytes.Equal(pixels[y*width*4:(y+1)*width*4], fitted.Pix[(height-1-y)*fitted.Stride:(height-y)*fitted.Stride]) {
+					t.Fatalf("asset %s did not receive the uploaded artwork", name)
+				}
+			}
+			return object, nil
+		})
+		if err != nil || !foundContainer || !foundTexture {
+			t.Fatalf("asset %s cannot resolve its bundle Container and Texture2D: container=%v texture=%v err=%v", name, foundContainer, foundTexture, err)
+		}
+	}
+	if len(sources) == 0 {
+		t.Fatal("template has no artwork assets to verify")
+	}
+	return sources
+}
+
 func TestCustomEnlargedImagesAccumulateAndReplace(t *testing.T) {
 	root := t.TempDir()
 	path := "images/manifest.json"
@@ -211,10 +358,30 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	_ = png.Encode(&art, im)
 	c.Artwork = art.Bytes()
 	a.catalogByKey["6:10000010"] = AdminCatalogEntry{Name: "模板", ResourceState: "ready", ImageURL: "/assets/card/10000010.webp"}
+	// Real resource sets can already contain published custom IDs. Preserve
+	// those IDs in this synthetic draft, and exercise artwork re-export for
+	// them too. The draft and ZIP remain disposable; no fixture is applied.
+	testCards := []customCard{c}
+	appliedIDs := make([]int, 0, len(s.Applied))
+	for id := range s.Applied {
+		appliedIDs = append(appliedIDs, id)
+	}
+	sort.Ints(appliedIDs)
+	for _, id := range appliedIDs {
+		templateID := s.Applied[id]
+		applied, err := s.template(templateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		applied.ID, applied.Artwork = id, art.Bytes()
+		applied.Attribute = "LIGHT"
+		testCards = append(testCards, applied)
+		a.catalogByKey[adminCatalogKey(6, templateID)] = AdminCatalogEntry{Name: applied.Name, ResourceState: "ready"}
+	}
 	router := chi.NewRouter()
 	router.Post("/draft", a.saveCustomCards)
 	router.Post("/export", a.exportCustomCards)
-	body := map[string]any{"expected_revision": 0, "config": customCardDraft{[]customCard{c}}}
+	body := map[string]any{"expected_revision": 0, "config": customCardDraft{testCards}}
 	w := customGachaRequest(t, router, "/draft", body)
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
@@ -232,7 +399,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	a.operations = ops
 	d, rev, e := a.customCardsDraft(s)
-	if e != nil || len(d.Cards) != 1 || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) {
+	if e != nil || len(d.Cards) != len(testCards) || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) {
 		t.Fatalf("restart: %v", e)
 	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})
@@ -278,6 +445,56 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 			t.Fatal("missing card")
 		}
 	}
+	cardRows, e := customCSVRows(files["resource-set/"+customCardCSVPath])
+	if e != nil {
+		t.Fatal(e)
+	}
+	generatedCards := map[int][]string{}
+	for _, row := range cardRows {
+		generatedCards[customRowInt(row, 0)] = row
+	}
+	sourceAssets, e := os.ReadFile(filepath.Join(root, "asset-map.json"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	var sources map[string]customArtworkTestAsset
+	for _, exportedCard := range testCards {
+		row := generatedCards[exportedCard.ID]
+		if len(row) == 0 || customRowInt(row, 36) != exportedCard.ID {
+			t.Fatalf("uploaded artwork does not own card %d PictID", exportedCard.ID)
+		}
+		cardSources := assertCustomArtworkExport(t, exportedCard, s, sourceAssets, files["resource-set/asset-map.json"], files, "resource-set/")
+		if exportedCard.ID == c.ID {
+			sources = cardSources
+		}
+	}
+	// Simulate a previously exported map with the new texture names but the
+	// old template directories. Re-export must repair, rather than duplicate,
+	// those entries; the client builds its asset catalog directly from this map.
+	var staleAssets, imageManifest map[string]any
+	if e = json.Unmarshal(files["resource-set/asset-map.json"], &staleAssets); e != nil {
+		t.Fatal(e)
+	}
+	if e = json.Unmarshal(files["resource-set/resource-set.json"], &imageManifest); e != nil {
+		t.Fatal(e)
+	}
+	oldID := fmt.Sprintf("%08d", customRowInt(s.Cards[c.TemplateID], 36))
+	for _, v := range staleAssets["catalog_assets"].([]any) {
+		entry := v.(map[string]any)
+		if original, ok := sources[entry["name"].(string)]; ok {
+			entry["directory"] = original.Directory
+			entry["container_path"] = strings.ReplaceAll(original.ContainerPath, oldID, strconv.Itoa(c.ID))
+		}
+	}
+	repairedFiles := map[string][]byte{}
+	if e = buildCustomCardImages(c, generatedCards[c.ID], s, staleAssets, imageManifest, repairedFiles, map[string][]byte{}, root); e != nil {
+		t.Fatal(e)
+	}
+	repairedAssets, e := json.Marshal(staleAssets)
+	if e != nil {
+		t.Fatal(e)
+	}
+	assertCustomArtworkExport(t, c, s, sourceAssets, repairedAssets, repairedFiles, "")
 	// Overlay generated combat CSVs on a disposable copy of the original tables.
 	battleDir := filepath.Join(dir, "_local/control/server/cn602-battle-master")
 	entries, e := os.ReadDir(filepath.Join(root, "_local/control/server/cn602-battle-master"))

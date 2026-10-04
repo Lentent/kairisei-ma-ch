@@ -283,6 +283,11 @@ func New(config Config) (http.Handler, error) {
 		gachaPresets: gachaPresets, gachaCoverDir: config.GachaCoverDir,
 		gachaBannerPaths: config.GachaBanners,
 	}
+	// Freeze the same catalog identities and metadata exposed by boss-groups.
+	// The schedule reads publication policies afresh, without touching players.
+	config.Operations.dungeonScheduleGroups = map[string][]AdminBattleGroup{
+		"activity": groups, "past": pastGroups,
+	}
 	if err := admin.validateStoredGachas(); err != nil {
 		return nil, err
 	}
@@ -342,6 +347,14 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/player-policy", admin.playerPolicy)
 	router.Get("/api/player-policy/notice-preview", admin.operations.LocalNotice)
 	router.Put("/api/player-policy", admin.savePlayerPolicy)
+	router.Get("/api/dungeon-schedule", admin.dungeonSchedule)
+	router.Put("/api/dungeon-schedule", admin.saveDungeonSchedule)
+	router.Post("/api/dungeon-schedule/preview", admin.previewDungeonSchedule)
+	router.Get("/dungeon-schedule.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(adminDungeonScheduleJS)
+	})
 	router.Get("/api/missions", admin.missions)
 	router.Put("/api/missions", admin.saveMissions)
 	router.Get("/missions.js", func(w http.ResponseWriter, _ *http.Request) {
