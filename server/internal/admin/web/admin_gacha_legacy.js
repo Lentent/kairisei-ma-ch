@@ -70,10 +70,20 @@ $('#pool-gift-rows').onclick=e=>{
 };
 $('#pool-gift-add').onclick=()=>{const gifts=poolEditor.legacyByID.get(poolEditor.activeID).gift_rules;if(gifts.length>=120)return toast('最多120条赠礼规则',true);gifts.push({from_play:1,to_play:1,rewards:[]});poolChanged();renderPoolGifts();};
 
-$('#pool-custom-new').onclick=()=>{
+function syncCustomGachaCreate(){
+  const copying=Number($('#pool-custom-source').value)!==0,mode=$('#pool-custom-mode');
+  mode.disabled=copying;mode.closest('.field').hidden=copying;
+  $('#pool-custom-note').textContent=copying?'复制来源决定卡池类型，并保留已发布的整组抽法、奖励、阶段与赠礼。新池进度独立，创建后默认关闭。':mode.value==='box'?'初始入口为单抽，保存奖励后可新增十连等抽法，共用箱子库存和轮次。各轮总库存分别配置；前 10 轮独立，第 11 轮起使用循环模板，共 11 套。可先配好一轮，再复制到全部轮次。':'创建空白卡池后配置奖励、阶段或赠礼，保存并预览，再发布并到「扭蛋发布」开放。';
+}
+function openCustomGachaCreate(mode='ordinary'){
   $('#pool-custom-source').innerHTML='<option value="0">创建空白卡池</option>'+poolEditor.rows.filter(r=>!r.deleted&&r.gacha_id===poolGroupRows(r)[0]?.gacha_id).map(r=>`<option value="${r.gacha_id}">${esc(r.config.name)} · ${r.gacha_id}</option>`).join('');
-  $('#pool-custom-name').value='';$('#pool-custom-mode').value='ordinary';$('#pool-custom-create-modal').classList.add('open');
-};
+  $('#pool-custom-name').value='';$('#pool-custom-source').value='0';$('#pool-custom-mode').value=mode;syncCustomGachaCreate();$('#pool-custom-create-modal').classList.add('open');
+  $('#pool-custom-name').focus();
+}
+$('#pool-custom-new').onclick=()=>openCustomGachaCreate();
+$('#pool-box-new').onclick=()=>openCustomGachaCreate('box');
+$('#pool-custom-source').onchange=syncCustomGachaCreate;
+$('#pool-custom-mode').onchange=syncCustomGachaCreate;
 $('#pool-custom-cancel').onclick=()=>$('#pool-custom-create-modal').classList.remove('open');
 $('#pool-custom-apply').onclick=()=>{
   const name=$('#pool-custom-name').value.trim(),source_id=Number($('#pool-custom-source').value),mode=$('#pool-custom-mode').value;
@@ -86,27 +96,52 @@ $('#pool-custom-apply').onclick=()=>{
   },'新建卡池');
 };
 
-function activeBoxRounds(){return poolEditor.boxByID?.get(poolEditor.activeID);}
+function activeBoxRounds(){
+  const rounds=poolEditor.boxByID?.get(poolEditor.activeID);
+  // An empty Go reward slice is serialized as null until rewards are added.
+  // Keep newly created boxes editable before their first saved draft.
+  if(rounds)for(const round of rounds)round.rewards??=[];
+  return rounds;
+}
+const gachaBoxMaxStock=1000000,gachaBoxMaxRewards=50;
+function gachaBoxRoundTotal(round){return (round.rewards||[]).reduce((sum,e)=>sum+(Number(e.stock)||0),0);}
+function gachaBoxRoundReady(round){const total=gachaBoxRoundTotal(round);return Array.isArray(round.rewards)&&round.rewards.length>0&&round.rewards.length<=gachaBoxMaxRewards&&round.rewards.every(e=>Number.isInteger(e.stock)&&e.stock>=1&&e.stock<=gachaBoxMaxStock)&&total>=1&&total<=gachaBoxMaxStock;}
+function renderGachaBoxReadiness(){
+  const rounds=activeBoxRounds();if(!rounds)return;
+  const missing=[];
+  rounds.forEach((round,i)=>{
+    const ready=gachaBoxRoundReady(round),label=i===10?'第 11 轮起 · 无限循环模板':`第 ${i+1} 轮`;
+    if(!ready)missing.push(i===10?'循环模板':`第 ${i+1} 轮`);
+    const option=$('#pool-box-round').options[i];if(option)option.textContent=`${label} · ${num(gachaBoxRoundTotal(round))} 份${ready?' ✓':''}`;
+  });
+  const note=$('#pool-box-readiness');
+  note.textContent=missing.length?`已配好 ${rounds.length-missing.length}/${rounds.length} 套；待完成：${missing.join('、')}。每套库存合计须为 1–${num(gachaBoxMaxStock)} 份，各轮可不同。`:`${rounds.length}/${rounds.length} 套奖励已配置，各轮库存合计可不同，可保存并预览。`;
+  note.className=missing.length?'hint':'state-ok';
+}
 function setupGachaBoxPool(){
   const rounds=activeBoxRounds();$('#pool-box-editor').hidden=!rounds;
   $('#pool-play-limit').disabled=!!rounds;
   if(!rounds)return;
   $('#pool-play-limit').value=0;
-  $('#pool-box-round').innerHTML=rounds.map((_,i)=>`<option value="${i}">${i===10?'第 11 轮起 · 无限循环模板':`第 ${i+1} 轮`}</option>`).join('');
+  const selected=Number($('#pool-box-round').value)||0;
+  $('#pool-box-round').innerHTML=rounds.map((_,i)=>`<option value="${i}"></option>`).join('');
+  $('#pool-box-round').value=String(Math.min(selected,rounds.length-1));
   renderGachaBoxPool();
 }
 function renderGachaBoxPool(){
   const rounds=activeBoxRounds();if(!rounds)return;
+  renderGachaBoxReadiness();
   const rewards=rounds[Number($('#pool-box-round').value)].rewards,total=rewards.reduce((sum,e)=>sum+(Number(e.stock)||0),0);
-  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · ${total}/50 份${total===50?'':'（需调整为 50 份）'}`;
-  $('#pool-box-rows').innerHTML=rewards.map((e,i)=>`<tr><td>${esc(rewardLabel(e.reward))}<span class="sub">ID ${e.reward.reward_typeid}${e.reward.type===6?` · 名声 ${e.reward.card_fame}`:''}</span></td><td><input type="number" min="1" max="9999" value="${e.reward.num}" data-box-num="${i}" aria-label="单次发放数量"></td><td><input type="number" min="1" max="50" value="${e.stock}" data-box-stock="${i}" aria-label="库存份数"></td><td data-box-odds="${i}">${total?(e.stock/total*100).toFixed(3):'0'}%</td><td><button class="secondary sm" data-box-remove="${i}">移除</button></td></tr>`).join('')||emptyRow(5,'本轮尚未配置奖励');
+  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · 合计 ${num(total)} 份${gachaBoxRoundReady(rounds[Number($('#pool-box-round').value)])?'':'（请检查奖励与库存份数）'}`;
+  $('#pool-box-rows').innerHTML=rewards.map((e,i)=>`<tr><td>${esc(rewardLabel(e.reward))}<span class="sub">ID ${e.reward.reward_typeid}${e.reward.type===6?` · 名声 ${e.reward.card_fame}`:''}</span></td><td><input type="number" min="1" max="9999" value="${e.reward.num}" data-box-num="${i}" aria-label="单次发放数量"></td><td><input type="number" min="1" max="${gachaBoxMaxStock}" value="${e.stock}" data-box-stock="${i}" aria-label="库存份数"></td><td data-box-odds="${i}">${total?(e.stock/total*100).toFixed(3):'0'}%</td><td><button class="secondary sm" data-box-remove="${i}">移除</button></td></tr>`).join('')||emptyRow(5,'本轮尚未配置奖励');
 }
 $('#pool-box-round').onchange=renderGachaBoxPool;
 $('#pool-box-add').onclick=()=>openContentPicker(rows=>{
   const rounds=activeBoxRounds();if(!rounds)return;
   const rewards=rounds[Number($('#pool-box-round').value)].rewards;
   if(rows.some(row=>![4,6,8,10,12,13,15,19].includes(row.reward_type)))throw new Error('箱池支持金币、免费水晶、体力、卡牌、素材卡、道具、召唤石和传承卡');
-  for(const row of rows){if(rewards.length>=50)break;rewards.push({reward:contentReward(row),stock:1});}
+  if(rewards.length+rows.length>gachaBoxMaxRewards)throw new Error(`每轮最多 ${gachaBoxMaxRewards} 项奖励，请减少本次选择；单项库存份数可大于 50`);
+  for(const row of rows)rewards.push({reward:contentReward(row),stock:1});
   poolChanged();renderGachaBoxPool();
 },['currency','card','material','item','sphere','buddy']);
 $('#pool-box-rows').oninput=e=>{
@@ -116,7 +151,8 @@ $('#pool-box-rows').oninput=e=>{
   if(el.dataset.boxStock!==undefined)rewards[Number(el.dataset.boxStock)].stock=Number(el.value);
   poolChanged();
   const total=rewards.reduce((sum,r)=>sum+(Number(r.stock)||0),0);
-  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · ${total}/50 份${total===50?'':'（需调整为 50 份）'}`;
+  $('#pool-box-total').textContent=`共 ${rewards.length} 项 · 合计 ${num(total)} 份${gachaBoxRoundReady(rounds[Number($('#pool-box-round').value)])?'':'（请检查奖励与库存份数）'}`;
+  renderGachaBoxReadiness();
   $$('#pool-box-rows [data-box-odds]').forEach(el=>el.textContent=`${total?(rewards[Number(el.dataset.boxOdds)].stock/total*100).toFixed(3):'0'}%`);
 };
 $('#pool-box-rows').onclick=e=>{const button=e.target.closest('[data-box-remove]');if(!button)return;activeBoxRounds()[Number($('#pool-box-round').value)].rewards.splice(Number(button.dataset.boxRemove),1);poolChanged();renderGachaBoxPool();};
@@ -128,4 +164,12 @@ $('#pool-box-copy').onclick=()=>{
   if(!confirm(`用当前轮奖励覆盖第 ${ids.join('、')} 套模板？`))return;
   for(const id of ids)if(id-1!==index)rounds[id-1]=structuredClone(rounds[index]);
   poolChanged();renderGachaBoxPool();
+};
+$('#pool-box-copy-all').onclick=()=>{
+  const rounds=activeBoxRounds(),index=Number($('#pool-box-round').value);if(!rounds)return;
+  if(!gachaBoxRoundReady(rounds[index]))return toast(`请先配置有效奖励与库存份数（合计 1–${num(gachaBoxMaxStock)} 份），再复制到全部轮次`,true);
+  const label=index===10?'第 11 轮起的循环模板':`第 ${index+1} 轮`;
+  if(!confirm(`用${label}的奖励与库存份数覆盖其他 ${rounds.length-1} 套模板？保存草稿并发布后生效。`))return;
+  for(let i=0;i<rounds.length;i++)if(i!==index)rounds[i]=structuredClone(rounds[index]);
+  poolChanged();renderGachaBoxPool();toast('已复制到全部轮次，可逐轮调整奖励后保存并预览');
 };

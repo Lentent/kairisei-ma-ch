@@ -42,6 +42,13 @@ type AdminGachaConfig struct {
 
 func AdminGachaConfigFromProfile(profile gamestate.GachaProfile) AdminGachaConfig {
 	profile = gamestate.CloneGachas([]gamestate.GachaProfile{profile})[0]
+	// Cloning an empty reward slice produces nil; the editor needs an empty
+	// list for newly created rounds and older, unfinished box configurations.
+	for i := range profile.BoxRounds {
+		if profile.BoxRounds[i].Rewards == nil {
+			profile.BoxRounds[i].Rewards = []gamestate.GachaBoxReward{}
+		}
+	}
 	return AdminGachaConfig{PayType: profile.PayType, PayTypeID: profile.PayTypeID, CardNum: profile.CardNum, BannerKey: profile.BannerKey, Gifts: profile.Gifts, GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, BoxRounds: profile.BoxRounds, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
 }
 
@@ -186,6 +193,8 @@ func (operations *Operations) configuredGacha(id int, config AdminGachaConfig) g
 }
 
 func (admin *API) validateStoredGachas() error {
+	groups := make(map[int][]AdminGachaConfig)
+	boxGroups := make(map[int]bool)
 	for _, config := range admin.operations.gachaConfigurations {
 		if pool, custom := admin.operations.customGachas[config.Profile.GachaID]; custom && pool.Deleted {
 			// A retained tombstone must not prevent starting the server.
@@ -194,12 +203,33 @@ func (admin *API) validateStoredGachas() error {
 		edit := AdminGachaConfigFromProfile(config.Profile)
 		edit.StartUnix, edit.EndUnix = config.StartUnix, config.EndUnix
 		edit.PayType, edit.PayTypeID = config.Profile.PayType, config.Profile.PayTypeID
+		published := true
+		if _, custom := admin.operations.customGachas[config.Profile.GachaID]; custom {
+			live, err := admin.operations.storage.ReadDocument("gacha-live:" + strconv.Itoa(config.Profile.GachaID))
+			if err != nil {
+				return err
+			}
+			published = live.Revision > 0
+		}
+		// An unpublished variant may inherit a newer saved draft while the other
+		// variants still run their old templates. Only live members must agree.
+		if published {
+			groups[config.Profile.GroupID] = append(groups[config.Profile.GroupID], edit)
+			boxGroups[config.Profile.GroupID] = boxGroups[config.Profile.GroupID] || len(config.Profile.BoxRounds) > 0
+		}
 		preview, err := admin.validateGachaConfig(edit)
 		if err != nil {
 			return err
 		}
 		if !preview["publishable"].(bool) {
 			return errors.New("published gacha card resources are unavailable")
+		}
+	}
+	for groupID, configs := range groups {
+		if boxGroups[groupID] {
+			if err := admin.operations.gachaGroupShared(configs); err != nil {
+				return fmt.Errorf("箱池组 %d：%w", groupID, err)
+			}
 		}
 	}
 	return nil
@@ -209,6 +239,9 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 	base, exists := admin.operations.gachaBases[config.GachaID]
 	if !exists {
 		return nil, errors.New("不能编辑新手保留卡池或未知卡池")
+	}
+	if pool := admin.operations.customGachas[config.GachaID]; (pool.RuleVersion == 3 || len(base.BoxRounds) > 0) && config.CardNum != base.CardNum {
+		return nil, fmt.Errorf("新建抽法固定为%d抽，请重新载入后保存", base.CardNum)
 	}
 	if len(base.BoxRounds) == 0 && len(config.BoxRounds) > 0 {
 		return nil, errors.New("请新建箱池，普通池和阶段池不能添加箱池模板")
@@ -231,16 +264,16 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 	if config.StartUnix < 0 || config.EndUnix < 0 || config.StartUnix > 2147483647 || config.EndUnix > 2147483647 || (config.EndUnix != 0 && config.EndUnix <= config.StartUnix) {
 		return nil, errors.New("排期无效：结束时间须晚于开始时间且早于 2038-01-19")
 	}
-	if admin.operations.legacyCustomGachas[config.GachaID] {
-		if len(base.BoxRounds) > 0 {
-			if len(config.BoxRounds) == 0 {
-				return nil, errors.New("箱池不能移除轮次模板")
-			}
-			if err := admin.validateCustomGachaMetadata(base, config); err != nil {
-				return nil, err
-			}
-			return admin.validateCustomBoxGacha(base, config)
+	if len(base.BoxRounds) > 0 {
+		if len(config.BoxRounds) == 0 {
+			return nil, errors.New("箱池不能移除轮次模板")
 		}
+		if err := admin.validateCustomGachaMetadata(base, config); err != nil {
+			return nil, err
+		}
+		return admin.validateCustomBoxGacha(base, config)
+	}
+	if admin.operations.legacyCustomGachas[config.GachaID] {
 		if err := admin.validateCustomGachaMetadata(base, config); err != nil {
 			return nil, err
 		}
@@ -387,6 +420,10 @@ func (admin *API) gachaEditorAction(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	key := strconv.Itoa(body.Config.GachaID)
+	if base, ok := admin.operations.gachaBases[body.Config.GachaID]; ok && len(base.BoxRounds) > 0 && len(admin.operations.gachaGroupMembers(base.GroupID)) > 1 && action != "preview" {
+		WriteAdminError(writer, 400, "无限池包含多种抽法，奖励与轮次共用，请重新加载页面后整池保存或发布")
+		return
+	}
 	if action == "publish" {
 		draft, err := admin.operations.storage.ReadDocument("gacha-draft:" + key)
 		if err != nil {

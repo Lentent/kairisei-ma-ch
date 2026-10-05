@@ -1294,6 +1294,7 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 	defer admin.operations.configMu.RUnlock()
 	presets := append(append([]AdminGachaPreset(nil), admin.gachaPresets...), admin.customGachaPresets()...)
 	for i := range presets {
+		presets[i].GachaIDs = admin.operations.gachaGroupMembers(presets[i].GroupID)
 		for _, config := range admin.operations.gachaConfigurations {
 			if len(presets[i].GachaIDs) > 0 && presets[i].GachaIDs[0] == config.Profile.GachaID {
 				presets[i].Name = config.Profile.Name

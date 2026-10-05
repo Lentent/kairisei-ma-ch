@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 
@@ -20,8 +21,8 @@ func gachaDraftExists(doc accountstore.Document) bool {
 	return doc.Revision > 0 && len(doc.Payload) > 0 && !bytes.Equal(bytes.TrimSpace(doc.Payload), []byte("null"))
 }
 
-// Variants retain independent contents and payment. The cover, schedule and cumulative
-// draw limit are pool-wide; saves/publishes remain one atomic group operation.
+// Variants retain independent payment. Box variants also share all reward templates,
+// in addition to the cover, schedule and cumulative draw limit.
 
 type gachaGroupExpectation struct {
 	Draft  int    `json:"draft_revision"`
@@ -42,8 +43,17 @@ func (operations *Operations) gachaGroupMembers(groupID int) []int {
 }
 
 func (operations *Operations) gachaGroupShared(configs []AdminGachaConfig) error {
+	if len(configs) == 0 {
+		return errors.New("卡池至少需要一个抽法")
+	}
 	first := configs[0]
 	for _, config := range configs[1:] {
+		if (len(config.BoxRounds) > 0) != (len(first.BoxRounds) > 0) {
+			return errors.New("无限箱池不能混入普通抽法")
+		}
+		if len(first.BoxRounds) > 0 && !reflect.DeepEqual(config.BoxRounds, first.BoxRounds) {
+			return errors.New("同一无限池的所有抽法共用奖励和轮次，各分池须使用相同箱池模板")
+		}
 		if config.PlayCountMax != first.PlayCountMax {
 			return errors.New("累计限抽次数由整池共享，各分池须使用同一上限")
 		}
@@ -149,6 +159,10 @@ func (admin *API) gachaGroupAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := o.gachaGroupShared(configs); !discard && err != nil {
+		WriteAdminError(w, 400, err.Error())
+		return
+	}
+	if err := o.validateAddedGachaVariantChoices(configs); err != nil {
 		WriteAdminError(w, 400, err.Error())
 		return
 	}

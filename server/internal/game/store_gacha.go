@@ -524,9 +524,14 @@ func (s *Account) PlayGacha(
 	}
 	rewards := make([]gamestate.Reward, drawCount)
 	var boxProgress gamestate.GachaBoxProgress
+	if len(gacha.BoxRounds) > 0 {
+		boxProgress = s.gachaBoxLocked(*gacha)
+	}
 	for draw := range rewards {
 		if len(gacha.BoxRounds) > 0 {
-			reward, progress, err := s.drawGachaBoxLocked(*gacha)
+			// Each draw advances the previous planned inventory, including across
+			// rounds. Nothing reaches account state until the entire batch validates.
+			reward, progress, err := drawGachaBox(*gacha, boxProgress)
 			if err != nil {
 				return gachaPlayResult{}, err
 			}

@@ -11,7 +11,11 @@ import (
 func (s *Account) GachaBoxOddsMessage(profile gamestate.GachaProfile) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	lines := []string{fmt.Sprintf("第 %d 轮，每轮 50 份；当前概率 = 剩余份数 / 本轮总剩余份数。抽空自动换轮，第 11 轮起无限重复。", profile.BoxRound)}
+	total := 0
+	for _, entry := range profile.RewardPool {
+		total += entry.Weight
+	}
+	lines := []string{fmt.Sprintf("第 %d 轮，剩余 %d 份；当前概率 = 剩余份数 / 本轮总剩余份数。抽空自动换轮，第 11 轮起无限重复。", profile.BoxRound, total)}
 	for _, entry := range profile.RewardPool {
 		reward := entry.Reward
 		name := ""
@@ -63,17 +67,16 @@ func currentBoxGacha(profile gamestate.GachaProfile, progress gamestate.GachaBox
 	if progress.Round >= 11 {
 		mode = "（循环池）"
 	}
-	status := fmt.Sprintf("第 %d 轮%s，剩余 %d/50 份", progress.Round, mode, gamestate.GachaBoxStock(progress.Remaining))
+	status := fmt.Sprintf("第 %d 轮%s，剩余 %d 份", progress.Round, mode, gamestate.GachaBoxStock(progress.Remaining))
 	profile.Name += " · " + status
 	payment := map[int]string{2: "友情点", 3: "水晶", 4: fmt.Sprintf("道具 %d", profile.PayTypeID), 6: "付费水晶"}[profile.PayType]
-	profile.BuyMessage = fmt.Sprintf("%s。消耗 %d %s 抽取 1 份奖励吗？抽空自动进入下一轮。", status, profile.Price, payment)
-	profile.SubMessage = "每轮 50 份，抽中扣库存；前 10 轮独立，第 11 轮起无限重复。"
+	profile.BuyMessage = fmt.Sprintf("%s。消耗 %d %s 抽取 %d 份奖励吗？抽空自动进入下一轮。", status, profile.Price, payment, profile.CardNum)
+	profile.SubMessage = "每轮份数按模板配置，抽中扣库存；前 10 轮独立，第 11 轮起无限重复。"
 	return profile
 }
 
 // Prepare on a deep copy, then commit only after payment and reward validation.
-func (s *Account) drawGachaBoxLocked(profile gamestate.GachaProfile) (gamestate.Reward, gamestate.GachaBoxProgress, error) {
-	progress := s.gachaBoxLocked(profile)
+func drawGachaBox(profile gamestate.GachaProfile, progress gamestate.GachaBoxProgress) (gamestate.Reward, gamestate.GachaBoxProgress, error) {
 	progress.Remaining = gamestate.CloneGachaBoxRewards(progress.Remaining)
 	indices, weights := make([]int, len(progress.Remaining)), make([]int, len(progress.Remaining))
 	for i, entry := range progress.Remaining {

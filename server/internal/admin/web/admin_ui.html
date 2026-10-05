@@ -396,12 +396,12 @@
       <div class="view-alert" role="alert" hidden></div>
       <div class="panel"><div class="panel-head"><div><h2>选择卡池</h2><span class="hint">筛选不会切换正在编辑的卡池。开放由「扭蛋发布」统一控制。</span></div></div><div class="panel-body">
         <div class="filterbar"><input id="pool-name-search" class="search" type="search" placeholder="搜索卡池名称或 ID"><select id="pool-config-status" aria-label="配置状态"><option value="">全部配置状态</option><option value="open">排期内</option><option value="closed">未开始／已结束</option><option value="draft">有未发布草稿</option><option value="custom">后台新建</option><option value="deleted">已删除</option></select><span class="hint" id="pool-filter-count"></span></div>
-        <div class="toolbar"><select id="pool-select" aria-label="选择卡池"></select><button class="secondary" id="pool-create" type="button"><svg class="icon"><use href="#i-plus"/></svg>新建卡池</button><button class="secondary" id="pool-custom-new" type="button">自定义卡池</button><button class="danger" id="pool-delete" type="button" hidden>移入回收站</button><button class="secondary" id="pool-restore" type="button" hidden>恢复卡池</button><span class="spacer"></span><button class="secondary" id="pool-export">导出配置</button><label class="secondary file-button" tabindex="0">导入配置<input id="pool-import" type="file" accept=".json" hidden></label></div>
+        <div class="toolbar"><select id="pool-select" aria-label="选择卡池"></select><button class="secondary" id="pool-create" type="button"><svg class="icon"><use href="#i-plus"/></svg>新建卡池</button><button class="secondary" id="pool-custom-new" type="button">自定义卡池</button><button class="secondary" id="pool-box-new" type="button">新建无限池</button><button class="danger" id="pool-delete" type="button" hidden>移入回收站</button><button class="secondary" id="pool-restore" type="button" hidden>恢复卡池</button><span class="spacer"></span><button class="secondary" id="pool-export">导出配置</button><label class="secondary file-button" tabindex="0">导入配置<input id="pool-import" type="file" accept=".json" hidden></label></div>
         <details id="pool-trash-panel" class="tool-drawer"><summary id="pool-trash-summary">卡池回收站</summary><p class="hint">这里保留可恢复的配置及抽取计数。永久删除须到维护工具预览、备份后执行。</p><div class="table-wrap"><table><thead><tr><th>卡池</th><th>分池</th><th>配置状态</th><th>操作</th></tr></thead><tbody id="pool-trash-rows"></tbody></table></div></details>
       </div></div>
       <div class="editing"><span id="pool-current"></span><span class="hint" id="pool-contract"></span></div>
       <div class="pool-note bad" id="pool-deleted-note" role="status" hidden><svg class="icon"><use href="#i-alert"/></svg><span>此卡池已删除，玩家看不到它。恢复后才能编辑或发布；抽取次数与历史记录均已保留。</span></div>
-      <div class="panel pool-setup"><div class="panel-head"><div><h2>卡池设置</h2><span class="hint">封面、排期和累计限抽由整个卡池共用；每个分池（抽法）有自己的开放、名称、消耗、价格和奖池。</span></div></div><div class="panel-body">
+      <div class="panel pool-setup"><div class="panel-head"><div><h2>卡池设置</h2><span class="hint" id="pool-settings-note">封面、排期和累计限抽由整个卡池共用；每个分池（抽法）有自己的开放、名称、消耗、价格和奖池。</span></div></div><div class="panel-body">
         <div class="pool-shared">
           <div class="gacha-art cover-preview" id="pool-cover-preview"></div>
           <div class="pool-shared-copy"><div class="cover-title"><b>卡池封面</b><span class="tag" id="pool-cover-state">包内封面</span></div><div class="toolbar"><label class="secondary file-button" tabindex="0" id="pool-cover-upload-label"><svg class="icon"><use href="#i-upload"/></svg>上传封面<input id="pool-cover-upload" type="file" accept="image/png,image/jpeg" hidden></label><button class="secondary" id="pool-cover-reset" type="button">恢复包内封面</button></div><p class="hint">PNG 或 JPEG，2 MiB 以内，建议 934×372。客户端列表显示第一个分池的封面，所有分池保存同一引用；发布后生效，读取位置在「运营设置 → 卡池封面来源」切换。</p></div>
@@ -413,7 +413,8 @@
             <p class="pool-warning" id="pool-schedule-note" hidden></p>
           </div>
         </div>
-        <div class="pool-variants-head"><h3>分池</h3><span class="hint" id="pool-variants-hint">点击一行编辑该分池的奖池；可只开放其中几个（至少一个）。</span><span class="spacer"></span><input id="pool-payment-search" class="search narrow" type="search" placeholder="筛选消耗道具" aria-label="筛选消耗道具"></div>
+        <div class="pool-variants-head"><h3>分池</h3><button class="secondary sm" id="pool-variant-new" type="button"><svg class="icon"><use href="#i-plus"/></svg>新增分池</button><span class="hint" id="pool-variants-hint">点击一行编辑该分池的奖池；可只开放其中几个（至少一个）。</span><span class="spacer"></span><input id="pool-payment-search" class="search narrow" type="search" placeholder="筛选消耗道具" aria-label="筛选消耗道具"></div>
+        <p class="hint" id="pool-variant-note"></p>
         <div class="table-wrap"><table class="dense strategy-table"><thead><tr><th><span class="sr-only">编辑</span></th><th>开放</th><th>分池</th><th>显示名称</th><th>消耗方式</th><th>消耗道具</th><th>价格</th><th>奖池</th></tr></thead><tbody id="pool-strategies"></tbody></table></div>
       </div></div>
       <div class="pool-variant-bar" id="pool-variant-bar">
@@ -456,8 +457,8 @@
         <div class="pager"><button id="pool-mixed-prev" class="secondary">上一页</button><span id="pool-mixed-page" class="page-info"></span><button id="pool-mixed-next" class="secondary">下一页</button></div><p id="pool-mixed-gifts" class="hint"></p>
       </div></div>
 <div class="panel" id="pool-box-editor" hidden>
-  <div class="panel-head"><div><h2>箱池奖励</h2><p class="hint">每轮 50 份，抽空自动换轮；前 10 轮各自配置，第 11 轮起无限重复循环模板。单次发放数量与库存份数分开填写。</p></div></div>
-  <div class="panel-body"><div class="toolbar"><label for="pool-box-round">配置轮次</label><select id="pool-box-round"></select><button class="secondary" id="pool-box-add">添加奖励</button><button class="secondary" id="pool-box-copy">复制本轮到其他轮</button><span id="pool-box-total" class="hint"></span></div>
+  <div class="panel-head"><div><h2>无限池（箱池）奖励</h2><p class="hint">全部抽法共用奖励、库存及轮次。各轮总库存分别配置，连抽遇到抽空会接下一轮；前 10 轮独立，第 11 轮起无限重复循环模板。单次发放数量与库存份数分开填写。</p></div></div>
+  <div class="panel-body"><p class="hint">本轮总份数等于各项库存相加，例如第 1 轮 10 份、第 2 轮 20 份、第 10 轮 100 份。可先配好一轮，再复制到所有轮次，之后单独调整。</p><p id="pool-box-readiness" class="hint" aria-live="polite"></p><div class="toolbar"><label for="pool-box-round">配置轮次</label><select id="pool-box-round"></select><button class="secondary" id="pool-box-add">添加奖励</button><button class="secondary" id="pool-box-copy-all">本轮应用到所有轮次</button><button class="secondary" id="pool-box-copy">复制本轮到指定轮</button><span id="pool-box-total" class="hint"></span></div>
     <div class="table-wrap"><table><thead><tr><th>奖励</th><th>单次发放数量</th><th>库存份数</th><th>初始概率</th><th></th></tr></thead><tbody id="pool-box-rows"></tbody></table></div>
     <p class="hint">发布新配置不会补满玩家正在抽的箱子；新奖励从下一箱生效，费用及排期按新配置生效。</p>
   </div></div>
@@ -712,7 +713,20 @@
   </div>
   <div class="dialog-actions"><button id="credentials-unbind" class="danger" hidden>解除绑定</button><span class="spacer"></span><button id="credentials-cancel" class="secondary" data-dismiss>取消</button><button id="credentials-apply" class="primary">保存</button></div>
 </div></div>
-<div class="modal" id="pool-custom-create-modal" role="dialog" aria-modal="true" aria-labelledby="pool-custom-title"><div class="dialog"><h2 id="pool-custom-title">自定义卡池</h2><div class="field"><label for="pool-custom-name">卡池名称</label><input id="pool-custom-name" maxlength="60"></div><div class="field"><label for="pool-custom-source">复制来源</label><select id="pool-custom-source"></select></div><div class="field"><label for="pool-custom-mode">空白卡池类型</label><select id="pool-custom-mode"><option value="ordinary">卡牌池</option><option value="mixed">混合奖励／阶段池</option><option value="box">箱池（前10轮＋无限循环）</option></select></div><p class="hint">复制时保留整组抽法，创建后独立配置卡牌、阶段与赠礼。先保存预览，再发布并开放。</p><div class="dialog-actions"><button class="secondary" id="pool-custom-cancel" data-dismiss>取消</button><button class="primary" id="pool-custom-apply">创建草稿</button></div></div></div>
+<div class="modal" id="pool-custom-create-modal" role="dialog" aria-modal="true" aria-labelledby="pool-custom-title"><div class="dialog"><h2 id="pool-custom-title">自定义卡池</h2><div class="field"><label for="pool-custom-name">卡池名称</label><input id="pool-custom-name" maxlength="60"></div><div class="field"><label for="pool-custom-source">复制来源</label><select id="pool-custom-source"></select></div><div class="field"><label for="pool-custom-mode">空白卡池类型</label><select id="pool-custom-mode"><option value="ordinary">卡牌池</option><option value="mixed">混合奖励／阶段池</option><option value="box">无限池（箱池：前10轮＋无限循环）</option></select></div><p class="hint" id="pool-custom-note">复制时保留整组抽法，创建后独立配置卡牌、阶段与赠礼。先保存预览，再发布并开放。</p><div class="dialog-actions"><button class="secondary" id="pool-custom-cancel" data-dismiss>取消</button><button class="primary" id="pool-custom-apply">创建草稿</button></div></div></div>
+<div class="modal" id="pool-variant-create-modal" role="dialog" aria-modal="true" aria-labelledby="pool-variant-create-title"><div class="dialog">
+  <div class="dialog-head"><div><h2 id="pool-variant-create-title">新增分池（抽法）</h2><p class="lead" id="pool-variant-group"></p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
+  <div class="dialog-body">
+    <div class="field"><label for="pool-variant-source">复制本池的奖池内容</label><select id="pool-variant-source"></select></div>
+    <p class="hint" id="pool-variant-rule-note">沿用来源分池已保存的卡牌、权重、名声与职业。封面、排期及累计限抽和整个卡池共用；新增分池先保存为草稿。</p>
+    <div class="form-grid"><div class="field"><label for="pool-variant-count">每次抽数</label><select id="pool-variant-count"></select></div><div class="field"><label for="pool-variant-price">每次费用</label><input id="pool-variant-price" type="number" min="1" max="10000000" step="1"></div></div>
+    <div class="field"><label for="pool-variant-display-name">显示名称</label><input id="pool-variant-display-name" maxlength="60"></div>
+    <div class="field"><label for="pool-variant-pay-type">消耗方式</label><select id="pool-variant-pay-type"><option value="3">水晶（先免费后付费）</option><option value="4">道具</option><option value="2">友情点</option><option value="6">付费水晶</option></select></div>
+    <div class="field" id="pool-variant-item-field" hidden><label for="pool-variant-item-search">消耗道具</label><input id="pool-variant-item-search" type="search" placeholder="搜索道具名称或 ID"><select id="pool-variant-pay-item" aria-label="消耗道具"></select></div>
+    <p class="hint" id="pool-variant-create-note"></p>
+  </div>
+  <div class="dialog-actions"><span class="spacer"></span><button class="secondary" id="pool-variant-cancel" type="button" data-dismiss>取消</button><button class="primary" id="pool-variant-apply" type="button">创建分池草稿</button></div>
+</div></div>
 <div class="toast-stack" id="toast-stack"></div>
 <div class="modal" id="custom-effect-modal" role="dialog" aria-modal="true" aria-labelledby="custom-effect-title"><div class="dialog"><div class="dialog-head"><h2 id="custom-effect-title">选择技能效果</h2><button class="icon-button" id="custom-effect-close" type="button" aria-label="关闭">×</button></div><div class="dialog-body"><p class="hint" id="custom-effect-source"></p><div id="custom-effect-options"></div></div></div></div>
 <script defer src="/admin.js"></script>

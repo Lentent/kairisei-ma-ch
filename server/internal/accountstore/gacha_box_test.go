@@ -75,3 +75,31 @@ func TestGachaBoxPurgeRetainsOtherBoxInventory(t *testing.T) {
 		t.Fatal("purge changed another pool's inventory")
 	}
 }
+
+func TestGachaBoxVariableInventoryPersistsAcrossSnapshotReload(t *testing.T) {
+	boxes := map[int]gamestate.GachaBoxProgress{70000001: {Round: 10, Remaining: []gamestate.GachaBoxReward{
+		{Stock: 99, Reward: gamestate.Reward{Type: 4, Num: 10, CardSkillLevels: []int16{}}},
+		{Stock: 1, Reward: gamestate.Reward{Type: 10, Num: 2, CardSkillLevels: []int16{}}},
+	}}}
+	state := gamestate.State{GachaBoxes: boxes}
+	state.User.UserID = PrimaryUserID
+	snapshot, err := accountSnapshotFromState(state)
+	if err != nil {
+		t.Fatal("variable inventory cannot be saved", err)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeAccountSnapshot(raw)
+	if err != nil {
+		t.Fatal("variable inventory cannot be loaded", err)
+	}
+	rebuilt := gamestate.State{}
+	if err := decoded.Progress.apply(&rebuilt); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(boxes, rebuilt.GachaBoxes) {
+		t.Fatal("catalog rebuild changed inventory or reward quantities", rebuilt.GachaBoxes)
+	}
+}

@@ -439,6 +439,7 @@ func New(config Config) (http.Handler, error) {
 		_, _ = w.Write(adminGachaLegacyJS)
 	})
 	router.Post("/api/gacha-pools", admin.createCustomGacha)
+	router.Post("/api/gacha-variants", admin.createGachaVariant)
 	router.Post("/api/gacha-pools/{gachaID}/{action:delete|restore}", admin.changeCustomGachaDeletion)
 	router.Post("/api/gacha-covers", admin.uploadGachaCover)
 	router.Get("/gacha-covers/{file}", ServeGachaCover(config.GachaCoverDir))

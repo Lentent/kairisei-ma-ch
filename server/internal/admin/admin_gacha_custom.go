@@ -210,6 +210,26 @@ func (a *API) gachaCreate(w http.ResponseWriter, r *http.Request) {
 		p.BuyMessage = "请在后台配置并发布"
 		ids = append(ids, p.GachaID)
 	}
+	box := false
+	for _, p := range created {
+		box = box || len(p.BoxRounds) > 0
+	}
+	if box && body.SourceID != 0 {
+		configs := make([]AdminGachaConfig, len(created))
+		seen := map[int]bool{}
+		for i, p := range created {
+			configs[i] = AdminGachaConfigFromProfile(p)
+			if seen[p.CardNum] {
+				WriteAdminError(w, 400, "无限箱池的各抽法须使用不同抽数")
+				return
+			}
+			seen[p.CardNum] = true
+		}
+		if err := o.gachaGroupShared(configs); err != nil {
+			WriteAdminError(w, 400, err.Error())
+			return
+		}
+	}
 	profiles = append(profiles, created...)
 	if _, err := o.writeDocument(customGachaCatalogKey, doc.Revision, profiles); err != nil {
 		WriteAdminError(w, 409, err.Error())
@@ -358,7 +378,7 @@ func (o *Operations) lockCustomGroupDrawCounts() {
 	}
 	for id := range o.legacyCustomGachas {
 		p := o.gachaBases[id]
-		p.FixedDrawCount = counts[p.GroupID] > 1
+		p.FixedDrawCount = counts[p.GroupID] > 1 || len(p.BoxRounds) > 0
 		o.gachaBases[id] = p
 		pool := o.customGachas[id]
 		copy := gamestate.CloneGachas([]gamestate.GachaProfile{p})[0]
