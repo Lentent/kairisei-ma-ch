@@ -185,4 +185,4 @@ Windows 命令行启动后，用 `Stop-Server.cmd` 停止。不同平台的程�
 
 ## 开发资料
 
-普通游玩按以上步骤即可。参与开发请从 [工程规则](AGENTS.md)、[当前状态](docs/STATUS.md) 和 [文档索引](docs/INDEX.md) 开始；构建与资源准备见 [运行资源集](docs/resources/RUNTIME_RESOURCE_SETS.md)，后台操作见 [操作说明](docs/OPERATIONS.md)。源码仓库不包含原 APK、游戏资源或玩家存档。
+源码构建见 [构建说明](docs/BUILD.md)，后台操作见 [操作说明](docs/OPERATIONS.md)。源码仓库不包含原 APK、游戏资源或玩家存档。

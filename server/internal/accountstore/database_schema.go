@@ -77,6 +77,8 @@ func validateFixedStateSchema(transaction *sql.Tx) error {
 	for _, index := range []string{
 		"cn_friend_point_rental_owner_event",
 		"cn_local_account_follow_inbound",
+		"cn_local_account_recent_login",
+		"cn_account_projection_recent_update",
 	} {
 		var count int
 		if err := transaction.QueryRow(
@@ -135,6 +137,9 @@ func initializeSaveSchema(transaction *sql.Tx) error {
 	if userVersion == SaveDatabaseSchemaVersion {
 		if _, err := transaction.Exec(battleClearStatisticsSchema); err != nil {
 			return err
+		}
+		if _, err := transaction.Exec(partnerRecencyIndexes); err != nil {
+			return fmt.Errorf("create CN partner recency indexes: %w", err)
 		}
 		return validateFixedStateSchema(transaction)
 	}
@@ -273,8 +278,19 @@ func initializeSaveSchema(transaction *sql.Tx) error {
 	if _, err := transaction.Exec(battleClearStatisticsSchema); err != nil {
 		return err
 	}
+	if _, err := transaction.Exec(partnerRecencyIndexes); err != nil {
+		return fmt.Errorf("create CN partner recency indexes: %w", err)
+	}
 	return validateFixedStateSchema(transaction)
 }
+
+// Existing timestamp columns remain authoritative. These additive indexes also
+// handle RFC3339 fractional seconds correctly, without rewriting account rows.
+const partnerRecencyIndexes = `
+CREATE INDEX IF NOT EXISTS cn_local_account_recent_login
+ ON cn_local_account (julianday(last_login_utc) DESC, user_id DESC);
+CREATE INDEX IF NOT EXISTS cn_account_projection_recent_update
+ ON cn_account_projection (julianday(updated_utc) DESC, user_id DESC);`
 
 // These are account-owned records. Card names and growth definitions remain
 // in the runtime master; changing one card never rewrites the other cards.

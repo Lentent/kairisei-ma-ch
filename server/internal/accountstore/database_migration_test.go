@@ -71,8 +71,8 @@ func TestCurrentSchemaIsValidatedAtStartupNotRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A pre-statistics schema-3 database gains only the additive display table.
-	if _, err := db.Exec("DROP TABLE cn_battle_clear_daily"); err != nil {
+	// Existing schema-3 saves gain only the additive table and lookup indexes.
+	if _, err := db.Exec("DROP TABLE cn_battle_clear_daily; DROP INDEX cn_local_account_recent_login; DROP INDEX cn_account_projection_recent_update"); err != nil {
 		t.Fatal(err)
 	}
 	upgraded, err := OpenDatabase(path, "unused-seed.json", nil)

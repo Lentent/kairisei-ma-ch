@@ -272,6 +272,7 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	var externalViews []friendPointPartnerView
+	var externalUserIDs []int
 	var ownState gamestate.State
 	for _, selection := range payload.PartnerDeckSelects {
 		if selection.UserID == a.initialState.User.UserID {
@@ -283,13 +284,14 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 				writeError(writer, http.StatusBadRequest, "this battle requires the player's own decks")
 				return
 			}
-			if externalViews == nil {
-				externalViews, err = a.friendPointPartnerViews()
-				if err != nil {
-					writeError(writer, http.StatusInternalServerError, "list local-account team battle partners")
-					return
-				}
-			}
+			externalUserIDs = append(externalUserIDs, selection.UserID)
+		}
+	}
+	if len(externalUserIDs) > 0 {
+		externalViews, err = a.friendPointPartnerViewsForUsers(externalUserIDs)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "load selected local-account team battle partners")
+			return
 		}
 	}
 
@@ -1002,7 +1004,12 @@ func (a *API) teamBattleSoloPartnerShow(writer http.ResponseWriter, request *htt
 		a.writeStoreError(writer, err)
 		return
 	}
-	if !teamBattleSoloHasBoss(a.account.TeamBattleSoloState(), payload.BossID) {
+	catalog, err := a.account.TeamBattleCatalog()
+	if err != nil {
+		a.writeStoreError(writer, err)
+		return
+	}
+	if !catalog.HasBoss(payload.BossID) {
 		writeError(writer, http.StatusBadRequest, "unknown team battle boss")
 		return
 	}
@@ -1047,10 +1054,12 @@ func (a *API) localTeamBattlePartnerArthurs() ([]any, error) {
 			})
 		}
 		partnerBuckets[arthurType] = append(preferredBuckets[arthurType], partnerBuckets[arthurType]...)
-		// Keep the system deck selectable after real players, even when this
-		// profession has a usable local account.
-		if fallback, found := systemFallbacks[arthurType]; found {
-			partnerBuckets[arthurType] = append(partnerBuckets[arthurType], fallback)
+		// The recent quota is global. Only an empty profession needs a system
+		// helper; a nonempty one is never padded to a target recommendation count.
+		if len(partnerBuckets[arthurType]) == 0 {
+			if fallback, found := systemFallbacks[arthurType]; found {
+				partnerBuckets[arthurType] = append(partnerBuckets[arthurType], fallback)
+			}
 		}
 		if len(partnerBuckets[arthurType]) == 0 {
 			return nil, fmt.Errorf("team battle partner profession %d has no persistent candidate", arthurType)
@@ -1119,7 +1128,7 @@ func (a *API) teamBattleSoloPartnerRentalDeck(writer http.ResponseWriter, reques
 		a.writeStoreError(writer, err)
 		return
 	}
-	views, err := a.friendPointPartnerViews()
+	views, err := a.friendPointPartnerViewsForUsers([]int{payload.UserID})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "list persistent team battle partners")
 		return

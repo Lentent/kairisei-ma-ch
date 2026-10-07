@@ -11,8 +11,11 @@ func TestRoomProfessionsStayInTheirWaitingSlots(t *testing.T) {
 			if firstGuest == owner {
 				continue
 			}
-			r := &room{RoomSnapshot: RoomSnapshot{State: RoomStateOpen, Members: []Member{{MemberType: 1, UserID: 100, ArthurType: owner}}}, reservations: make(map[int]roomReservation)}
+			r := &room{RoomSnapshot: RoomSnapshot{State: RoomStateOpen, OwnerMemberType: owner, Members: []Member{{MemberType: owner, UserID: 100, ArthurType: owner}}}, reservations: make(map[int]roomReservation)}
 			waiting := roomProfessionSlots(r)
+			if waiting != [5]int{0, 1, 2, 3, 4} {
+				t.Fatalf("owner profession %d changed native battle order: %v", owner, waiting)
+			}
 			for _, profession := range []int{firstGuest, 4, 3, 2, 1} {
 				if profession == owner || (profession != firstGuest && roomHasArthur(r, profession)) {
 					continue

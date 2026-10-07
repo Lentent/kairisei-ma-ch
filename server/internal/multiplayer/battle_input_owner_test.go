@@ -20,17 +20,17 @@ func TestAnimationSkipRequiresReadyCurrentOwner(t *testing.T) {
 				defer peer.Close()
 				output := &hubCheckingConn{Conn: left, hub: hub}
 				ownerOutput := &hubCheckingConn{Conn: left, hub: hub}
-				owner := &clientConn{server: server, conn: ownerOutput, roomID: 1, memberType: 1}
-				guest := &clientConn{server: server, conn: output, roomID: 1, memberType: 2}
-				current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle, OwnerMemberType: 1},
-					connections: map[int]*clientConn{1: owner, 2: guest}}
+				owner := &clientConn{server: server, conn: ownerOutput, roomID: 1, memberType: 4}
+				guest := &clientConn{server: server, conn: output, roomID: 1, memberType: 1}
+				current := &room{RoomSnapshot: RoomSnapshot{RoomID: 1, State: RoomStateBattle, OwnerMemberType: 4},
+					connections: map[int]*clientConn{4: owner, 1: guest}}
 				hub.rooms[1] = current
 				sender := owner
 				switch state {
 				case "guest":
 					sender = guest
 				case "stale_owner":
-					sender = &clientConn{server: server, conn: output, roomID: 1, memberType: 1}
+					sender = &clientConn{server: server, conn: output, roomID: 1, memberType: 4}
 				case "recovering_owner":
 					owner.comebackPending = true
 				}

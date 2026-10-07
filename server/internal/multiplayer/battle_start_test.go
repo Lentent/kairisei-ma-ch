@@ -38,6 +38,15 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 	if err := owner.handleCreate(joinCSV(strconv.Itoa(spec.Owner.UserID), "1", "0", "", "4", "0", "0", "0", "0", credential.AuthToken, credential.Signature, "android")); err != nil {
 		t.Fatal(err)
 	}
+	created := h.rooms[owner.roomID]
+	if owner.memberType != 4 || created.OwnerMemberType != 4 || created.connections[4] != owner || created.comebackTokens[4] == "" ||
+		created.Members[0].MemberType != 4 || created.Members[0].UserID != spec.Owner.UserID {
+		t.Fatal("singer owner lost its profession slot, host identity or reconnect binding")
+	}
+	response := strings.SplitN(strings.SplitN(output.output.String(), "RoomCreateRequestResult{\n", 2)[1], "\n", 2)[0]
+	if fields := splitCSV(response); len(fields) != 8 || fields[4] != "4" {
+		t.Fatal("native room response did not identify the non-slot-one owner", response)
+	}
 	visible := map[string][]string{}
 	check := func(humans int) {
 		t.Helper()
@@ -49,6 +58,9 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 		professions, actualHumans := map[string]bool{}, 0
 		for _, fields := range visible {
 			professions[fields[3]] = true
+			if fields[0] != fields[3] {
+				t.Fatal("native member order differs from profession order", fields)
+			}
 			if fields[1] != "0" {
 				actualHumans++
 			} else if fields[9] != "1" {
@@ -75,6 +87,9 @@ func TestLobbyVacanciesFollowMissingProfessions(t *testing.T) {
 	guest := &clientConn{server: s, conn: &hubCheckingConn{Conn: left, hub: h}}
 	if err := guest.handleEnter(joinCSV(strconv.Itoa(thief.UserID), strconv.FormatInt(owner.roomID, 10), "", "3", credential.AuthToken, credential.Signature, "android")); err != nil {
 		t.Fatal(err)
+	}
+	if guest.memberType != 3 || created.connections[3] != guest {
+		t.Fatal("thief joined a different profession slot")
 	}
 	check(2)
 	if snapshot := h.ActivitySnapshot(); len(snapshot[0].Players) != 2 || snapshot[0].GameSpeed != 150 {

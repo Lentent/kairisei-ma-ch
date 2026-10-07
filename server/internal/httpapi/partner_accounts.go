@@ -218,10 +218,25 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 	if a.friendPointAccounts == nil {
 		return nil, nil
 	}
-	relations, err := a.friendPointAccounts.ListFriendPointAccountRelations(a.initialState.User.UserID)
+	relations, err := a.friendPointAccounts.ListFriendPointPartnerRecommendations(a.initialState.User.UserID)
 	if err != nil {
 		return nil, err
 	}
+	return a.partnerViewsFromRelations(relations), nil
+}
+
+func (a *API) friendPointPartnerViewsForUsers(userIDs []int) ([]friendPointPartnerView, error) {
+	if a.friendPointAccounts == nil {
+		return nil, nil
+	}
+	relations, err := a.friendPointAccounts.LoadFriendPointAccountRelations(a.initialState.User.UserID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	return a.partnerViewsFromRelations(relations), nil
+}
+
+func (a *API) partnerViewsFromRelations(relations []game.FriendPointAccountRelation) []friendPointPartnerView {
 	views := make([]friendPointPartnerView, 0, len(relations))
 	for _, relation := range relations {
 		if view, ok := friendPointPartnerViewFromState(relation.State); ok {
@@ -241,7 +256,7 @@ func (a *API) friendPointPartnerViews() ([]friendPointPartnerView, error) {
 	sort.Slice(views, func(left, right int) bool {
 		return views[left].UserID < views[right].UserID
 	})
-	return views, nil
+	return views
 }
 
 func (view friendPointPartnerView) deckKindCounts(deck game.DeckInfo) []int {

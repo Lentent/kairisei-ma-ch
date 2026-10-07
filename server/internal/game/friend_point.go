@@ -44,6 +44,8 @@ type FollowAddResult struct {
 // remain in account snapshots; only successful rental events enter the inbox.
 type FriendPointAccountRepository interface {
 	ListFriendPointAccountRelations(userID int) ([]FriendPointAccountRelation, error)
+	ListFriendPointPartnerRecommendations(userID int) ([]FriendPointAccountRelation, error)
+	LoadFriendPointAccountRelations(userID int, targetUserIDs []int) ([]FriendPointAccountRelation, error)
 	FriendPointAccountStates(userID int, targetUserIDs []int) (map[int]int8, error)
 	FollowFriendPointAccounts(
 		userID int,

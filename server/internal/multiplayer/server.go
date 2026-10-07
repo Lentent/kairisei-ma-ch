@@ -403,7 +403,10 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	member.UserID = userID
 	member.ArthurType = arthurType
 	member.JobType = arthurType
-	member.MemberType = 1
+	// The native battle panel orders other members by their protocol slot.
+	// Assign professions to fixed slots from creation; host authority comes
+	// from OwnerMemberType, not from reserving slot one for the room owner.
+	member.MemberType = arthurType
 	if autoStart {
 		member.IsRoomLoading = 1
 	}
@@ -440,7 +443,7 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 			Flag:               pending.Spec.Flag,
 			AllowToLeave:       pending.Spec.AllowToLeave,
 			GameStartMemberNum: startMembers,
-			OwnerMemberType:    1,
+			OwnerMemberType:    member.MemberType,
 			GameSpeed:          speed,
 			State:              RoomStateOpen,
 			BossGroup:          roomPrivate{value: pending.Spec.BossGroup, password: fields[3]},
@@ -454,9 +457,9 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 		fameRewardsSet:       pending.Spec.FameRewardsSet,
 		scorePolicy:          gamestate.CloneTeamBattleScorePolicy(pending.Spec.ScorePolicy),
 		fameRewards:          cloneFameRewards(pending.Spec.FameRewards),
-		connections:          map[int]*clientConn{1: c},
+		connections:          map[int]*clientConn{member.MemberType: c},
 		reservations:         make(map[int]roomReservation),
-		comebackTokens:       map[int]string{1: comebackToken},
+		comebackTokens:       map[int]string{member.MemberType: comebackToken},
 		disconnectedUntil:    make(map[int]time.Time),
 		ownerFallbackParty:   append([]Member(nil), pending.Spec.OwnerFallbackParty...),
 		enemyPartyID:         pending.Spec.EnemyPartyID,
@@ -489,14 +492,14 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	created.session.mu.Lock()
 	session := &lockedRoomSession{hub: hub, owner: created.session, room: created}
 	defer session.Unlock()
-	c.roomID, c.memberType, c.userID = roomID, 1, userID
+	c.roomID, c.memberType, c.userID = roomID, member.MemberType, userID
 	created.session.publish(created)
 	hub.mu.Lock()
 	hub.rooms[roomID] = created
 	hub.mu.Unlock()
 
 	frames := []battleFrame{{method: responseMethod, payload: joinCSV(
-		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), "1", strconv.Itoa(created.GameSpeed), comebackToken, strconv.Itoa(startMembers),
+		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), strconv.Itoa(created.OwnerMemberType), strconv.Itoa(created.GameSpeed), comebackToken, strconv.Itoa(startMembers),
 	)}}
 	for _, roomMember := range created.Members {
 		frames = append(frames, battleFrame{method: "RoomMember", payload: memberCSV(roomMember)})
