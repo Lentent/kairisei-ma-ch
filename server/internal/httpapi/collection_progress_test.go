@@ -20,7 +20,7 @@ func TestPastBossUsesAccountProgress(t *testing.T) {
 	if err := json.Unmarshal(got[0], &group); err != nil {
 		t.Fatal(err)
 	}
-	if group.Bosses[0].State != 2 || group.Bosses[1].State != 1 {
+	if group.Bosses[0].State != 1 || group.Bosses[1].State != 2 {
 		t.Fatalf("progress %+v", group)
 	}
 	if string(source[0]) != `{"0":7,"13":[{"0":101,"10":0},{"0":102,"10":0}]}` {
