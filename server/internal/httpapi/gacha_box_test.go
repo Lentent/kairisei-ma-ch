@@ -68,6 +68,62 @@ func TestGachaBoxBatchWireReturnsAllSequentialRewards(t *testing.T) {
 	}
 }
 
+func TestGachaBoxBatchWireSwitchesFiftyToTenAfterPayment(t *testing.T) {
+	state := testfixture.RuntimeState(t)
+	state.Onboarding.Step, state.User.Coin, state.User.CoinFree = 9, 0, 48
+	single := gamestate.GachaProfile{GachaID: 70000001, GroupID: 70000001, Name: "箱池", PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1}
+	for i := 0; i < gamestate.GachaBoxTemplates; i++ {
+		single.BoxRounds = append(single.BoxRounds, gamestate.GachaBoxRound{Rewards: []gamestate.GachaBoxReward{{Stock: 50, Reward: gamestate.Reward{Type: 4, Num: 1, CardSkillLevels: []int16{}}}}})
+	}
+	ten, fifty := single, single
+	ten.GachaID, ten.CardNum, ten.CardNumMax, ten.Price = 70000002, 10, 10, 8
+	fifty.GachaID, fifty.CardNum, fifty.CardNumMax, fifty.Price = 70000003, 50, 50, 40
+	state.Gachas = []gamestate.GachaProfile{single, ten, fifty}
+	state.GachaSelections, state.GachaDailyClaims, state.GachaBoxes = nil, nil, nil
+	account, err := game.New(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &API{account: account, initialState: state}
+	before := a.gachaInfos(account.GachaState())
+	if len(before) != 2 || before[1].(map[string]any)["gachaid"] != fifty.GachaID || before[1].(map[string]any)["card_num"] != 50 || before[1].(map[string]any)["price"] != 40 {
+		t.Fatal("affordable fifty-draw button was not selected", before)
+	}
+	for _, batch := range []struct{ id, count, price int }{{fifty.GachaID, 50, 40}, {ten.GachaID, 10, 8}} {
+		w := httptest.NewRecorder()
+		a.gachaPlay(w, httptest.NewRequest(http.MethodPost, "/GachaPlay2", strings.NewReader(fmt.Sprintf(`{"gachaid":%d,"pay_type":3,"gacha_hash":"box-switch","select_lineup_list":[],"popupid":0}`, batch.id))))
+		lines := bytes.Split(bytes.TrimSpace(w.Body.Bytes()), []byte{'\n'})
+		if w.Code != 200 || len(lines) != 3 {
+			t.Fatal("batch response failed", w.Body.String())
+		}
+		var body struct {
+			Rewards []any `json:"rewards"`
+			Adds    []int `json:"reward_adds"`
+			Gachas  []struct {
+				ID      int    `json:"gachaid"`
+				Count   int    `json:"card_num"`
+				Max     int    `json:"card_num_max"`
+				Price   int    `json:"price"`
+				Message string `json:"buymsg"`
+			} `json:"gacha_list"`
+		}
+		if err := json.Unmarshal(lines[1], &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Rewards) != batch.count || len(body.Adds) != batch.count || len(body.Gachas) != 2 {
+			t.Fatal("wrong rewards or button count", w.Body.String())
+		}
+		button := body.Gachas[1]
+		if button.ID != ten.GachaID || button.Count != 10 || button.Max != 10 || button.Price != 8 || !strings.Contains(button.Message, "消耗 8 水晶 抽取 10 份奖励") {
+			t.Fatal("fallback ID, count, cost or confirmation mismatched", button)
+		}
+	}
+	_, free := account.CoinState()
+	if free != 0 || gamestate.GachaBoxStock(account.Snapshot(state).GachaBoxes[single.GroupID].Remaining) != 40 {
+		t.Fatal("fallback payment or shared box inventory mismatched")
+	}
+}
+
 func testGachaBoxBatchWire(t *testing.T, count int) {
 	state := testfixture.RuntimeState(t)
 	state.Onboarding.Step, state.User.Coin, state.User.CoinFree = 9, 0, 100

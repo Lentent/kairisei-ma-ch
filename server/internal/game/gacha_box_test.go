@@ -1,11 +1,13 @@
 package game
 
 import (
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
@@ -262,6 +264,108 @@ func addBoxDrawTestVariant(s *Account, count, price int) int {
 	p.CardNum, p.CardNumMax, p.Price = count, count, price
 	s.gachas = append(s.gachas, p)
 	return p.GachaID
+}
+
+func boxSwitchTestAccount() *Account {
+	s := boxTestAccount()
+	addBoxDrawTestVariant(s, 10, 8)
+	addBoxDrawTestVariant(s, 50, 40)
+	s.gachas[2].GachaID++
+	return s
+}
+
+func TestGachaBoxBatchChoiceUsesPaymentBalance(t *testing.T) {
+	for _, payType := range []int{2, 3, 4, 6} {
+		for _, balance := range []int{0, 7, 8, 39, 40, 41} {
+			t.Run(fmt.Sprintf("payment%d/balance%d", payType, balance), func(t *testing.T) {
+				s := boxSwitchTestAccount()
+				for i := range s.gachas {
+					s.gachas[i].PayType, s.gachas[i].PayTypeID = payType, 4000
+				}
+				// Free crystals must not count toward paid-only purchases.
+				s.coin, s.coinFree, s.friendPoint = balance, 1000, balance
+				if payType == 3 {
+					s.coin, s.coinFree = balance/2, balance-balance/2
+				}
+				s.items[4000] = gamestate.Item{ItemID: 4000, Num: balance}
+				before := s.Snapshot(gamestate.State{})
+				wantCount, wantPrice, wantID := 10, 8, s.gachas[1].GachaID
+				if balance >= 40 {
+					wantCount, wantPrice, wantID = 50, 40, s.gachas[2].GachaID
+				}
+				for _, visible := range [][]gamestate.GachaProfile{s.GachaState(), func() []gamestate.GachaProfile { g, _ := s.GachaStateWithOwnership(); return g }()} {
+					if len(visible) != 2 || visible[0].CardNum != 1 || visible[1].GachaID != wantID || visible[1].CardNum != wantCount || visible[1].CardNumMax != wantCount || visible[1].Price != wantPrice || !strings.Contains(visible[1].BuyMessage, fmt.Sprintf("抽取 %d 份奖励", wantCount)) {
+						t.Fatalf("wrong batch choice: %+v", visible)
+					}
+				}
+				if !reflect.DeepEqual(before, s.Snapshot(gamestate.State{})) {
+					t.Fatal("display selection changed persistent configuration or stock")
+				}
+			})
+		}
+	}
+}
+
+func TestGachaBoxBatchChoiceRefreshesAfterPlay(t *testing.T) {
+	s := boxSwitchTestAccount()
+	s.coinFree = 48
+	fiftyID, tenID := s.gachas[2].GachaID, s.gachas[1].GachaID
+	result, err := s.PlayGacha(fiftyID, 3, nil)
+	if err != nil || len(result.Reward.Rewards) != 50 || s.coinFree != 8 || len(result.Gachas) != 2 || result.Gachas[1].GachaID != tenID {
+		t.Fatal("fifty draw did not refresh the button to ten draws", result, err)
+	}
+	before := s.Snapshot(gamestate.State{})
+	if _, err := s.PlayGacha(fiftyID, 3, nil); err == nil || !reflect.DeepEqual(before, s.Snapshot(gamestate.State{})) {
+		t.Fatal("stale fifty draw charged or consumed stock")
+	}
+	result, err = s.PlayGacha(tenID, 3, nil)
+	if err != nil || len(result.Reward.Rewards) != 10 || s.coinFree != 0 || len(result.Gachas) != 2 || result.Gachas[1].CardNum != 10 || gamestate.GachaBoxStock(s.gachaBoxes[70000001].Remaining) != 40 {
+		t.Fatal("fallback did not charge the ten-draw price and share stock", result, err)
+	}
+	s.coinFree = 40
+	if visible := s.GachaState(); len(visible) != 2 || visible[1].GachaID != fiftyID {
+		t.Fatal("replenishing resources did not restore fifty draws", visible)
+	}
+}
+
+func TestGachaBoxBatchChoiceIgnoresInactiveMethods(t *testing.T) {
+	for _, inactive := range []int{10, 50} {
+		t.Run(fmt.Sprint(inactive), func(t *testing.T) {
+			s := boxSwitchTestAccount()
+			s.coinFree = 0
+			s.gachaWindows = make(map[int][2]int64)
+			want := 10
+			for _, p := range s.gachas {
+				if p.CardNum == inactive {
+					s.gachaWindows[p.GachaID] = [2]int64{0, 1}
+					want = 60 - inactive
+				}
+			}
+			if visible := s.GachaState(); len(visible) != 2 || visible[1].CardNum != want {
+				t.Fatal("inactive fallback hid the only active batch method", visible)
+			}
+		})
+	}
+	s := boxSwitchTestAccount()
+	for i := range s.gachas {
+		s.gachas[i].PayType, s.gachas[i].PayTypeID = 4, 4000
+	}
+	s.items[4000] = gamestate.Item{ItemID: 4000, Num: 100, LimitTime: int(time.Now().Unix()) - 1}
+	if visible := s.GachaState(); len(visible) != 2 || visible[1].CardNum != 10 {
+		t.Fatal("expired resources selected fifty draws", visible)
+	}
+	// An unrelated box group and ordinary pools keep their existing methods.
+	s = boxSwitchTestAccount()
+	s.gachas[2].GroupID++
+	if visible := s.GachaState(); len(visible) != 3 {
+		t.Fatal("different groups affected one another", visible)
+	}
+	for i := range s.gachas {
+		s.gachas[i].BoxRounds = nil
+	}
+	if visible := s.GachaState(); len(visible) != 3 {
+		t.Fatal("ordinary pools were filtered", visible)
+	}
 }
 
 func TestGachaBoxSingleAndTenDrawShareStockAcrossRounds(t *testing.T) {

@@ -4,9 +4,55 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
+
+// The client has one batch button. When both methods are active, send only
+// the affordable fifty-draw method or the configured ten-draw fallback.
+func (s *Account) preferredBoxGachasLocked(candidates []gamestate.GachaProfile) []gamestate.GachaProfile {
+	tenGroups := make(map[int]bool)
+	for _, profile := range candidates {
+		if len(profile.BoxRounds) > 0 && profile.CardNum == 10 {
+			tenGroups[profile.GroupID] = true
+		}
+	}
+	preferred := make(map[int]int)
+	for _, profile := range candidates {
+		if len(profile.BoxRounds) > 0 && profile.CardNum == 50 && tenGroups[profile.GroupID] {
+			preferred[profile.GroupID] = 10
+			if s.canAffordBoxGachaLocked(profile) {
+				preferred[profile.GroupID] = 50
+			}
+		}
+	}
+	result := make([]gamestate.GachaProfile, 0, len(candidates))
+	for _, profile := range candidates {
+		if count := preferred[profile.GroupID]; len(profile.BoxRounds) > 0 && count != 0 &&
+			(profile.CardNum == 10 || profile.CardNum == 50) && profile.CardNum != count {
+			continue
+		}
+		result = append(result, profile)
+	}
+	return result
+}
+
+func (s *Account) canAffordBoxGachaLocked(profile gamestate.GachaProfile) bool {
+	switch profile.PayType {
+	case 2:
+		return s.friendPoint >= profile.Price
+	case 3:
+		return int64(s.coin)+int64(s.coinFree) >= int64(profile.Price)
+	case 4:
+		item := s.items[profile.PayTypeID]
+		return item.Num >= profile.Price && (item.LimitTime <= 0 || time.Now().Unix() < int64(item.LimitTime))
+	case 6:
+		return s.coin >= profile.Price
+	default:
+		return false
+	}
+}
 
 func (s *Account) GachaBoxOddsMessage(profile gamestate.GachaProfile) string {
 	s.mu.RLock()

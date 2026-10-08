@@ -77,6 +77,7 @@ func (s *Account) VisibleGachasLocked() []gamestate.GachaProfile {
 			candidates = append(candidates, gacha)
 		}
 	}
+	candidates = s.preferredBoxGachasLocked(candidates)
 	// Preserve one affordable single-draw payment per profession; the native
 	// profession picker must receive all the distinct profession choices.
 	key := func(g gamestate.GachaProfile) [2]int { return [2]int{g.GroupID, int(g.ArthurType)} }
