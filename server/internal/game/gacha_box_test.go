@@ -324,7 +324,7 @@ func TestGachaBoxMultiDrawFailuresAreAtomic(t *testing.T) {
 	for _, failure := range []string{"balance", "reward after boundary", "batch capacity", "invalid next stock"} {
 		t.Run(failure, func(t *testing.T) {
 			s := boxTestAccount()
-			multiID := addBoxDrawTestVariant(s, 10, 5)
+			multiID := addBoxDrawTestVariant(s, 50, 5)
 			s.gachaBoxes[70000001] = gamestate.GachaBoxProgress{Round: 1, Remaining: []gamestate.GachaBoxReward{{Stock: 1, Reward: gamestate.Reward{Type: 8, RewardTypeID: 10, Num: 1, CardSkillLevels: []int16{}}}}}
 			switch failure {
 			case "balance":
@@ -369,7 +369,7 @@ func TestGachaBoxMultiDrawFullInventoryUsesPresents(t *testing.T) {
 	}
 }
 
-func TestGachaBoxTenDrawPaysBossCurrencyOnce(t *testing.T) {
+func TestGachaBoxFiftyDrawPaysBossCurrencyOnce(t *testing.T) {
 	s := boxTestAccount()
 	for i := range s.gachas[0].BoxRounds {
 		s.gachas[0].BoxRounds[i].Rewards = []gamestate.GachaBoxReward{{Stock: 50, Reward: gamestate.Reward{Type: 13, RewardTypeID: 123, Num: 3, CardSkillLevels: []int16{}}}}
@@ -377,17 +377,17 @@ func TestGachaBoxTenDrawPaysBossCurrencyOnce(t *testing.T) {
 	s.stackCardTemplates = map[int]gamestate.CardStack{123: {CardID: 123}}
 	s.items[4000] = gamestate.Item{ItemID: 4000, Num: 5}
 	s.itemDefinitions[4000] = gamestate.ItemDefinition{ItemID: 4000, Name: "Boss币", MaxOwned: 10000}
-	multiID := addBoxDrawTestVariant(s, 10, 3)
+	multiID := addBoxDrawTestVariant(s, 50, 3)
 	s.gachas[1].PayType, s.gachas[1].PayTypeID = 4, 4000
 	result, err := s.PlayGacha(multiID, 4, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.items[4000].Num != 2 || result.Item.Num != 2 || s.coinFree != 10000 || len(s.stackCards) != 1 || s.stackCards[0].Num != 30 || len(result.Reward.Rewards) != 10 || gamestate.GachaBoxStock(s.gachaBoxes[70000001].Remaining) != 40 {
+	if s.items[4000].Num != 2 || result.Item.Num != 2 || s.coinFree != 10000 || len(s.stackCards) != 1 || s.stackCards[0].Num != 150 || len(result.Reward.Rewards) != 50 || s.gachaBoxes[70000001].Round != 2 || gamestate.GachaBoxStock(s.gachaBoxes[70000001].Remaining) != 50 {
 		t.Fatal("Boss currency batch price or material quantity was charged per slot", result)
 	}
 	before := gamestate.CloneGachaBoxes(s.gachaBoxes)
-	if _, err := s.PlayGacha(multiID, 4, nil); err == nil || s.items[4000].Num != 2 || s.stackCards[0].Num != 30 || !reflect.DeepEqual(before, s.gachaBoxes) {
+	if _, err := s.PlayGacha(multiID, 4, nil); err == nil || s.items[4000].Num != 2 || s.stackCards[0].Num != 150 || !reflect.DeepEqual(before, s.gachaBoxes) {
 		t.Fatal("insufficient Boss currency changed stock or materials", err)
 	}
 }

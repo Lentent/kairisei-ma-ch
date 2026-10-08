@@ -12,6 +12,7 @@ function setupLegacyPool() {
   if(!config)return;
   $('#pool-draw-count').value=config.card_num;
   $('#pool-draw-count').disabled=!!row.base.fixed_draw_count||box;
+  $('#pool-draw-count').max=box?50:11;
   $('#pool-banner').innerHTML=[...new Set([config.banner_key,...(poolEditor.banners||[])])].filter(Boolean).map(key=>`<option value="${esc(key)}" ${key===config.banner_key?'selected':''}>${esc(key)}</option>`).join('');
   $('#pool-banner-preview').src=`/gacha-assets/${encodeURIComponent(config.banner_key)}.png`;
   renderPoolGifts();
@@ -73,7 +74,7 @@ $('#pool-gift-add').onclick=()=>{const gifts=poolEditor.legacyByID.get(poolEdito
 function syncCustomGachaCreate(){
   const copying=Number($('#pool-custom-source').value)!==0,mode=$('#pool-custom-mode');
   mode.disabled=copying;mode.closest('.field').hidden=copying;
-  $('#pool-custom-note').textContent=copying?'复制来源决定卡池类型，并保留已发布的整组抽法、奖励、阶段与赠礼。新池进度独立，创建后默认关闭。':mode.value==='box'?'初始入口为单抽，保存奖励后可新增十连等抽法，共用箱子库存和轮次。各轮总库存分别配置；前 10 轮独立，第 11 轮起使用循环模板，共 11 套。可先配好一轮，再复制到全部轮次。':'创建空白卡池后配置奖励、阶段或赠礼，保存并预览，再发布并到「扭蛋发布」开放。';
+  $('#pool-custom-note').textContent=copying?'复制来源决定卡池类型，并保留已发布的整组抽法、奖励、阶段与赠礼。新池进度独立，创建后默认关闭。':mode.value==='box'?'初始入口为单抽，保存奖励后可新增十连、50 连抽等抽法，共用箱子库存和轮次。各轮总库存分别配置；前 10 轮独立，第 11 轮起使用循环模板，共 11 套。可先配好一轮，再复制到全部轮次。':'创建空白卡池后配置奖励、阶段或赠礼，保存并预览，再发布并到「扭蛋发布」开放。';
 }
 function openCustomGachaCreate(mode='ordinary'){
   $('#pool-custom-source').innerHTML='<option value="0">创建空白卡池</option>'+poolEditor.rows.filter(r=>!r.deleted&&r.gacha_id===poolGroupRows(r)[0]?.gacha_id).map(r=>`<option value="${r.gacha_id}">${esc(r.config.name)} · ${r.gacha_id}</option>`).join('');

@@ -41,21 +41,29 @@ func saveBoxVariantSourceDraft(t *testing.T, f *gachaVariantFixture, config Admi
 }
 
 func TestGachaBoxVariantSharedDraftPublishReloadAndGroupCopy(t *testing.T) {
+	for _, count := range []int{10, 50} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			testGachaBoxVariantLifecycle(t, count)
+		})
+	}
+}
+
+func testGachaBoxVariantLifecycle(t *testing.T, count int) {
 	f, accounts, sourceID, sourceConfig := newBoxGachaVariantFixture(t)
 	// The source's saved draft must take precedence over its currently live rewards.
 	sourceConfig.BoxRounds[0].Rewards[0].Stock, sourceConfig.BoxRounds[0].Rewards[1].Stock = 6, 4
 	saveBoxVariantSourceDraft(t, f, sourceConfig)
 	draftKey, liveKey := "gacha-draft:"+strconv.Itoa(sourceID), "gacha-live:"+strconv.Itoa(sourceID)
 	beforeDraft, beforeLive := f.document(t, draftKey), f.document(t, liveKey)
-	request := f.request(t, sourceID, 10)
-	request["name"], request["pay_type"], request["pay_typeid"], request["price"] = "箱池十连", 4, 10, 2
+	request := f.request(t, sourceID, count)
+	request["name"], request["pay_type"], request["pay_typeid"], request["price"] = "箱池连抽", 4, 10, 2
 	code, result := f.call(t, "/api/gacha-variants", request)
 	if code != 200 {
 		t.Fatalf("create box ten-draw method: %d %v", code, result)
 	}
 	id := int(result["gacha_id"].(float64))
 	base := f.admin.operations.gachaBases[id]
-	if result["group_id"] != float64(sourceID) || base.GroupID != sourceID || base.CardNum != 10 || base.CardNumMax != 10 || base.PayType != 4 || base.PayTypeID != 10 || base.Price != 2 || !base.FixedDrawCount || f.admin.operations.customGachas[id].RuleVersion != 3 {
+	if result["group_id"] != float64(sourceID) || base.GroupID != sourceID || base.CardNum != count || base.CardNumMax != count || base.PayType != 4 || base.PayTypeID != 10 || base.Price != 2 || !base.FixedDrawCount || f.admin.operations.customGachas[id].RuleVersion != 3 {
 		t.Fatalf("box added method changed family/group/payment: %+v %v", base, result)
 	}
 	var addedDraft AdminGachaConfig
@@ -88,7 +96,7 @@ func TestGachaBoxVariantSharedDraftPublishReloadAndGroupCopy(t *testing.T) {
 	if err := f.admin.validateStoredGachas(); err != nil {
 		t.Fatal("stored box method is invalid", err)
 	}
-	if restarted.gachaBases[id].CardNum != 10 || !reflect.DeepEqual(restarted.gachaBases[id].BoxRounds, base.BoxRounds) || restarted.GachaIDPublished(id, active) {
+	if restarted.gachaBases[id].CardNum != count || !reflect.DeepEqual(restarted.gachaBases[id].BoxRounds, base.BoxRounds) || restarted.GachaIDPublished(id, active) {
 		t.Fatal("unpublished box snapshot lost after restart")
 	}
 	// Preserve one group-keyed player inventory through adding and publishing draw methods.
@@ -133,14 +141,19 @@ func TestGachaBoxVariantSharedDraftPublishReloadAndGroupCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	account.ApplyGachaConfiguration(restarted.gachaRevision, restarted.gachaConfigurations)
-	if _, err := account.PlayGacha(id, 4, nil); err != nil {
-		t.Fatal("play added box ten-draw method", err)
+	played, err := account.PlayGacha(id, 4, nil)
+	if err != nil || len(played.Reward.Rewards) != count {
+		t.Fatal("play added box batch method", err)
 	}
 	progress := account.Snapshot(runtime).GachaBoxes[sourceID]
-	if progress.Round != 2 || gamestate.GachaBoxStock(progress.Remaining) != 13 || len(account.Snapshot(runtime).GachaBoxes) != 1 {
-		t.Fatalf("ten-draw method did not consume the shared old inventory across a round: %+v", progress)
+	wantRound, wantStock := uint64(2), 23-count
+	if count == 50 {
+		wantRound, wantStock = 3, 73
 	}
-	if _, err := account.PlayGacha(sourceID, 3, nil); err != nil || gamestate.GachaBoxStock(account.Snapshot(runtime).GachaBoxes[sourceID].Remaining) != 12 {
+	if progress.Round != wantRound || gamestate.GachaBoxStock(progress.Remaining) != wantStock || len(account.Snapshot(runtime).GachaBoxes) != 1 {
+		t.Fatalf("batch method did not consume the shared old inventory across rounds: %+v", progress)
+	}
+	if _, err := account.PlayGacha(sourceID, 3, nil); err != nil || gamestate.GachaBoxStock(account.Snapshot(runtime).GachaBoxes[sourceID].Remaining) != wantStock-1 {
 		t.Fatal("single-draw method did not continue the same group inventory", err)
 	}
 	// The old copy API converts snapshots into legacy entries, retaining the box family and counts.
@@ -164,14 +177,14 @@ func TestGachaBoxVariantSharedDraftPublishReloadAndGroupCopy(t *testing.T) {
 	f.admin.operations = restarted
 	for i, raw := range legacyIDs {
 		profile := restarted.gachaBases[int(raw.(float64))]
-		if profile.GroupID != legacyGroup || profile.CardNum != []int{1, 10}[i] || !reflect.DeepEqual(profile.BoxRounds, sourceConfig.BoxRounds) {
+		if profile.GroupID != legacyGroup || profile.CardNum != []int{1, count}[i] || !reflect.DeepEqual(profile.BoxRounds, sourceConfig.BoxRounds) {
 			t.Fatalf("legacy copy lost snapshot box rules on restart: %+v", profile)
 		}
 	}
 	for i, raw := range copyIDs {
 		copyID := int(raw.(float64))
 		profile := restarted.gachaBases[copyID]
-		if profile.GroupID != copyGroup || profile.CardNum != []int{1, 10}[i] || !reflect.DeepEqual(profile.BoxRounds, sourceConfig.BoxRounds) {
+		if profile.GroupID != copyGroup || profile.CardNum != []int{1, count}[i] || !reflect.DeepEqual(profile.BoxRounds, sourceConfig.BoxRounds) {
 			t.Fatalf("copied box lost draw count or reward family: %+v", profile)
 		}
 		if restarted.GachaIDPublished(copyID, map[int]struct{}{copyGroup: {}}) {
@@ -304,5 +317,29 @@ func TestGachaBoxVariantPersistenceRollback(t *testing.T) {
 	restarted, err := NewOperations(accounts.Database(), f.builtins)
 	if err != nil || len(restarted.gachaGroupMembers(sourceID)) != 1 {
 		t.Fatal("failed box method persisted through restart", err)
+	}
+}
+
+func TestGachaBoxFiftyDrawVariantChoices(t *testing.T) {
+	f, _, sourceID, _ := newBoxGachaVariantFixture(t)
+	for _, count := range []int{0, 12, 49, 51} {
+		if code, result := f.call(t, "/api/gacha-variants", f.request(t, sourceID, count)); code != 400 {
+			t.Fatalf("invalid count %d accepted: %d %v", count, code, result)
+		}
+	}
+	code, result := f.call(t, "/api/gacha-variants", f.request(t, sourceID, 50))
+	if code != 200 {
+		t.Fatalf("add fifty draws: %d %v", code, result)
+	}
+	id := int(result["gacha_id"].(float64))
+	if code, result := f.call(t, "/api/gacha-variants", f.request(t, id, 50)); code != 400 {
+		t.Fatalf("duplicate fifty draws accepted: %d %v", code, result)
+	}
+	if code, result := f.call(t, "/api/gacha-variants", f.request(t, id, 10)); code != 200 {
+		t.Fatalf("fifty-draw source cannot add ten draws: %d %v", code, result)
+	}
+	ordinary := newGachaVariantFixture(t)
+	if code, result := ordinary.call(t, "/api/gacha-variants", ordinary.request(t, variantTestSourceID, 50)); code != 400 {
+		t.Fatalf("ordinary pool accepted fifty-draw variant: %d %v", code, result)
 	}
 }

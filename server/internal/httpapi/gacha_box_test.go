@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +60,15 @@ func TestGachaBoxUsesExistingClientFieldsAndCurrentOdds(t *testing.T) {
 	}
 }
 
-func TestGachaBoxTenDrawWireReturnsAllSequentialRewards(t *testing.T) {
+func TestGachaBoxBatchWireReturnsAllSequentialRewards(t *testing.T) {
+	for _, count := range []int{10, 50} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			testGachaBoxBatchWire(t, count)
+		})
+	}
+}
+
+func testGachaBoxBatchWire(t *testing.T, count int) {
 	state := testfixture.RuntimeState(t)
 	state.Onboarding.Step, state.User.Coin, state.User.CoinFree = 9, 0, 100
 	single := gamestate.GachaProfile{GachaID: 70000001, GroupID: 70000001, Name: "箱池", PayType: 3, Price: 1, CardNum: 1, CardNumMax: 1}
@@ -67,7 +76,7 @@ func TestGachaBoxTenDrawWireReturnsAllSequentialRewards(t *testing.T) {
 		single.BoxRounds = append(single.BoxRounds, gamestate.GachaBoxRound{Rewards: []gamestate.GachaBoxReward{{Stock: 20, Reward: gamestate.Reward{Type: 4, Num: i + 1, CardSkillLevels: []int16{}}}}})
 	}
 	multi := gamestate.CloneGachas([]gamestate.GachaProfile{single})[0]
-	multi.GachaID, multi.CardNum, multi.CardNumMax, multi.Price = 70000002, 10, 10, 5
+	multi.GachaID, multi.CardNum, multi.CardNumMax, multi.Price = 70000002, count, count, 5
 	state.Gachas = []gamestate.GachaProfile{single, multi}
 	state.GachaSelections, state.GachaDailyClaims = nil, nil
 	state.GachaBoxes = map[int]gamestate.GachaBoxProgress{single.GroupID: {Round: 1, Remaining: []gamestate.GachaBoxReward{{Stock: 2, Reward: gamestate.Reward{Type: 4, Num: 1, CardSkillLevels: []int16{}}}}}}
@@ -77,7 +86,7 @@ func TestGachaBoxTenDrawWireReturnsAllSequentialRewards(t *testing.T) {
 	}
 	a := &API{account: account, initialState: state}
 	before := a.gachaInfos(account.GachaState())
-	if len(before) != 2 || before[1].(map[string]any)["card_num"] != 10 || before[1].(map[string]any)["card_num_max"] != 10 || !strings.Contains(before[1].(map[string]any)["buymsg"].(string), "抽取 10 份奖励") {
+	if len(before) != 2 || before[1].(map[string]any)["card_num"] != count || before[1].(map[string]any)["card_num_max"] != count || !strings.Contains(before[1].(map[string]any)["buymsg"].(string), fmt.Sprintf("抽取 %d 份奖励", count)) {
 		t.Fatal("client draw count or purchase message mismatches ten draw", before)
 	}
 	w := httptest.NewRecorder()
@@ -100,11 +109,11 @@ func TestGachaBoxTenDrawWireReturnsAllSequentialRewards(t *testing.T) {
 	if err := json.Unmarshal(lines[1], &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Rewards) != 10 || len(body.Adds) != 10 || len(body.Gachas) != 2 {
+	if len(body.Rewards) != count || len(body.Adds) != count || len(body.Gachas) != 2 {
 		t.Fatal("client did not receive all batch results and shared variants", w.Body.String())
 	}
 	for i, received := range body.Rewards {
-		want := 2
+		want := (i-2)/20 + 2
 		if i < 2 {
 			want = 1
 		}
@@ -113,7 +122,7 @@ func TestGachaBoxTenDrawWireReturnsAllSequentialRewards(t *testing.T) {
 		}
 	}
 	for _, variant := range body.Gachas {
-		if !strings.Contains(variant.Name, "第 2 轮") || !strings.Contains(variant.Name, "剩余 12 份") {
+		if !strings.Contains(variant.Name, fmt.Sprintf("第 %d 轮", 2+(count-2)/20)) || !strings.Contains(variant.Name, "剩余 12 份") {
 			t.Fatal("client variants have different inventory after the batch", body.Gachas)
 		}
 	}

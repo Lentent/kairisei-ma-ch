@@ -14,6 +14,7 @@ func TestGachaBoxRules(t *testing.T) {
 		"no stock":       func(p *GachaProfile) { p.BoxRounds[4].Rewards[0].Stock = 0 },
 		"missing loop":   func(p *GachaProfile) { p.BoxRounds = p.BoxRounds[:10] },
 		"too many draws": func(p *GachaProfile) { p.CardNum, p.CardNumMax = 12, 12 },
+		"over fifty":     func(p *GachaProfile) { p.CardNum, p.CardNumMax = 51, 51 },
 		"variable draws": func(p *GachaProfile) { p.CardNum, p.CardNumMax = 1, 10 },
 		"round cap":      func(p *GachaProfile) { p.PlayCountMax = 999 },
 		"ordinary rules": func(p *GachaProfile) { p.CardIDs = []int{1} },
@@ -29,7 +30,7 @@ func TestGachaBoxRules(t *testing.T) {
 	if p.BoxRounds[4].Rewards[0].Stock != 50 {
 		t.Fatal("cloned templates are shared")
 	}
-	for _, count := range []int{1, 10, 11} {
+	for _, count := range []int{1, 10, 11, 50} {
 		multi := CloneGachas([]GachaProfile{p})[0]
 		multi.CardNum, multi.CardNumMax = count, count
 		if err := ValidateGachaBoxRules(multi); err != nil {

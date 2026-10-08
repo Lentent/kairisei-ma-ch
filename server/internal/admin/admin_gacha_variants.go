@@ -24,7 +24,7 @@ func ordinaryGachaVariantAllowed(p gamestate.GachaProfile) bool {
 
 func boxGachaVariantAllowed(p gamestate.GachaProfile) bool {
 	return p.GroupID > 0 && p.GachaType == 0 && p.CategoryNum != 10000 &&
-		p.CardNum > 0 && p.CardNum <= 11 && p.CardNum == p.CardNumMax &&
+		gamestate.GachaBoxDrawCountAllowed(p.CardNum) && p.CardNum == p.CardNumMax &&
 		p.UserSelectMax == 0 && !p.DailyFirstFree && !p.UnownedOnly &&
 		p.PlayCountMax == 0 && p.GuaranteedCount == 0 &&
 		len(p.BoxRounds) == gamestate.GachaBoxTemplates && len(p.CardIDs) == 0 &&
@@ -97,8 +97,8 @@ func (admin *API) createGachaVariant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Name = strings.TrimSpace(body.Name)
-	if body.Name == "" || len([]rune(body.Name)) > 60 || body.CardNum < 1 || body.CardNum > 11 || body.Price < 1 || body.Price > 10000000 || body.PayType == 0 {
-		WriteAdminError(w, 400, "名称须为 1–60 字，抽数须为 1–11，价格须为 1–10000000，并选择消耗方式")
+	if body.Name == "" || len([]rune(body.Name)) > 60 || !gamestate.GachaBoxDrawCountAllowed(body.CardNum) || body.Price < 1 || body.Price > 10000000 || body.PayType == 0 {
+		WriteAdminError(w, 400, "名称须为 1–60 字，抽数须为 1–11（无限箱池另支持 50 抽），价格须为 1–10000000，并选择消耗方式")
 		return
 	}
 	o := admin.operations
@@ -120,6 +120,10 @@ func (admin *API) createGachaVariant(w http.ResponseWriter, r *http.Request) {
 	}
 	configs := make(map[int]AdminGachaConfig, len(members))
 	box := len(source.BoxRounds) > 0
+	if !box && body.CardNum > 11 {
+		WriteAdminError(w, 400, "普通卡池的新增抽法须为 1–11 抽，50 抽仅用于无限箱池")
+		return
+	}
 	for _, id := range members {
 		base := o.gachaBases[id]
 		if pool, custom := o.customGachas[id]; custom && pool.Deleted {

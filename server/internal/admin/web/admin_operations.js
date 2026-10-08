@@ -95,8 +95,8 @@ function updatePoolControls() {
   $('#pool-custom-new').disabled=$('#pool-box-new').disabled=policyBusy('pool-editor');
   const variantReason=poolVariantUnavailable();
   $('#pool-variant-new').disabled=busy||deleted||!!variantReason;
-  $('#pool-variant-new').title=variantReason||'在当前卡池增加单抽、十连等抽法';
-  $('#pool-variant-note').textContent=variantReason|| (poolEditor.dirty?'新增前请先保存草稿并预览，以沿用刚编辑的奖池内容。':poolEditor.boxByID?.size?'可新增 1–11 抽分池，分别配置价格和消耗；全部抽法共用奖励、库存及轮次。':'可新增 1–11 抽分池，分别配置价格和奖励；同一职业的相同抽数只保留一个入口。');
+  $('#pool-variant-new').title=variantReason||(poolEditor.boxByID?.size?'在当前卡池增加单抽、十连或 50 连抽等抽法':'在当前卡池增加单抽、十连等抽法');
+  $('#pool-variant-note').textContent=variantReason|| (poolEditor.dirty?'新增前请先保存草稿并预览，以沿用刚编辑的奖池内容。':poolEditor.boxByID?.size?'可新增 1–11 抽或 50 抽分池，分别配置价格和消耗；全部抽法共用奖励、库存及轮次。':'可新增 1–11 抽分池，分别配置价格和奖励；同一职业的相同抽数只保留一个入口。');
   $('#pool-delete').disabled=$('#pool-restore').disabled=busy;
   $('#pool-cover-upload').disabled=busy||deleted;$('#pool-cover-upload-label').classList.toggle('disabled',busy||deleted);
   $('#pool-cover-reset').disabled=busy||deleted||!poolEditor.coverPath;
@@ -414,7 +414,7 @@ function poolProblems(configs) {
     if(c.pay_type===4&&!c.pay_typeid)bad(cell(c.gacha_id,'pay_typeid'),`${label(c)}消耗道具未选择`);
     if(c.box_rounds?.length){
       const row=poolEditor.variants.find(v=>v.gacha_id===c.gacha_id);
-      if(c.card_num!==row.base.card_num||c.card_num<1||c.card_num>11||c.play_count_max!==0)problems.push('箱池抽数须与入口一致（1–11 抽），累计次数不限');
+      if(c.card_num!==row.base.card_num||!gachaBoxDrawCountAllowed(c.card_num)||c.play_count_max!==0)problems.push('箱池抽数须与入口一致（1–11 抽或 50 抽），累计次数不限');
       if(c.box_rounds.length!==11)problems.push('箱池须有 11 套模板');
       c.box_rounds.forEach((r,i)=>{if(!gachaBoxRoundReady(r))problems.push(`${i===10?'循环模板':`第 ${i+1} 轮`}须配置 1–${gachaBoxMaxRewards} 项奖励，库存为正整数且合计不超过 ${num(gachaBoxMaxStock)} 份`);});
     }else if(!poolEditor.mixedByID.has(c.gacha_id)){
@@ -570,16 +570,19 @@ $('#pool-cover-upload').onchange=event=>runPoolEdit(async()=>{
 $('#pool-cover-reset').onclick=()=>{if(!poolEditor.coverPath)return;poolEditor.coverPath='';poolChanged();renderPoolCover()};
 
 // New pools select complete built-in rules; copying current live content remains a separate option.
+function gachaBoxDrawCountAllowed(count){return Number.isInteger(count)&&((count>=1&&count<=11)||count===50)}
 function poolVariantUnavailable(){
   if(!poolEditor.row)return '请先选择一个卡池';
   if(poolEditor.row.deleted)return '请先恢复此卡池';
   const box=poolEditor.variants.some(v=>v.base.box_rounds?.length);
-  if(poolEditor.variants.some(v=>{const b=v.base;return !!b.box_rounds?.length!==box||b.reward_pool?.length||b.steps?.length||b.daily_first_free||b.unowned_only||b.user_select_max||b.gacha_type||b.category_num===10000||b.card_num!==b.card_num_max||b.card_num<1||b.card_num>11}))return '此池使用特殊抽取规则，不能新增普通抽法。';
-  return poolEditor.variants.some(v=>poolVariantCounts(v).length)?'':'此池的 1–11 抽入口已齐全';
+  if(poolEditor.variants.some(v=>{const b=v.base;return !!b.box_rounds?.length!==box||b.reward_pool?.length||b.steps?.length||b.daily_first_free||b.unowned_only||b.user_select_max||b.gacha_type||b.category_num===10000||b.card_num!==b.card_num_max||(box?!gachaBoxDrawCountAllowed(b.card_num):b.card_num<1||b.card_num>11)}))return '此池使用特殊抽取规则，不能新增普通抽法。';
+  return poolEditor.variants.some(v=>poolVariantCounts(v).length)?'':`此池的 ${box?'1–11 抽及 50 抽':'1–11 抽'}入口已齐全`;
 }
 function poolVariantCounts(source){
   const used=new Set(poolEditor.variants.filter(v=>source.base.box_rounds?.length||(v.base.arthur_type||0)===(source.base.arthur_type||0)).map(v=>poolSavedConfig(v).card_num||v.base.card_num));
-  return Array.from({length:11},(_,i)=>i+1).filter(n=>!used.has(n)&&n>(source.base.guaranteed_count||0));
+  const counts=Array.from({length:11},(_,i)=>i+1);
+  if(source.base.box_rounds?.length)counts.push(50);
+  return counts.filter(n=>!used.has(n)&&n>(source.base.guaranteed_count||0));
 }
 function renderPoolVariantItems(){
   const field=$('#pool-variant-item-field'),select=$('#pool-variant-pay-item'),previous=Number(select.value),query=$('#pool-variant-item-search').value.trim();

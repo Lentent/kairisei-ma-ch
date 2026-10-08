@@ -8,6 +8,11 @@ const GachaBoxMaxRewards = 50
 const GachaBoxMaxStock = 1000000
 const GachaBoxTemplates = 11
 
+// Keep the existing draw sizes and add the large batch used by box pools.
+func GachaBoxDrawCountAllowed(count int) bool {
+	return (count >= 1 && count <= 11) || count == 50
+}
+
 // Stock counts reward slots, independently of the quantity granted per win.
 type GachaBoxReward struct {
 	Reward Reward `json:"reward"`
@@ -86,8 +91,8 @@ func ValidateGachaBoxRules(p GachaProfile) error {
 	if len(p.BoxRounds) != GachaBoxTemplates {
 		return fmt.Errorf("箱池须配置前 10 轮和第 11 轮起的循环模板，共 11 套")
 	}
-	if p.CardNum < 1 || p.CardNum > 11 || p.CardNumMax != p.CardNum || p.PlayCountMax != 0 || len(p.CardIDs) != 0 || len(p.RewardPool) != 0 || len(p.Steps) != 0 || len(p.Gifts) != 0 || len(p.CardFames) != 0 || p.UserSelectMax != 0 || p.GuaranteedCount != 0 || p.UnownedOnly || p.DailyFirstFree {
-		return fmt.Errorf("箱池须为固定 1–11 抽、不限次数，不能附加普通池或阶段池规则")
+	if !GachaBoxDrawCountAllowed(p.CardNum) || p.CardNumMax != p.CardNum || p.PlayCountMax != 0 || len(p.CardIDs) != 0 || len(p.RewardPool) != 0 || len(p.Steps) != 0 || len(p.Gifts) != 0 || len(p.CardFames) != 0 || p.UserSelectMax != 0 || p.GuaranteedCount != 0 || p.UnownedOnly || p.DailyFirstFree {
+		return fmt.Errorf("箱池须为固定 1–11 抽或 50 抽、不限次数，不能附加普通池或阶段池规则")
 	}
 	for i, round := range p.BoxRounds {
 		if err := ValidateGachaBoxRewards(round.Rewards); err != nil {

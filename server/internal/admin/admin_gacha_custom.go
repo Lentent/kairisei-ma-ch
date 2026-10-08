@@ -278,7 +278,11 @@ func (a *API) validateCustomGachaMetadata(base gamestate.GachaProfile, c AdminGa
 	if base.FixedDrawCount && c.CardNum != base.CardNum {
 		return fmt.Errorf("同组抽取入口固定为%d抽，不能更改；请刷新后重新保存草稿", base.CardNum)
 	}
-	if c.CardNum < 1 || c.CardNum > 11 || (base.GuaranteedCount > 0 && c.CardNum <= base.GuaranteedCount) {
+	if len(base.BoxRounds) > 0 {
+		if !gamestate.GachaBoxDrawCountAllowed(c.CardNum) {
+			return errors.New("箱池每次抽数须为 1–11 或 50")
+		}
+	} else if c.CardNum < 1 || c.CardNum > 11 || (base.GuaranteedCount > 0 && c.CardNum <= base.GuaranteedCount) {
 		return errors.New("每次抽数须为1–11，且须大于继承的保底抽数")
 	}
 	if c.BannerKey == "" {
