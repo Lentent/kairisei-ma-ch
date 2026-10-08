@@ -882,11 +882,28 @@ label.catalog-card.selected::after{content:none}
 .custom-card-art{display:flex;align-items:center;gap:16px;margin-bottom:20px}
 .custom-card-preview{display:grid;place-items:center;flex-shrink:0;width:140px;height:160px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
 .custom-card-preview img{width:100%;height:100%;object-fit:contain}
+.custom-card-icon-preview{width:100px;height:100px}
 .custom-card-preview>*{grid-area:1/1}
 .custom-card-preview img[data-ok="1"]+span{display:none}
 .custom-skill-text,.custom-effect-group{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
 .custom-effect-row{border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
-.custom-effect-params{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:10px}
+.custom-effect-params{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:14px;margin-top:14px}
 .custom-effect-params .hint{align-self:center;overflow-wrap:anywhere}
+.custom-effect-param{min-width:0;align-self:start}
+.custom-effect-param p{margin:4px 0 0;line-height:1.6}
+.custom-effect-current{font-variant-numeric:tabular-nums}
+.custom-effect-explanation{margin:10px 0 6px;line-height:1.7}
+.custom-effect-formula{padding:10px;border-radius:8px;background:var(--surface);line-height:1.7}
+.custom-effect-fixed{padding:8px 0;overflow-wrap:anywhere}
+.custom-effect-code{margin-top:12px;font-size:12px}
+.custom-description-help{margin:8px 0 16px;line-height:1.7;overflow-wrap:anywhere}
+.custom-description-preview{padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+.custom-description-preview p{margin:5px 0;white-space:pre-wrap}
+.custom-placeholder-used{padding-left:24px;margin:10px 0}
+.custom-placeholder-used li{margin:8px 0}
+.custom-placeholder-options{font-size:13px}
+.custom-placeholder-option{display:flex;align-items:start;gap:10px;margin:10px 0}
+.custom-placeholder-option button{flex-shrink:0}
+.custom-effect-row{scroll-margin-top:80px}
 @media(max-width:1000px){.custom-card-workspace{grid-template-columns:1fr}.custom-card-list{max-height:220px}.custom-card-art{flex-wrap:wrap}}
 @media(max-width:640px){#custom-card-fields .grid3{grid-template-columns:1fr}}

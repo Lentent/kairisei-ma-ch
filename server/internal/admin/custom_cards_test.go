@@ -205,9 +205,19 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 	oldShard := fmt.Sprintf("/%02d/%03d", oldPict/1000000, oldPict/1000%1000)
 	newShard := fmt.Sprintf("/%02d/%03d", c.ID/1000000, c.ID/1000%1000)
 	sources := map[string]customArtworkTestAsset{}
-	art, err := decodeCustomArtwork(c.Artwork)
-	if err != nil {
-		t.Fatal(err)
+	var art, icon image.Image
+	var err error
+	if len(c.Artwork) > 0 {
+		art, err = decodeCustomArtwork(c.Artwork)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(c.IconArtwork) > 0 {
+		icon, err = decodeCustomArtwork(c.IconArtwork)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, originalEntry := range original.Assets {
 		if !strings.HasSuffix(originalEntry.Name, "_"+oldID) {
@@ -254,6 +264,19 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 				return object, nil
 			}
 			foundTexture = true
+			selected := art
+			if strings.HasPrefix(name, "chr20_") && icon != nil {
+				selected = icon
+			}
+			if selected == nil {
+				root := os.Getenv("CN602_CUSTOM_CARD_RESOURCE_SET")
+				originalTexture := readCustomArtworkTestTexture(t, root, originalEntry)
+				copy(originalTexture[4:4+len(name)], name)
+				if !bytes.Equal(object, originalTexture) {
+					t.Fatalf("icon-only upload changed template illustration %s", name)
+				}
+				return object, nil
+			}
 			cursor.align(4)
 			width, height := int(cursor.u32()), int(cursor.u32())
 			cursor.u32()
@@ -265,7 +288,7 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 			}
 			cursor.take(24)
 			pixels := cursor.take(int(cursor.u32()))
-			fitted := fitCustomArtwork(art, width, height)
+			fitted := fitCustomArtwork(selected, width, height)
 			if len(pixels) != width*height*4 {
 				t.Fatalf("asset %s has an invalid pixel payload", name)
 			}
@@ -357,6 +380,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	var art bytes.Buffer
 	_ = png.Encode(&art, im)
 	c.Artwork = art.Bytes()
+	c.IconArtwork = art.Bytes()
 	a.catalogByKey["6:10000010"] = AdminCatalogEntry{Name: "模板", ResourceState: "ready", ImageURL: "/assets/card/10000010.webp"}
 	// Real resource sets can already contain published custom IDs. Preserve
 	// those IDs in this synthetic draft, and exercise artwork re-export for
@@ -399,7 +423,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	a.operations = ops
 	d, rev, e := a.customCardsDraft(s)
-	if e != nil || len(d.Cards) != len(testCards) || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) {
+	if e != nil || len(d.Cards) != len(testCards) || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) || !bytes.Equal(d.Cards[0].IconArtwork, c.IconArtwork) {
 		t.Fatalf("restart: %v", e)
 	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})

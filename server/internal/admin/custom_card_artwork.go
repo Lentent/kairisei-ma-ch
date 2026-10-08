@@ -10,6 +10,7 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"image/png"
+	"path"
 	"strings"
 )
 
@@ -55,6 +56,16 @@ func rewriteCustomTexture(raw []byte, newName string, art image.Image) ([]byte, 
 	n := int(c.u32())
 	c.take(n)
 	c.align(4)
+	// An icon-only upload retains the template illustration's original texture
+	// format and pixels. Its name still needs to follow the new PictID.
+	if art == nil {
+		if len(newName) != n {
+			return nil, errors.New("模板贴图名称长度不一致")
+		}
+		next := bytes.Clone(raw)
+		copy(next[4:4+n], newName)
+		return next, nil
+	}
 	head := c.p
 	w, h := int(c.u32()), int(c.u32())
 	c.u32()
@@ -129,7 +140,7 @@ func rewriteCustomArtworkContainer(object []byte, paths map[string]string, oldPi
 	return bytes.ReplaceAll(object, []byte(oldID), []byte(newID)), nil
 }
 
-func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string) (result []byte, cab string, err error) {
+func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string, icon ...image.Image) (result []byte, cab string, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			err = fmt.Errorf("卡面资源格式不支持：%v", v)
@@ -155,6 +166,8 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 		return nil, "", errors.New("卡面CAB名称布局不支持")
 	}
 	found := 0
+	textureNames := map[string]bool{}
+	containers := [][]byte{}
 	asset, e := rewriteResourceObjects(b.nodes[0].data, func(class int, object []byte) ([]byte, error) {
 		if class == 28 {
 			c := resourceCursor{b: object, order: binary.LittleEndian}
@@ -164,10 +177,20 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 				return object, nil
 			}
 			found++
-			return rewriteCustomTexture(object, strings.TrimSuffix(name, oldID)+newID, art)
+			newName := strings.TrimSuffix(name, oldID) + newID
+			textureNames[newName] = true
+			selected := art
+			if strings.HasPrefix(name, "chr20_") && len(icon) > 0 && icon[0] != nil {
+				selected = icon[0]
+			}
+			return rewriteCustomTexture(object, newName, selected)
 		}
 		if class == 142 {
-			return rewriteCustomArtworkContainer(object, paths, oldPict, newPict)
+			next, e := rewriteCustomArtworkContainer(object, paths, oldPict, newPict)
+			if e == nil {
+				containers = append(containers, next)
+			}
+			return next, e
 		}
 		return object, nil
 	})
@@ -176,6 +199,21 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 	}
 	if found == 0 {
 		return nil, "", errors.New("卡面模板未找到对应Texture2D")
+	}
+	// A PNG in the enlarged-image service does not make the ordinary card
+	// artwork loadable. Verify every exported catalog path and named texture.
+	for _, resourcePath := range paths {
+		name := strings.TrimSuffix(path.Base(resourcePath), path.Ext(resourcePath))
+		if !textureNames[name] {
+			return nil, "", fmt.Errorf("卡面资源%s缺少对应贴图，未生成更新包", name)
+		}
+		foundPath := false
+		for _, container := range containers {
+			foundPath = foundPath || bytes.Contains(container, []byte(resourcePath))
+		}
+		if !foundPath {
+			return nil, "", fmt.Errorf("卡面资源%s的内部加载路径无效，未生成更新包", name)
+		}
 	}
 	// Include the new pixels so a subsequent artwork edit gets a distinct CAB.
 	sum := sha256.Sum256(append([]byte(fmt.Sprintf("%d/%s", newPict, oldCab)), asset...))

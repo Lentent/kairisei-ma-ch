@@ -91,7 +91,7 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 			row[i] = strconv.Itoa(ids[old])
 		}
 	}
-	if len(c.Artwork) > 0 {
+	if c.hasCustomArtwork() {
 		row[36], row[38] = id, id
 	}
 	skills, roles := cloneCustomRows(c.Skills), cloneCustomRows(c.Roles)
@@ -110,10 +110,34 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	if e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
-	for _, r := range roles {
+	sourceTemplates := map[int]customCard{c.TemplateID: base}
+	for j, r := range roles {
+		// A borrowed effect follows its own source branch's attribute. Comparing
+		// against the card template silently leaves ICE/WIND effects on a LIGHT card.
+		source := c.RoleSources[j]
+		effectBase, ok := sourceTemplates[source.CardID]
+		if !ok {
+			effectBase, e = s.template(source.CardID)
+			if e != nil {
+				return nil, nil, nil, gamestate.Card{}, e
+			}
+			sourceTemplates[source.CardID] = effectBase
+		}
+		original := effectBase.Roles[source.Index]
+		attribute := effectBase.Attribute
+		for _, skill := range effectBase.Skills {
+			fn := customRowInt(skill, 49)
+			if fn == 0 {
+				fn = customRowInt(skill, 0)
+			}
+			if fn == customRowInt(original, 0) {
+				attribute = skill[11]
+				break
+			}
+		}
 		r[0] = strconv.Itoa(ids[customRowInt(r, 0)])
 		for i, kind := range s.Rules[r[8]] {
-			if kind == "ATTR" && r[20+i] == base.Attribute {
+			if kind == "ATTR" && r[20+i] == attribute {
 				r[20+i] = c.Attribute
 			}
 		}
@@ -254,7 +278,7 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 				master.CardCollectionPages = append(master.CardCollectionPages, page)
 			}
 		}
-		if len(c.Artwork) > 0 {
+		if c.hasCustomArtwork() {
 			if e = buildCustomCardImages(c, row, s, assets, manifest, files, original, root); e != nil {
 				return nil, e
 			}
@@ -280,10 +304,10 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 				files[dest] = b
 			}
 		}
-		if !found && (len(c.Artwork) > 0 || a.catalogByKey[adminCatalogKey(6, c.TemplateID)].ImageURL != "") {
+		if !found && (c.hasCustomArtwork() || a.catalogByKey[adminCatalogKey(6, c.TemplateID)].ImageURL != "") {
 			resolved++
 		}
-		receipts = append(receipts, customCardReceipt{ID: c.ID, TemplateID: c.TemplateID, Artwork: len(c.Artwork) > 0})
+		receipts = append(receipts, customCardReceipt{ID: c.ID, TemplateID: c.TemplateID, Artwork: c.hasCustomArtwork()})
 	}
 	for path, updates := range map[string]map[string][][]string{customCardCSVPath: cards, customSkillCSVPath: skills, customRoleCSVPath: roles} {
 		raw, e := read(path)
@@ -419,18 +443,52 @@ func validateGeneratedCustomCombat(root string, files map[string][]byte) error {
 }
 
 func buildCustomCardImages(c customCard, row []string, s customCardSources, assets, manifest map[string]any, files, original map[string][]byte, root string) error {
-	im, e := decodeCustomArtwork(c.Artwork)
-	if e != nil {
-		return e
+	var im, icon image.Image
+	var e error
+	if len(c.Artwork) > 0 {
+		im, e = decodeCustomArtwork(c.Artwork)
+		if e != nil {
+			return e
+		}
+	}
+	if len(c.IconArtwork) > 0 {
+		icon, e = decodeCustomArtwork(c.IconArtwork)
+		if e != nil {
+			return e
+		}
 	}
 	oldPict := customRowInt(s.Cards[c.TemplateID], 36)
 	oldID := fmt.Sprintf("%08d", oldPict)
 	groups := map[string][]map[string]any{}
+	foundImages := map[string]bool{}
 	for _, v := range assets["catalog_assets"].([]any) {
 		entry := v.(map[string]any)
-		if strings.HasSuffix(fmt.Sprint(entry["name"]), "_"+oldID) {
-			groups[entry["bundle"].(string)] = append(groups[entry["bundle"].(string)], entry)
+		assetName := fmt.Sprint(entry["name"])
+		if strings.HasSuffix(assetName, "_"+oldID) {
+			if foundImages[assetName] {
+				return fmt.Errorf("模板卡面资源%s重复，请修复资源清单", assetName)
+			}
+			foundImages[assetName] = true
+			containerPath, e := customArtworkEntryContainerPath(entry)
+			if e != nil {
+				return e
+			}
+			directory, _ := entry["directory"].(string)
+			if !strings.HasSuffix(directory, "/"+oldID[:2]+"/"+oldID[2:5]) {
+				return fmt.Errorf("模板卡面资源%s的目录与图片编号不一致", assetName)
+			}
+			// container_path is optional in the runtime catalog. Reconstruct it
+			// for older manifests, without changing the original template entry.
+			normalized := map[string]any{}
+			for k, value := range entry {
+				normalized[k] = value
+			}
+			normalized["container_path"] = containerPath
+			groups[entry["bundle"].(string)] = append(groups[entry["bundle"].(string)], normalized)
 		}
+	}
+	if !foundImages["chr10_"+oldID] || !foundImages["chr20_"+oldID] {
+		return errors.New("模板缺少普通卡面或卡牌图标，不能仅生成放大立绘；请选择资源完整的模板")
 	}
 	if len(groups) == 0 || len(groups) > 8 {
 		return errors.New("无法定位模板卡面资源")
@@ -459,7 +517,7 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 				containerPaths[oldPath] = customArtworkResourcePath(oldPath, oldPict, c.ID)
 			}
 		}
-		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im, containerPaths)
+		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im, containerPaths, icon)
 		if e != nil {
 			return e
 		}
@@ -521,7 +579,14 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 		}
 		assets["catalog_assets"] = catalog
 	}
-	png, e := encodeCustomArtworkPNG(im, 160, 160)
+	preview := icon
+	if preview == nil {
+		preview = im
+	}
+	if preview == nil {
+		return errors.New("请上传卡面小图或立绘")
+	}
+	png, e := encodeCustomArtworkPNG(preview, 160, 160)
 	if e != nil {
 		return e
 	}
@@ -532,7 +597,39 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 	files[path] = png
 	// The enlarged-image service is optional in older resource sets. Where it
 	// exists, include its separate manifest and PNG along with bundle textures.
+	if im == nil {
+		// Keep the enlarged template illustration when only the icon changes.
+		if imageRoot, ok := manifest["entrypoints"].(map[string]any)["cn-image-root"].(string); ok {
+			raw, e := os.ReadFile(filepath.Join(root, filepath.FromSlash(imageRoot), "chr51", "chr51_"+oldID+".png"))
+			if e != nil {
+				return fmt.Errorf("读取模板放大立绘：%w", e)
+			}
+			im, _, e = image.Decode(bytes.NewReader(raw))
+			if e != nil {
+				return fmt.Errorf("读取模板放大立绘：%w", e)
+			}
+		} else {
+			return nil
+		}
+	}
 	return addCustomEnlargedImage(c.ID, im, manifest, files, original, root)
+}
+
+func customArtworkEntryContainerPath(entry map[string]any) (string, error) {
+	if value, ok := entry["container_path"].(string); ok && value != "" {
+		return value, nil
+	}
+	directory, _ := entry["directory"].(string)
+	name, _ := entry["name"].(string)
+	extension, _ := entry["extension"].(string)
+	if directory == "" || name == "" || !strings.HasPrefix(extension, ".") || len(extension) < 2 {
+		return "", errors.New("模板卡面缺少资源目录、名称或扩展名")
+	}
+	baseDir, _ := entry["base_dir"].(string)
+	if baseDir == "" {
+		baseDir = "assets/resources/"
+	}
+	return strings.TrimSuffix(baseDir, "/") + "/" + directory + "/" + name + extension, nil
 }
 
 func addCustomEnlargedImage(cardID int, im image.Image, manifest map[string]any, files, original map[string][]byte, root string) error {
@@ -736,6 +833,7 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	}
 	for i := range d.Cards {
 		d.Cards[i].Artwork = nil
+		d.Cards[i].IconArtwork = nil
 	}
 	report, e := resourceJSON(map[string]any{"base_sha256": before, "cards": d.Cards})
 	if e != nil {

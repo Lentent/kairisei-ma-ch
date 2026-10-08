@@ -41,7 +41,13 @@ type customCard struct {
 	Roles       [][]string              `json:"roles"`
 	RoleSources []customRoleSource      `json:"role_sources"`
 	Artwork     []byte                  `json:"artwork,omitempty"`
+	IconArtwork []byte                  `json:"icon_artwork,omitempty"`
 }
+
+func (c customCard) hasCustomArtwork() bool {
+	return len(c.Artwork) > 0 || len(c.IconArtwork) > 0
+}
+
 type customRoleSource struct {
 	CardID int `json:"card_id"`
 	Index  int `json:"index"`
@@ -252,6 +258,16 @@ func customCardNextID(s customCardSources, d customCardDraft) int {
 	}
 	return 0
 }
+func customCardOccupiedIDs(s customCardSources) []int {
+	ids := []int{}
+	for id := range s.Cards {
+		if id >= customCardFirstID && id <= customCardLastID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+	return ids
+}
 func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 	a.operations.configMu.RLock()
 	defer a.operations.configMu.RUnlock()
@@ -265,7 +281,7 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 503, e.Error())
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "applied": s.Applied, "parameter_rules": s.Rules})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels()})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -287,7 +303,7 @@ func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, "模板客户端资源不完整")
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels()})
 }
 func customParameterValues(p gamestate.CardParameter) [4]int {
 	return [4]int{p.HP, p.Attack, p.Magic, p.Mind}
@@ -418,13 +434,18 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 				return errors.New("每个技能分支至少保留一项效果")
 			}
 		}
-		if len(c.Artwork) > 0 {
-			if _, e := decodeCustomArtwork(c.Artwork); e != nil {
-				return e
-			}
-			artworkBytes += len(c.Artwork)
-			if artworkBytes > 16<<20 {
-				return errors.New("全部卡面总大小须小于16MB，请压缩图片或分批制作")
+		for _, upload := range []struct {
+			name string
+			data []byte
+		}{{"立绘", c.Artwork}, {"卡面小图", c.IconArtwork}} {
+			if len(upload.data) > 0 {
+				if _, e := decodeCustomArtwork(upload.data); e != nil {
+					return fmt.Errorf("%s：%w", upload.name, e)
+				}
+				artworkBytes += len(upload.data)
+				if artworkBytes > 16<<20 {
+					return errors.New("全部小图和立绘总大小须小于16MB，请压缩图片或分批制作")
+				}
 			}
 		}
 		ids := customSkillIDs(*c)
