@@ -627,20 +627,47 @@ func (s *Account) EvolveCard(
 	if !sameEvolutionMaterials(selectedMaterials, transition.Materials) {
 		return CardInfo{}, 0, nil, errors.New("evolution materials differ")
 	}
-	// GOD evolution checks each material card's fame, not the sum of a family.
+	// Divergent evolution spends each selected card's fame and keeps the card.
+	// Require one fame to remain: the native client removes zero-fame materials.
+	updatedMaterials := make(map[int]CardInfo, len(materialIndexes))
+	updatedContainerMaterials := make(map[int]CardInfo, len(containerMaterialIndexes))
 	if transition.Type == 1 {
+		if len(stackUses) != 0 {
+			return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材必须使用卡牌名声。"}
+		}
 		for _, required := range transition.Materials {
+			if required.Fame <= 0 {
+				return CardInfo{}, 0, nil, errors.New("invalid divergent evolution fame cost")
+			}
 			for index := range materialIndexes {
 				card := s.cards[index]
-				if card.CardID == required.CardID && card.Fame < required.Fame {
-					return CardInfo{}, 0, nil, &BusinessError{-1, "进化素材名声不足。"}
+				if card.CardID != required.CardID {
+					continue
 				}
+				if card.Fame <= required.Fame {
+					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足，扣除后需至少保留1点名声。"}
+				}
+				card.Fame -= required.Fame
+				card, err = s.normalizeCardLocked(card)
+				if err != nil {
+					return CardInfo{}, 0, nil, err
+				}
+				updatedMaterials[index] = card
 			}
 			for index := range containerMaterialIndexes {
 				card := s.containerCards[index]
-				if card.CardID == required.CardID && card.Fame < required.Fame {
-					return CardInfo{}, 0, nil, &BusinessError{-1, "进化素材名声不足。"}
+				if card.CardID != required.CardID {
+					continue
 				}
+				if card.Fame <= required.Fame {
+					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足，扣除后需至少保留1点名声。"}
+				}
+				card.Fame -= required.Fame
+				card, err = s.normalizeCardLocked(card)
+				if err != nil {
+					return CardInfo{}, 0, nil, err
+				}
+				updatedContainerMaterials[index] = card
 			}
 		}
 	}
@@ -681,6 +708,14 @@ func (s *Account) EvolveCard(
 	}
 	s.cards[baseIndex] = result
 	s.recordCollectedCardLocked(result)
+	for index, card := range updatedMaterials {
+		s.cards[index] = card
+		delete(materialIndexes, index)
+	}
+	for index, card := range updatedContainerMaterials {
+		s.containerCards[index] = card
+		delete(containerMaterialIndexes, index)
+	}
 	if len(materialIndexes) != 0 {
 		kept := make([]CardInfo, 0, len(s.cards)-len(materialIndexes))
 		for index, card := range s.cards {
