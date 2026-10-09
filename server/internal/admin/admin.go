@@ -78,12 +78,17 @@ var adminCollectionsJS []byte
 //go:embed web/admin_custom_cards.js
 var adminCustomCardsJS []byte
 
+//go:embed web/admin_custom_bosses.js
+var adminCustomBossesJS []byte
+
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
 // owner of calculated deck rank and no card or deck data is rewritten here.
 const adminMaximumArthurRank = 17
 
 type AdminBattleGroup struct {
+	Custom        bool       `json:"custom,omitempty"`
+	Enabled       bool       `json:"enabled,omitempty"`
 	Bosses        []DropBoss `json:"bosses,omitempty"`
 	PastName      string     `json:"past_name,omitempty"`
 	GroupID       int        `json:"group_id"`

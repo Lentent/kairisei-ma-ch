@@ -29,8 +29,9 @@ func (s *Server) tryStartLoadedBattle(roomID int64) error {
 		return nil
 	}
 	spec := RoomSpec{
-		ScorePolicy:  current.scorePolicy,
-		EnemyPartyID: current.enemyPartyID, CostInitial: current.costInitial,
+		EnemyOverrides: current.enemyOverrides,
+		ScorePolicy:    current.scorePolicy,
+		EnemyPartyID:   current.enemyPartyID, CostInitial: current.costInitial,
 		ContinueAllowed: current.continueAllowed,
 		HoldMax:         current.holdMax, BurstGaugeInitial: current.burstGaugeInitial, Seed: current.seed,
 		Drops: append([]BattleDrop(nil), current.drops...),

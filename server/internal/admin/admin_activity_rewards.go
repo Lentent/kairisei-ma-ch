@@ -82,7 +82,9 @@ func (c *contentStore) projectActivityRewards(state *gamestate.State) error {
 		policy.MemberDeadEnd = policies[id].MemberDeadEnd
 		policies[id] = policy
 	}
-	state.TeamBattleReplays = slices.Clone(c.base.TeamBattleReplays)
+	if state.TeamBattleReplays == nil {
+		state.TeamBattleReplays = slices.Clone(c.base.TeamBattleReplays)
+	}
 	for i := range state.TeamBattleRewards {
 		p := &state.TeamBattleRewards[i]
 		if policy := policies[c.rewardBossID(p.BossID)]; policy != nil {

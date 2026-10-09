@@ -300,7 +300,7 @@
     <!-- Boss 发布 -->
     <section class="view" id="bosses">
       <div class="view-alert" role="alert" hidden></div>
-      <div class="tabs" id="boss-catalogs" role="group" aria-label="目录"><button class="active" data-catalog="activity">活动／素材副本</button><button data-catalog="past">往期 BOSS</button></div>
+      <div class="tabs" id="boss-catalogs" role="group" aria-label="目录"><button class="active" data-catalog="activity">活动／素材副本</button><button data-catalog="past">往期 BOSS</button><button id="custom-boss-open" type="button">添加／编辑自定义 Boss</button></div>
       <div class="panel"><div class="panel-head"><div><h2>发布设置</h2><span class="hint">仅发布当前 Tab 的目录；两类入口独立。普通副本、圣剑学习和已开始的战斗不受影响。</span></div></div><div class="panel-body">
         <div class="publish-row">
           <div class="field"><label>开放方式</label><div class="mode"><button id="mode-all">全部开放</button><button id="mode-selected">仅选中组</button></div></div>
@@ -610,7 +610,7 @@
     <section class="view" id="audit">
       <div class="view-alert" role="alert" hidden></div>
       <div class="panel"><div class="panel-body">
-        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="dungeon-schedule">副本日程表</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option><option value="mission-policy">任务管理</option></select>
+        <div class="filterbar"><input id="audit-search" class="search" type="search" placeholder="搜索玩家 ID、批次编号或操作内容"><select id="audit-operation" aria-label="操作类型"><option value="">所有操作</option><option value="mail-delivery">批量赠礼</option><option value="account-mail">单封赠礼</option><option value="account-mail-delete">删除玩家邮件</option><option value="account-grant">资源与进度调整</option><option value="account-credentials-admin">账号绑定／密码</option><option value="account-unbind">解除绑定</option><option value="boss-policy">BOSS发布</option><option value="dungeon-schedule">副本日程表</option><option value="boss-rules">BOSS难度规则</option><option value="boss-drops">BOSS掉落</option><option value="custom-bosses">自定义 BOSS</option><option value="activity-rewards">圣剑杯与探索</option><option value="exchange-shops">兑换所</option><option value="item-shop">道具商店</option><option value="gacha-policy">扭蛋发布</option><option value="gacha-draft">卡池草稿</option><option value="gacha-live">卡池发布</option><option value="gacha-custom">新建／删除卡池</option><option value="runtime-settings">运营设置</option><option value="player-policy">公告与奖励</option><option value="mission-policy">任务管理</option></select>
           <span class="range" role="group" aria-label="时间范围"><input type="datetime-local" id="audit-after" aria-label="开始时间"><span>–</span><input type="datetime-local" id="audit-before" aria-label="结束时间"></span><button class="secondary" id="audit-reset">清除筛选</button><button id="audit-export" class="secondary">导出本页</button></div>
         <div class="table-wrap"><table><thead><tr><th>ID / 时间</th><th>操作</th><th>目标</th><th>详细内容</th></tr></thead><tbody id="audit-rows"></tbody></table></div>
         <div class="pager" id="audit-pager"><button class="secondary" id="audit-prev">上一页</button><span id="audit-page-info" class="page-info"></span><label>跳至 <input id="audit-page" type="number" min="1" value="1" aria-label="页码"> 页</label><button class="secondary" id="audit-next">下一页</button></div>
@@ -675,6 +675,33 @@
     <p id="boss-schedule-error" class="state-error" role="alert" hidden></p>
   </div>
   <div class="dialog-actions"><button type="button" class="secondary" id="boss-schedule-reset">移除独立排期</button><span class="spacer"></span><button type="button" class="secondary" id="boss-schedule-cancel" data-dismiss>取消</button><button type="button" class="primary" id="boss-schedule-apply">加入发布草稿</button></div>
+</div></div>
+<div class="modal" id="custom-boss-modal" role="dialog" aria-modal="true" aria-labelledby="custom-boss-title"><div class="dialog wide">
+  <div class="dialog-head"><div><h2 id="custom-boss-title">自定义 Boss</h2><p class="lead">复制现有难度，沿用外形、技能和行动机制，独立修改每一波的部位数值。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
+  <div class="dialog-body">
+    <div id="custom-boss-error" class="view-alert" role="alert" hidden></div>
+    <div class="field"><label for="custom-boss-select">已制作的 Boss</label><select id="custom-boss-select"><option value="">选择一个 Boss 继续编辑</option></select></div>
+    <details id="custom-boss-create-panel" open><summary>从现有 Boss 添加</summary>
+      <div class="field"><label for="custom-boss-search">搜索模板</label><input id="custom-boss-search" type="search" placeholder="输入 Boss 名称、难度或 ID"></div>
+      <div class="field"><label for="custom-boss-source">模板与难度</label><select id="custom-boss-source"></select></div>
+      <button type="button" class="secondary" id="custom-boss-create">复制为新 Boss</button><p class="hint">复制后先保持关闭，修改完成再开放。圣剑杯计分及亚瑟敌方编队暂不支持复制。</p>
+    </details>
+    <div id="custom-boss-form" hidden>
+      <p class="hint" id="custom-boss-template"></p>
+      <div class="publish-row">
+        <div class="field"><label for="custom-boss-name">Boss 名称</label><input id="custom-boss-name" maxlength="80"></div>
+        <div class="field"><label for="custom-boss-difficulty">难度名称</label><input id="custom-boss-difficulty" maxlength="30"></div>
+        <div class="field"><label for="custom-boss-bp">单人 AI 房体力</label><input id="custom-boss-bp" type="number" min="1" max="999"></div>
+        <div class="field"><label for="custom-boss-bp-half">组队体力</label><input id="custom-boss-bp-half" type="number" min="1" max="999"></div>
+      </div>
+      <div class="filterbar"><label><input id="custom-boss-enabled" type="checkbox">允许开放</label><label><input id="custom-boss-continue" type="checkbox">允许复活</label></div>
+      <p class="hint">开放还须满足「活动／素材副本」的发布名单及排期。HP 已包含原编队倍率；开场被动和战斗中的强化仍沿用原机制。</p>
+      <div id="custom-boss-targets"></div>
+      <p class="hint">调整物攻、魔攻不会改变技能中的固定伤害。这里修改基础数值与抗性，技能参数和行动顺序仍沿用模板。</p>
+      <button type="button" class="secondary" id="custom-boss-drops">配置此 Boss 的掉落</button>
+    </div>
+  </div>
+  <div class="dialog-actions"><span id="custom-boss-state" class="hint" aria-live="polite"></span><span class="spacer"></span><button type="button" class="secondary" id="custom-boss-close" data-dismiss>关闭</button><button type="button" class="primary" id="custom-boss-save" disabled>保存配置</button></div>
 </div></div>
 <div class="modal" id="boss-detail-modal" role="dialog" aria-modal="true" aria-labelledby="boss-detail-title"><div class="dialog wide">
   <div class="dialog-head"><div><h2 id="boss-detail-title">BOSS 难度与规则</h2><p class="lead">规则保存后用于后续开战；已开始的战斗不变。复活仍按游戏原费用扣除水晶。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
@@ -745,5 +772,6 @@
 <script defer src="/dungeon-schedule.js"></script>
 <script defer src="/missions.js"></script>
 <script defer src="/insights.js"></script>
+<script defer src="/custom-bosses.js"></script>
 </body>
 </html>

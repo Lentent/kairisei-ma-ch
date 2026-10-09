@@ -197,6 +197,9 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 	// The stock multiplayer picker uses bp_use_half; the request supplies no
 	// price. Freeze the published cost in the room and debit only at start.
 	bpUse := rules.BPUseHalf
+	if issue.AutoStart && len(replay.EnemyOverrides) > 0 {
+		bpUse = rules.BPUse
+	}
 	if bpUse <= 0 || bpUse > rules.BPUse {
 		return multiplayer.Credential{}, errors.New("multiplayer battle point cost is unavailable")
 	}
@@ -219,6 +222,7 @@ func (a *API) issueTeamBattleRoom(issue teamBattleRoomIssue) (multiplayer.Creden
 		}
 	}
 	return a.multiplayer.IssueCreate(multiplayer.RoomSpec{
+		EnemyOverrides:     replay.EnemyOverrides,
 		ScorePolicy:        rewardProfile.ScorePolicy,
 		Battles:            battles,
 		DropLedgerVersion:  1,

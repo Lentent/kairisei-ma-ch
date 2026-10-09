@@ -116,6 +116,7 @@ type BattleDrop struct {
 }
 
 type RoomSpec struct {
+	EnemyOverrides     []gamestate.TeamBattleEnemyOverride
 	ScorePolicy        *gamestate.TeamBattleScorePolicy
 	FameRewardsSet     bool
 	FameRewards        []gamestate.Reward
@@ -244,8 +245,9 @@ type cardPlaySubmission struct {
 }
 
 type room struct {
-	scorePolicy *gamestate.TeamBattleScorePolicy
-	session     *roomSession // registry-owned identity; mutable state uses session.mu
+	enemyOverrides []gamestate.TeamBattleEnemyOverride
+	scorePolicy    *gamestate.TeamBattleScorePolicy
+	session        *roomSession // registry-owned identity; mutable state uses session.mu
 
 	RoomSnapshot
 	battles                []gamestate.TeamBattleReplayBattle
@@ -574,6 +576,12 @@ func (h *Hub) IssueCreate(spec RoomSpec) (Credential, error) {
 		return Credential{}, errors.New("服务器维护中，请稍后再试")
 	}
 	if h.combat != nil {
+		for _, override := range spec.EnemyOverrides {
+			wave := roomSpecBattles(spec)[override.BattleIndex]
+			if h.combat.EnemyParties[wave.EnemyPartyID].Slots[override.EnemyIndex].EnemyID != override.Stats.EnemyID {
+				return Credential{}, errors.New("room override enemy identity does not match its party")
+			}
+		}
 		for index, wave := range roomSpecBattles(spec) {
 			party, exists := h.combat.EnemyParties[wave.EnemyPartyID]
 			if !exists {
@@ -956,6 +964,17 @@ func validateRoomSpec(spec RoomSpec) error {
 			return errors.New("room battle wave is invalid")
 		}
 	}
+	seenOverrides := map[[2]int]bool{}
+	for _, override := range spec.EnemyOverrides {
+		key := [2]int{override.BattleIndex, override.EnemyIndex}
+		if override.BattleIndex < 0 || override.BattleIndex >= len(waves) || override.EnemyIndex < 0 || override.EnemyIndex >= 4 || seenOverrides[key] {
+			return errors.New("room enemy override is invalid or duplicated")
+		}
+		seenOverrides[key] = true
+		if err := gamestate.ValidateTeamBattleEnemyStats(override.Stats); err != nil {
+			return err
+		}
+	}
 	if spec.RoomType < 0 || spec.RoomType > 1 {
 		return errors.New("room type is invalid")
 	}
@@ -1110,6 +1129,7 @@ func cloneMember(member Member) Member {
 }
 
 func cloneRoomSpec(spec RoomSpec) RoomSpec {
+	spec.EnemyOverrides = gamestate.CloneTeamBattleEnemyOverrides(spec.EnemyOverrides)
 	spec.ScorePolicy = gamestate.CloneTeamBattleScorePolicy(spec.ScorePolicy)
 	spec.FameRewards = cloneFameRewards(spec.FameRewards)
 	spec.Battles = append([]gamestate.TeamBattleReplayBattle(nil), spec.Battles...)

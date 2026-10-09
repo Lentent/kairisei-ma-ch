@@ -10,7 +10,16 @@ import (
 func (a *API) bossCatalog(r *http.Request) (string, []AdminBattleGroup, map[int]struct{}, error) {
 	switch r.URL.Query().Get("catalog") {
 	case "", "activity":
-		return teamBattlePublicationKey, a.groups, a.knownGroups, nil
+		groups := append([]AdminBattleGroup(nil), a.groups...)
+		groups = append(groups, a.operations.customBossGroups()...)
+		known := make(map[int]struct{}, len(groups))
+		for id := range a.knownGroups {
+			known[id] = struct{}{}
+		}
+		for _, g := range groups {
+			known[g.GroupID] = struct{}{}
+		}
+		return teamBattlePublicationKey, groups, known, nil
 	case "past":
 		known := make(map[int]struct{}, len(a.pastGroups))
 		for _, g := range a.pastGroups {

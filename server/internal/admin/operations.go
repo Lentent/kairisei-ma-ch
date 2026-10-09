@@ -350,7 +350,10 @@ func (operations *Operations) BattleGroupAllowlist(key string) (map[int]struct{}
 	if err := json.Unmarshal(content, &publication); err != nil {
 		return nil, fmt.Errorf("decode CN team battle publication: %w", err)
 	}
-	return battlePublicationAllowlist(publication, operations.battleGroupIDs[key], time.Now())
+	operations.configMu.RLock()
+	ids := slices.Clone(operations.battleGroupIDs[key])
+	operations.configMu.RUnlock()
+	return battlePublicationAllowlist(publication, ids, time.Now())
 }
 
 func (operations *Operations) writeDocument(key string, expected int, value any) (accountstore.Document, error) {

@@ -125,7 +125,11 @@ func (o *Operations) normalizeDungeonScheduleConfig(config *dungeonScheduleConfi
 			return errors.New("日程表包含无效或重复的副本组")
 		}
 		seen[key] = true
-		known := slices.ContainsFunc(o.dungeonScheduleGroups[entry.Catalog], func(g AdminBattleGroup) bool { return g.GroupID == entry.GroupID })
+		groups := slices.Clone(o.dungeonScheduleGroups[entry.Catalog])
+		if entry.Catalog == "activity" {
+			groups = append(groups, o.customBossGroups()...)
+		}
+		known := slices.ContainsFunc(groups, func(g AdminBattleGroup) bool { return g.GroupID == entry.GroupID })
 		if !known {
 			return fmt.Errorf("日程表条目引用未知副本组 %s/%d", entry.Catalog, entry.GroupID)
 		}
@@ -172,9 +176,16 @@ func (o *Operations) dungeonScheduleEntries(config dungeonScheduleConfig, now ti
 		for _, schedule := range policy.GroupSchedules {
 			groupSchedules[schedule.GroupID] = schedule
 		}
-		for _, group := range o.dungeonScheduleGroups[catalog] {
+		groups := slices.Clone(o.dungeonScheduleGroups[catalog])
+		if catalog == "activity" {
+			groups = append(groups, o.customBossGroups()...)
+		}
+		for _, group := range groups {
 			override, edited := overrides[dungeonScheduleEntryKey(catalog, group.GroupID)]
 			published := policy.Mode == "all" || slices.Contains(policy.GroupIDs, group.GroupID)
+			if group.Custom && !group.Enabled {
+				published = false
+			}
 			if !published && !edited {
 				continue
 			}

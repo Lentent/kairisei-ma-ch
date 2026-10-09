@@ -105,7 +105,7 @@ setInterval(async()=>{
 const bossRuleEditor={rules:new Map(),revision:0,group:null,dirty:false,busy:false,request:0};
 $('#boss-attribute').innerHTML=attributeOptions;
 $('#drop-attribute').innerHTML=attributeOptions;
-function bossIsPublished(g){const p=state.policy,now=Date.now()/1000,s=p?.group_schedules?.find(s=>s.group_id===g.group_id),day=(new Date((now+8*3600)*1000).getUTCDay()+6)%7+1;return !!p&&(!p.start_unix||now>=p.start_unix)&&(!p.end_unix||now<p.end_unix)&&(p.mode==='all'||(p.group_ids||[]).includes(g.group_id))&&(!s||((!s.start_unix||now>=s.start_unix)&&(!s.end_unix||now<s.end_unix)&&(!s.weekdays?.length||s.weekdays.includes(day))))}
+function bossIsPublished(g){const p=state.policy,now=Date.now()/1000,s=p?.group_schedules?.find(s=>s.group_id===g.group_id),day=(new Date((now+8*3600)*1000).getUTCDay()+6)%7+1;return (!g.custom||g.enabled)&&!!p&&(!p.start_unix||now>=p.start_unix)&&(!p.end_unix||now<p.end_unix)&&(p.mode==='all'||(p.group_ids||[]).includes(g.group_id))&&(!s||((!s.start_unix||now>=s.start_unix)&&(!s.end_unix||now<s.end_unix)&&(!s.weekdays?.length||s.weekdays.includes(day))))}
 function bossMatchesFilters(g){
   const attr=$('#boss-attribute').value,difficulty=$('#boss-difficulty').value,published=$('#boss-published').value;
   return (!attr||(g.bosses||[]).some(b=>b.targets.some(t=>(t.stats?.attribute||'').split('_').includes(attr))))&&(!difficulty||(g.difficulties||[]).includes(difficulty))&&(!published||bossIsPublished(g)===(published==='open'));
@@ -127,7 +127,7 @@ const ruleLabel=k=>ruleColumns.find(c=>c[0]===k)[1];
 function renderBossRuleForms(){
   const bosses=bossRuleEditor.group.bosses||[];$('#boss-detail-save').disabled=bossRuleEditor.busy||!bosses.length;
   const head=ruleColumns.map(([k,label,help])=>`<th><span title="${help}">${label}</span><span class="col-actions"><button type="button" class="ghost" data-col="${k}" data-value="1" title="本组全部难度开启「${label}」">全开</button><button type="button" class="ghost" data-col="${k}" data-value="0" title="本组全部难度关闭「${label}」">全关</button></span></th>`).join('');
-  const drops=b=>`<button type="button" class="ghost" data-edit-drops="${b.boss_id}">配置掉落 →</button>`;
+  const drops=b=>`<button type="button" class="ghost" data-edit-drops="${b.boss_id}">配置掉落 →</button><button type="button" class="secondary sm" ${b.source_boss_id?`data-custom-boss="${b.boss_id}"`:`data-copy-boss="${b.boss_id}"`}>${b.source_boss_id?'编辑数值':'复制此难度'}</button>`;
   const rows=bosses.map(b=>{const row=bossRuleEditor.rules.get(b.boss_id),rule=row?.draft,name=`<b>${esc(b.difficulty)}</b> <code>#${b.boss_id}</code>`;
     if(!rule)return `<tr data-boss="${b.boss_id}"><td>${name}</td><td colspan="4" class="hint">沿用原生入口规则，不能在此修改</td><td>${drops(b)}</td></tr>`;
     const cell=k=>{const off=k==='own_deck'&&!row.own_deck_boss_id;return `<td class="${rule[k]!==row[k]?'changed':''}"><label class="switch"><input data-rule="${k}" type="checkbox" aria-label="${esc(b.difficulty)} ${ruleLabel(k)}" ${rule[k]?'checked':''} ${off?'disabled':''}></label>${off?'<span class="tag" title="此难度没有自卡组战斗配置">无配置</span>':''}</td>`};
