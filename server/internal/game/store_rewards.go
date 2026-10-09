@@ -331,10 +331,11 @@ func (s *Account) DeletePresents(presentID int64) ([]int64, error) {
 }
 
 func (s *Account) MissionState() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
 	for _, mission := range s.missions {
-		if mission.Info.State == 1 {
+		if mission.Info.State == 1 && s.missionEnabledLocked(mission.Info.MissionID) {
 			return true
 		}
 	}
@@ -342,11 +343,14 @@ func (s *Account) MissionState() bool {
 }
 
 func (s *Account) MissionInfos() []gamestate.MissionInfo {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]gamestate.MissionInfo, len(s.missions))
-	for index, mission := range s.missions {
-		result[index] = cloneMissionInfo(mission.Info)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
+	result := make([]gamestate.MissionInfo, 0, len(s.missions))
+	for _, mission := range s.missions {
+		if s.missionEnabledLocked(mission.Info.MissionID) {
+			result = append(result, cloneMissionInfo(mission.Info))
+		}
 	}
 	return result
 }
@@ -361,7 +365,7 @@ func (s *Account) CheckMissionOpenURL(openURL string) ([]gamestate.MissionInfo, 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, mission := range s.missions {
-		if mission.Info.OpenURL == openURL {
+		if mission.Info.OpenURL == openURL && s.missionEnabledLocked(mission.Info.MissionID) {
 			// The client opens the already-published command after this check.
 			// This route has no evidenced progress rule, so it returns no
 			// synthetic mission mutations.
@@ -418,10 +422,13 @@ func isLocalMissionCommand(command string) bool {
 func (s *Account) ReceiveMissionRewards(missionIDs []int) ([]gamestate.MissionInfo, []gamestate.MissionInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.refreshMissionsLocked(time.Now())
 	if len(missionIDs) == 0 {
 		return nil, nil, errors.New("mission selection is empty")
 	}
 	indices := make([]int, len(missionIDs))
+	issuedIDs := make(map[int64]struct{})
+	presentCount := 0
 	seen := make(map[int]struct{}, len(missionIDs))
 	for resultIndex, missionID := range missionIDs {
 		if _, duplicate := seen[missionID]; duplicate {
@@ -435,30 +442,51 @@ func (s *Account) ReceiveMissionRewards(missionIDs []int) ([]gamestate.MissionIn
 				break
 			}
 		}
-		if index < 0 || s.missions[index].Info.State != 1 {
+		if index < 0 || s.missions[index].Info.State != 1 || !s.missionEnabledLocked(missionID) {
 			return nil, nil, errors.New("mission is not claimable")
 		}
-		if err := s.validateRewardLocked(s.missions[index].RewardPresent.Reward); err != nil {
-			return nil, nil, err
+		gifts := append([]gamestate.Present{s.missions[index].RewardPresent}, s.missions[index].RewardPresents...)
+		if len(gifts) < 1 || len(gifts) > 4 || len(gifts) != len(s.missions[index].Info.Rewards) {
+			return nil, nil, errors.New("mission rewards are invalid")
 		}
-		for _, present := range s.presents {
-			if present.PresentID == s.missions[index].RewardPresent.PresentID {
-				return nil, nil, errors.New("mission reward present already exists")
+		for _, gift := range gifts {
+			if gift.PresentID <= 0 {
+				return nil, nil, errors.New("mission reward present ID is invalid")
+			}
+			if err := s.validateRewardLocked(gift.Reward); err != nil {
+				return nil, nil, err
+			}
+			if _, duplicate := issuedIDs[gift.PresentID]; duplicate {
+				return nil, nil, errors.New("duplicate mission reward present ID")
+			}
+			issuedIDs[gift.PresentID] = struct{}{}
+			for _, group := range [][]gamestate.Present{s.presents, s.presentHistories} {
+				for _, present := range group {
+					if present.PresentID == gift.PresentID {
+						return nil, nil, errors.New("mission reward present already exists")
+					}
+				}
 			}
 		}
+		presentCount += len(gifts)
 		indices[resultIndex] = index
+	}
+	if len(s.presents)+presentCount > 30000 {
+		return nil, nil, errors.New("present inbox is full")
 	}
 	rewardMissions := make([]gamestate.MissionInfo, 0, len(indices))
 	for _, index := range indices {
 		s.missions[index].Info.State = 2
 		rewardMissions = append(rewardMissions, cloneMissionInfo(s.missions[index].Info))
-		present := clonePresent(s.missions[index].RewardPresent)
-		present.IssuedAtUnix = time.Now().Unix()
-		s.presents = append(s.presents, present)
+		for _, gift := range append([]gamestate.Present{s.missions[index].RewardPresent}, s.missions[index].RewardPresents...) {
+			present := clonePresent(gift)
+			present.IssuedAtUnix = time.Now().Unix()
+			s.presents = append(s.presents, present)
+		}
 	}
 	receiveMissions := make([]gamestate.MissionInfo, 0, len(s.missions)-len(indices))
 	for _, mission := range s.missions {
-		if mission.Info.State != 2 {
+		if mission.Info.State != 2 && s.missionEnabledLocked(mission.Info.MissionID) {
 			receiveMissions = append(receiveMissions, cloneMissionInfo(mission.Info))
 		}
 	}
@@ -626,9 +654,22 @@ func (s *Account) validateEngagementLocked() error {
 			return errors.New("mission IDs must be unique")
 		}
 		missionIDs[mission.Info.MissionID] = struct{}{}
+		gifts := append([]gamestate.Present{mission.RewardPresent}, mission.RewardPresents...)
+		if len(gifts) > 4 {
+			return errors.New("mission has too many rewards")
+		}
+		giftIDs := make(map[int64]bool, len(gifts))
+		for _, gift := range gifts {
+			if gift.PresentID <= 0 || giftIDs[gift.PresentID] {
+				return errors.New("mission reward present IDs must be positive and unique")
+			}
+			giftIDs[gift.PresentID] = true
+		}
 		if mission.Info.State == 1 {
-			if err := s.validateRewardLocked(mission.RewardPresent.Reward); err != nil {
-				return err
+			for _, gift := range gifts {
+				if err := s.validateRewardLocked(gift.Reward); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -849,8 +890,10 @@ func cloneMissions(missions []gamestate.Mission) []gamestate.Mission {
 	result := make([]gamestate.Mission, len(missions))
 	for index, mission := range missions {
 		result[index] = gamestate.Mission{
-			Info:          cloneMissionInfo(mission.Info),
-			RewardPresent: clonePresent(mission.RewardPresent),
+			Info:           cloneMissionInfo(mission.Info),
+			RewardPresent:  clonePresent(mission.RewardPresent),
+			RewardPresents: clonePresents(mission.RewardPresents),
+			Period:         mission.Period,
 		}
 	}
 	return result

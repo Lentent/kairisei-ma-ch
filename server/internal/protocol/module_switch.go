@@ -8,6 +8,7 @@ const (
 	ModuleEverydayTask    ModuleSwitch = 1 << 2
 	ModuleActivity        ModuleSwitch = 1 << 3
 	ModuleRecommendDeck   ModuleSwitch = 1 << 4
+	ModuleGiftCode        ModuleSwitch = 1 << 7
 	ModuleStrategyButton  ModuleSwitch = 1 << 22
 	ModulePVP             ModuleSwitch = 1 << 28
 	ModuleFailureAdvise   ModuleSwitch = 1 << 29

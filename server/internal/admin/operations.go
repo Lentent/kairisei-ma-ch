@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,11 +24,12 @@ const (
 )
 
 type TeamBattlePublication struct {
-	StartUnix        int64  `json:"start_unix,omitempty"`
-	EndUnix          int64  `json:"end_unix,omitempty"`
-	ExpectedRevision *int   `json:"expected_revision,omitempty"`
-	Mode             string `json:"mode"`
-	GroupIDs         []int  `json:"group_ids,omitempty"`
+	StartUnix        int64                 `json:"start_unix,omitempty"`
+	EndUnix          int64                 `json:"end_unix,omitempty"`
+	ExpectedRevision *int                  `json:"expected_revision,omitempty"`
+	Mode             string                `json:"mode"`
+	GroupIDs         []int                 `json:"group_ids,omitempty"`
+	GroupSchedules   []BattleGroupSchedule `json:"group_schedules,omitempty"`
 }
 
 type gachaPublication struct {
@@ -46,6 +48,9 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 	}
 	if publication.StartUnix < 0 || publication.EndUnix < 0 || (publication.EndUnix != 0 && publication.EndUnix <= publication.StartUnix) {
 		return accountstore.Document{}, errors.New("活动结束时间须晚于开始时间")
+	}
+	if err := normalizeBattleSchedules(publication.GroupSchedules); err != nil {
+		return accountstore.Document{}, err
 	}
 	switch publication.Mode {
 	case "all":
@@ -71,12 +76,16 @@ func (operations *Operations) setBattlePublication(key string, publication TeamB
 }
 
 type Operations struct {
+	battleGroupIDs          map[string][]int
+	dungeonScheduleGroups   map[string][]AdminBattleGroup
 	evolutionEdges          map[game.EvolutionPath]int
 	evolutionClosed         []game.EvolutionPath
 	evolutionRevision       int
 	evolutionPolicy         *game.EvolutionRestrictions
 	maintenance             maintenanceGate
+	noticeSigningKey        [32]byte
 	playerPolicy            atomic.Pointer[playerPolicySnapshot]
+	missionPolicy           atomic.Pointer[missionPolicySnapshot]
 	playerDefaults          *PlayerPolicy
 	playerLoginBase         gamestate.LoginBonusPolicy
 	playerNaviNames         map[int8]string
@@ -87,6 +96,7 @@ type Operations struct {
 	itemShopProducts        map[[2]int]gamestate.ItemDefinition
 	storage                 *accountstore.Database
 	configMu                sync.RWMutex
+	legacyCustomGachas      map[int]bool
 	gachaBases              map[int]gamestate.GachaProfile
 	gachaCardJobs           map[int]int8
 	gachaConfigurations     []game.GachaConfiguration
@@ -134,7 +144,14 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 		storage: storage, managedGachaGroups: managedGroups,
 		managedGachaGroupByID: groupByID, defaultGachaPublication: defaults, gachaBases: bases,
 	}
+	if _, err := rand.Read(operations.noticeSigningKey[:]); err != nil {
+		return nil, fmt.Errorf("initialize notice signing key: %w", err)
+	}
 	catalog, err := storage.CatalogState()
+	if err != nil {
+		return nil, err
+	}
+	operations.battleGroupIDs, err = battlePublicationGroupIDs(catalog)
 	if err != nil {
 		return nil, err
 	}
@@ -165,6 +182,9 @@ func NewOperations(storage *accountstore.Database, gachas []gamestate.GachaProfi
 	operations.itemShopProducts[[2]int{3, 0}] = gamestate.ItemDefinition{Name: "卡牌仓库扩容", MaxOwned: gamestate.CardCapacityLimit}
 	operations.itemShopProducts[[2]int{4, 0}] = gamestate.ItemDefinition{Name: "卡牌持有上限扩容", MaxOwned: gamestate.CardCapacityLimit}
 	if err := operations.loadCustomGachas(); err != nil {
+		return nil, err
+	}
+	if err := operations.loadLegacyCustomGachas(); err != nil {
 		return nil, err
 	}
 	if err := operations.reloadGachaConfigurations(); err != nil {
@@ -198,6 +218,24 @@ func (operations *Operations) setGachaPublication(publication gachaPublication) 
 			unique = append(unique, groupID)
 		}
 	}
+	for _, groupID := range unique {
+		for id := range operations.legacyCustomGachas {
+			if operations.gachaBases[id].GroupID != groupID {
+				continue
+			}
+			live := false
+			for _, c := range operations.gachaConfigurations {
+				if c.Profile.GachaID == id {
+					live = true
+					break
+				}
+			}
+			if !live {
+				return accountstore.Document{}, errors.New("请先分别保存、预览并发布该组所有抽取入口，再统一开放")
+			}
+		}
+	}
+
 	publication.GroupIDs = unique
 	// A deleted operator pool stays hidden by its configuration. Keeping it in an existing publication lets a
 	// restore bring it back as before; only newly opening a deleted pool is refused.
@@ -270,13 +308,19 @@ func cloneIntSet(source map[int]struct{}) map[int]struct{} {
 func (operations *Operations) GachaIDPublished(gachaID int, active map[int]struct{}) bool {
 	operations.configMu.RLock()
 	defer operations.configMu.RUnlock()
+	_, custom := operations.customGachas[gachaID]
+	live := !custom
 	for _, config := range operations.gachaConfigurations {
 		if config.Profile.GachaID == gachaID {
+			live = true
 			now := time.Now().Unix()
 			if config.Disabled || now < config.StartUnix || (config.EndUnix != 0 && now >= config.EndUnix) {
 				return false
 			}
 		}
+	}
+	if !live {
+		return false
 	}
 	groupID, managed := operations.managedGachaGroupByID[gachaID]
 	if !managed {
@@ -306,25 +350,7 @@ func (operations *Operations) BattleGroupAllowlist(key string) (map[int]struct{}
 	if err := json.Unmarshal(content, &publication); err != nil {
 		return nil, fmt.Errorf("decode CN team battle publication: %w", err)
 	}
-	now := time.Now().Unix()
-	if now < publication.StartUnix || (publication.EndUnix != 0 && now >= publication.EndUnix) {
-		return map[int]struct{}{}, nil
-	}
-	switch publication.Mode {
-	case "all":
-		return nil, nil
-	case "allowlist":
-		allowed := make(map[int]struct{}, len(publication.GroupIDs))
-		for _, groupID := range publication.GroupIDs {
-			if groupID <= 0 {
-				return nil, errors.New("CN team battle publication contains an invalid group ID")
-			}
-			allowed[groupID] = struct{}{}
-		}
-		return allowed, nil
-	default:
-		return nil, errors.New("CN team battle publication mode is invalid")
-	}
+	return battlePublicationAllowlist(publication, operations.battleGroupIDs[key], time.Now())
 }
 
 func (operations *Operations) writeDocument(key string, expected int, value any) (accountstore.Document, error) {

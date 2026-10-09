@@ -12,8 +12,12 @@ func (a *API) missionShow(writer http.ResponseWriter, request *http.Request) {
 		a.writeStoreError(writer, err)
 		return
 	}
+	missions := a.account.MissionInfos()
+	if !a.persistOrError(writer) {
+		return
+	}
 	a.writeProtocol(writer, map[string]any{
-		"missions": a.account.MissionInfos(),
+		"missions": missions,
 	})
 }
 

@@ -159,7 +159,7 @@ async function resolveContentLabels(rewards){
   for(let i=0;i<keys.length;i+=100){const data=await api('/api/catalog/resolve',{method:'POST',body:JSON.stringify({rewards:keys.slice(i,i+100)})});for(const c of data.entries||[])contentPicker.labels.set(contentKey(c),c.name)}
 }
 function downloadContent(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-async function importContent(input){try{const file=input.files[0];if(!file)return null;if(file.size>1024*1024)throw new Error('方案文件超过1MiB');try{return JSON.parse(await file.text())}catch{throw new Error('方案文件不是有效的 JSON')}}finally{input.value=''}}
+async function importContent(input,maxBytes=1024*1024){try{const file=input.files[0];if(!file)return null;if(file.size>maxBytes)throw new Error(`方案文件超过${maxBytes/1024/1024}MiB`);try{return JSON.parse(await file.text())}catch{throw new Error('方案文件不是有效的 JSON')}}finally{input.value=''}}
 
 // Boss 掉落 ---------------------------------------------------------------------
 async function loadDropEditor(){

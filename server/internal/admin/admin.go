@@ -36,6 +36,9 @@ var adminHTML []byte
 //go:embed web/admin_operations.js
 var adminOperationsJS []byte
 
+//go:embed web/admin_gacha_legacy.js
+var adminGachaLegacyJS []byte
+
 //go:embed web/admin_ui.js
 var adminJS []byte
 
@@ -60,8 +63,20 @@ var adminContentJS []byte
 //go:embed web/admin_player_policy.js
 var adminPlayerPolicyJS []byte
 
+//go:embed web/admin_dungeon_schedule.js
+var adminDungeonScheduleJS []byte
+
+//go:embed web/admin_missions.js
+var adminMissionsJS []byte
+
 //go:embed web/admin_insights.js
 var adminInsightsJS []byte
+
+//go:embed web/admin_collections.js
+var adminCollectionsJS []byte
+
+//go:embed web/admin_custom_cards.js
+var adminCustomCardsJS []byte
 
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
@@ -123,25 +138,26 @@ type adminAssetManifest struct {
 }
 
 type API struct {
-	accounts         *accountstore.Accounts
-	business         AccountRuntime
-	operations       *Operations
-	groups           []AdminBattleGroup
-	catalog          []AdminCatalogEntry
-	catalogByKey     map[string]AdminCatalogEntry
-	assetURLs        map[string]struct{}
-	assetsRoot       string
-	knownGroups      map[int]struct{}
-	pastGroups       []AdminBattleGroup
-	bossCount        int
-	multiplayerHub   *multiplayer.Hub
-	advertiseHost    string
-	gamePort         int
-	logger           *slog.Logger
-	progression      gamestate.PlayerProgressionPolicy
-	gachaPresets     []AdminGachaPreset
-	gachaCoverDir    string
-	gachaBannerPaths map[string]string
+	accounts               *accountstore.Accounts
+	business               AccountRuntime
+	operations             *Operations
+	groups                 []AdminBattleGroup
+	catalog                []AdminCatalogEntry
+	catalogByKey           map[string]AdminCatalogEntry
+	assetURLs              map[string]struct{}
+	assetsRoot             string
+	knownGroups            map[int]struct{}
+	pastGroups             []AdminBattleGroup
+	bossCount              int
+	multiplayerHub         *multiplayer.Hub
+	advertiseHost          string
+	gamePort               int
+	logger                 *slog.Logger
+	progression            gamestate.PlayerProgressionPolicy
+	gachaPresets           []AdminGachaPreset
+	collectionResourceRoot string
+	gachaCoverDir          string
+	gachaBannerPaths       map[string]string
 }
 
 type AdminGachaPreset struct {
@@ -202,12 +218,13 @@ type adminAccount struct {
 }
 
 type adminPublicationState struct {
-	StartUnix  int64  `json:"start_unix"`
-	EndUnix    int64  `json:"end_unix"`
-	Mode       string `json:"mode"`
-	GroupIDs   []int  `json:"group_ids"`
-	Revision   int    `json:"revision"`
-	UpdatedUTC string `json:"updated_utc,omitempty"`
+	GroupSchedules []BattleGroupSchedule `json:"group_schedules,omitempty"`
+	StartUnix      int64                 `json:"start_unix"`
+	EndUnix        int64                 `json:"end_unix"`
+	Mode           string                `json:"mode"`
+	GroupIDs       []int                 `json:"group_ids"`
+	Revision       int                   `json:"revision"`
+	UpdatedUTC     string                `json:"updated_utc,omitempty"`
 }
 
 type adminGachaPublicationState struct {
@@ -364,6 +381,18 @@ func applyAdminCatalogAssetCoverage(catalog []AdminCatalogEntry, assetsRoot stri
 }
 
 func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster masterdata.ItemRuntimeMaster) ([]AdminCatalogEntry, map[string]AdminCatalogEntry, error) {
+	var customSource struct {
+		Cards []customCardReceipt `json:"admin_custom_cards"`
+	}
+	if len(cardMaster.Source) > 0 {
+		if err := json.Unmarshal(cardMaster.Source, &customSource); err != nil {
+			return nil, nil, err
+		}
+	}
+	customImages := map[int]bool{}
+	for _, c := range customSource.Cards {
+		customImages[c.ID] = c.Artwork
+	}
 	jpCards, err := adminJPCardIDs(cardMaster.Source)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read catalog import provenance: %w", err)
@@ -380,6 +409,10 @@ func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster maste
 		{Kind: "currency", RewardType: 12, Name: "体力", Detail: "领取时补充 BP，上限封顶"},
 	}
 	for _, card := range cardMaster.CardTemplates {
+		imageURL := fmt.Sprintf("/assets/card/%d.webp", card.CardID)
+		if customImages[card.CardID] {
+			imageURL = fmt.Sprintf("/assets/card/%d.png", card.CardID)
+		}
 		sourceTags := cardSourceTags(card.AcquisitionText)
 		if jpCards[card.CardID] {
 			sourceTags = append(sourceTags, "jp_import")
@@ -390,7 +423,7 @@ func BuildAdminCatalog(cardMaster masterdata.CardRuntimeMaster, itemMaster maste
 			Name: card.Name, Detail: card.AcquisitionText,
 			SourceTags:    sourceTags,
 			GachaEligible: cardCrystalGachaSource(card.AcquisitionText) && !evolved[card.CardID] && card.RarityRank >= 3,
-			ImageURL:      fmt.Sprintf("/assets/card/%d.webp", card.CardID),
+			ImageURL:      imageURL,
 			Rarity:        card.RarityRank, LevelMax: card.LevelMax,
 			ArthurType: cardMaster.DeckRankPolicy.Cards[card.CardID].ArthurType,
 			FameMax:    card.FameMax, LoveMax: card.LoveMax,
@@ -775,7 +808,7 @@ func matchesAdminSearch(text, query string) bool {
 func (admin *API) catalogAsset(writer http.ResponseWriter, request *http.Request) {
 	kind := chi.URLParam(request, "kind")
 	file := chi.URLParam(request, "file")
-	if kind == "" || file == "" || filepath.Base(file) != file || filepath.Ext(file) != ".webp" {
+	if kind == "" || file == "" || filepath.Base(file) != file || (filepath.Ext(file) != ".webp" && filepath.Ext(file) != ".png") {
 		WriteAdminError(writer, http.StatusNotFound, "admin asset not found")
 		return
 	}
@@ -800,7 +833,11 @@ func (admin *API) catalogAsset(writer http.ResponseWriter, request *http.Request
 		WriteAdminError(writer, http.StatusNotFound, "admin asset not found")
 		return
 	}
-	writer.Header().Set("Content-Type", "image/webp")
+	if strings.HasSuffix(file, ".png") {
+		writer.Header().Set("Content-Type", "image/png")
+	} else {
+		writer.Header().Set("Content-Type", "image/webp")
+	}
 	http.ServeFile(writer, request, absolute)
 }
 
@@ -1181,7 +1218,8 @@ func adminPublicationFromDocument(doc accountstore.Document) (adminPublicationSt
 		publication.GroupIDs = []int{}
 	}
 	return adminPublicationState{
-		Mode: publication.Mode, GroupIDs: publication.GroupIDs, StartUnix: publication.StartUnix, EndUnix: publication.EndUnix,
+		GroupSchedules: publication.GroupSchedules,
+		Mode:           publication.Mode, GroupIDs: publication.GroupIDs, StartUnix: publication.StartUnix, EndUnix: publication.EndUnix,
 		Revision: doc.Revision, UpdatedUTC: doc.UpdatedUTC,
 	}, nil
 }
@@ -1220,6 +1258,12 @@ func (admin *API) setBossPolicy(writer http.ResponseWriter, request *http.Reques
 		WriteAdminError(writer, http.StatusBadRequest, err.Error())
 		return
 	}
+	for _, schedule := range publication.GroupSchedules {
+		if _, exists := known[schedule.GroupID]; !exists {
+			WriteAdminError(writer, http.StatusBadRequest, fmt.Sprintf("unknown schedule group ID %d", schedule.GroupID))
+			return
+		}
+	}
 	if publication.Mode == "allowlist" {
 		for _, groupID := range publication.GroupIDs {
 			if _, exists := known[groupID]; !exists {
@@ -1250,6 +1294,7 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 	defer admin.operations.configMu.RUnlock()
 	presets := append(append([]AdminGachaPreset(nil), admin.gachaPresets...), admin.customGachaPresets()...)
 	for i := range presets {
+		presets[i].GachaIDs = admin.operations.gachaGroupMembers(presets[i].GroupID)
 		for _, config := range admin.operations.gachaConfigurations {
 			if len(presets[i].GachaIDs) > 0 && presets[i].GachaIDs[0] == config.Profile.GachaID {
 				presets[i].Name = config.Profile.Name
@@ -1268,6 +1313,10 @@ func (admin *API) gachaPresetList(writer http.ResponseWriter, _ *http.Request) {
 }
 
 func (admin *API) gachaAsset(writer http.ResponseWriter, request *http.Request) {
+	if strings.HasPrefix(chi.URLParam(request, "file"), "custom_") {
+		admin.operations.CustomGachaBanner(writer, request)
+		return
+	}
 	fileName := chi.URLParam(request, "file")
 	if filepath.Base(fileName) != fileName || filepath.Ext(fileName) != ".png" {
 		WriteAdminError(writer, http.StatusNotFound, "gacha asset not found")

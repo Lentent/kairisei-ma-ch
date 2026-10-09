@@ -130,7 +130,7 @@ func TestConfiguredAccountCacheLimit(t *testing.T) {
 		if (err != nil) != invalid {
 			t.Fatalf("%q: %v", value, err)
 		}
-		if value == "" && limit != 32 {
+		if value == "" && limit != 128 {
 			t.Fatalf("default %d", limit)
 		}
 	}

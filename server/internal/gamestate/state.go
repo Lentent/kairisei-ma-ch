@@ -739,8 +739,10 @@ type MissionInfo struct {
 // Mission keeps transport data and the configurable present created by a
 // successful claim together without exposing reward_present to ProtoGen.
 type Mission struct {
-	Info          MissionInfo `json:"info"`
-	RewardPresent Present     `json:"reward_present"`
+	Info           MissionInfo `json:"info"`
+	RewardPresent  Present     `json:"reward_present"`
+	RewardPresents []Present   `json:"reward_presents,omitempty"` // Additional rewards, each sent as a separate gift.
+	Period         string      `json:"period,omitempty"`          // Local daily reset key; never sent to the client.
 }
 
 // Present mirrors proto.PresentBoxInfo. reward0..reward2 are intentionally
@@ -861,6 +863,7 @@ type ItemShopPeriodCounts struct {
 // card master. BannerKey selects an explicitly published loopback presentation
 // asset; the empty value retains the official cached default banner.
 type GachaProfile struct {
+	FixedDrawCount            bool             `json:"fixed_draw_count,omitempty"`
 	GachaID                   int              `json:"gachaid"`
 	Name                      string           `json:"gacha_name"`
 	BuyMessage                string           `json:"buymsg"`
@@ -896,6 +899,8 @@ type GachaProfile struct {
 	CardWeights               []int            `json:"card_weights"`
 	RewardPool                []WeightedReward `json:"reward_pool,omitempty"`
 	Steps                     []GachaStep      `json:"steps,omitempty"`
+	BoxRounds                 []GachaBoxRound  `json:"box_rounds,omitempty"`
+	BoxRound                  uint64           `json:"-"`
 	Gifts                     []GachaGiftRule  `json:"gift_rules,omitempty"`
 	UnownedOnly               bool             `json:"unowned_only,omitempty"`
 	// CoverPath is an operator-uploaded cover suffix such as "gacha-covers/<sha256>.png" (LOCAL_POLICY); the
@@ -1486,6 +1491,7 @@ type State struct {
 	// OperatorGachaPlays keeps play counts of operator-created pools that are not in the catalog list;
 	// the account appends those pools when their configuration is applied. Persisted through progress only.
 	OperatorGachaPlays           map[int]int                   `json:"-"`
+	GachaBoxes                   map[int]GachaBoxProgress      `json:"gacha_boxes,omitempty"`
 	ItemShopPurchases            map[int]int                   `json:"-"`
 	ItemShopPeriods              map[int]ItemShopPeriodCounts  `json:"-"`
 	GachaSelections              []GachaSelection              `json:"gacha_selections,omitempty"`

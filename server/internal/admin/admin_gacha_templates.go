@@ -62,6 +62,7 @@ func ruleTemplateAllowed(base gamestate.GachaProfile) bool {
 
 func (o *Operations) ruleTemplateMembers(groupID int) []int {
 	members := o.gachaGroupMembers(groupID)
+	members = slices.DeleteFunc(members, func(id int) bool { return o.customGachas[id].RuleVersion == 3 })
 	for _, id := range members {
 		if _, custom := o.customGachas[id]; custom || !ruleTemplateAllowed(o.gachaBases[id]) {
 			return nil

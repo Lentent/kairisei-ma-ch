@@ -88,6 +88,7 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 	s.snapshotItemShopProgress(&state)
 	state.Gachas = CloneGachaProfiles(s.gachas)
 	state.OperatorGachaPlays = maps.Clone(s.operatorGachaPlays)
+	state.GachaBoxes = gamestate.CloneGachaBoxes(s.gachaBoxes)
 	state.GachaSelections = make([]gamestate.GachaSelection, 0, len(s.gachaSelections))
 	for gachaID, rewards := range s.gachaSelections {
 		state.GachaSelections = append(state.GachaSelections, gamestate.GachaSelection{

@@ -264,10 +264,12 @@ func TestCardEvolutionRecipes(t *testing.T) {
 		{"limit insufficient materials", 3, 53, 0, true, false, true},
 		{"limit insufficient gold", 3, 53, 0, true, false, true},
 		{"knights accepts 800 materials", 2, 800, 0, false, false, false},
-		{"god keeps level", 1, 1, 3, true, false, false},
+		{"god keeps level", 1, 1, 4, true, false, false},
 		{"god low fame", 1, 1, 2, true, false, true},
-		{"god warehouse material", 1, 1, 3, true, true, false},
+		{"god exact fame preserves card", 1, 1, 3, true, false, true},
+		{"god warehouse material", 1, 1, 4, true, true, false},
 		{"god warehouse low fame", 1, 1, 2, true, true, true},
+		{"god warehouse exact fame preserves card", 1, 1, 3, true, true, true},
 	} {
 		t.Run(input.name, func(t *testing.T) {
 			base := CardInfo{UniqueID: 1, CardID: 10, Level: 2, LevelMax: 2, Experience: 10, Fame: 3, Love: 5, IsLock: 1}
@@ -277,8 +279,11 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				transition.Materials = []gamestate.EvolutionMaterial{{CardID: 20, Num: 25, Fame: 1}, {CardID: 21, Num: 25, Fame: 1}, {CardID: 22, Num: 3, Fame: 1}}
 			}
 			s := &Account{gold: 500, cards: []CardInfo{base}, cardCollectionIDs: map[int]struct{}{},
-				cardActions:     gamestate.CardActionState{EvolutionTransitions: []gamestate.EvolutionTransition{transition}},
-				cardDefinitions: map[int]gamestate.Card{11: {CardID: 11, LevelMax: 3, ExperienceTableID: 2, LoveMax: 10000, FameMax: 100}},
+				cardActions: gamestate.CardActionState{EvolutionTransitions: []gamestate.EvolutionTransition{transition}},
+				cardDefinitions: map[int]gamestate.Card{
+					11: {CardID: 11, LevelMax: 3, ExperienceTableID: 2, LoveMax: 10000, FameMax: 100},
+					20: {CardID: 20, LevelMax: 1, LoveMax: 10000, FameMax: 100},
+				},
 				cardTemplates:   map[int]CardInfo{11: {CardID: 11, Level: 1, LevelMax: 3}},
 				cardExperience:  map[int][]int{2: {20, 30}},
 				cardProgression: gamestate.CardProgressionPolicy{ConfigVersion: 5, FusionGoldPerMaterialPerBaseLevel: 100},
@@ -314,6 +319,8 @@ func TestCardEvolutionRecipes(t *testing.T) {
 			}
 			beforeGold := s.gold
 			beforeStacks := slices.Clone(s.stackCards)
+			beforeInventory := slices.Clone(s.cards)
+			beforeContainer := slices.Clone(s.containerCards)
 			beforeCards := len(s.cards) + len(s.containerCards)
 			if input.name == "operator closes direct edge" {
 				s.ApplyEvolutionRestrictions(NewEvolutionRestrictions([]EvolutionPath{{FromCardID: 10, ToCardID: 11}}))
@@ -334,7 +341,7 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				if !errors.As(err, &business) || business.Code != wantCode {
 					t.Fatalf("evolution rejection = %v, want code %d", err, wantCode)
 				}
-				if s.gold != beforeGold || !EqualCardInfo(s.cards[0], base) || len(s.cards)+len(s.containerCards) != beforeCards || !slices.Equal(s.stackCards, beforeStacks) || len(s.cardCollectionIDs) != 0 {
+				if s.gold != beforeGold || !slices.EqualFunc(s.cards, beforeInventory, EqualCardInfo) || !slices.EqualFunc(s.containerCards, beforeContainer, EqualCardInfo) || len(s.cards)+len(s.containerCards) != beforeCards || !slices.Equal(s.stackCards, beforeStacks) || len(s.cardCollectionIDs) != 0 {
 					t.Fatal("invalid evolution changed state")
 				}
 				return
@@ -347,10 +354,26 @@ func TestCardEvolutionRecipes(t *testing.T) {
 			if input.keep {
 				wantLevel, wantExp = 2, 20
 			}
-			if result.CardID != 11 || result.UniqueID != base.UniqueID || result.Level != wantLevel || result.Experience != wantExp || result.Love != base.Love || result.Fame != base.Fame || result.IsLock != base.IsLock || s.gold != 400 || len(s.cards) != 1 || len(s.containerCards) != 0 {
+			wantCards, wantContainer := 1, 0
+			if input.kind == 1 {
+				if input.container {
+					wantContainer = 1
+				} else {
+					wantCards++
+				}
+			}
+			if result.CardID != 11 || result.UniqueID != base.UniqueID || result.Level != wantLevel || result.Experience != wantExp || result.Love != base.Love || result.Fame != base.Fame || result.IsLock != base.IsLock || s.gold != 400 || len(s.cards) != wantCards || len(s.containerCards) != wantContainer {
 				t.Fatalf("evolution result or consumption differs: %+v", result)
 			}
-			if input.kind != 1 {
+			if input.kind == 1 {
+				material := s.cards[len(s.cards)-1]
+				if input.container {
+					material = s.containerCards[0]
+				}
+				if material.UniqueID != 2 || material.CardID != 20 || material.Fame != input.fame-3 {
+					t.Fatalf("divergent evolution did not preserve material and deduct fame: %+v", material)
+				}
+			} else {
 				remaining := 1
 				if input.name == "limit consumes last mixed materials" {
 					remaining = 0

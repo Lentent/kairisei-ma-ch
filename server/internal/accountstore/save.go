@@ -2,6 +2,7 @@ package accountstore
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,6 +79,7 @@ type saveState struct {
 	Gachas                         []gamestate.GachaProfile                  `json:"gachas"`
 	GachaSelections                []gamestate.GachaSelection                `json:"gacha_selections,omitempty"`
 	GachaDailyClaims               []gamestate.GachaDailyClaim               `json:"gacha_daily_claims,omitempty"`
+	GachaBoxes                     map[int]gamestate.GachaBoxProgress        `json:"gacha_boxes,omitempty"`
 	FriendPointInboxCursor         int64                                     `json:"friend_point_inbox_cursor,omitempty"`
 	CardActions                    gamestate.CardActionState                 `json:"card_actions"`
 	CardDevelopment                gamestate.CardDevelopmentState            `json:"card_development"`
@@ -388,6 +390,7 @@ func releaseStateFromSave(save saveState) gamestate.State {
 		Gachas:                       save.Gachas,
 		GachaSelections:              cloneGachaSelections(save.GachaSelections),
 		GachaDailyClaims:             append([]gamestate.GachaDailyClaim(nil), save.GachaDailyClaims...),
+		GachaBoxes:                   gamestate.CloneGachaBoxes(save.GachaBoxes),
 		FriendPointInboxCursor:       save.FriendPointInboxCursor,
 		CardActions:                  save.CardActions,
 		CardDevelopment:              cloneCardDevelopmentState(save.CardDevelopment),
@@ -415,6 +418,9 @@ func releaseStateFromSave(save saveState) gamestate.State {
 }
 
 func ValidateSave(save saveState) error {
+	if err := gamestate.ValidateGachaBoxes(save.GachaBoxes); err != nil {
+		return err
+	}
 	if save.SchemaVersion != 1 {
 		return errors.New("CN save schema_version must be 1")
 	}
@@ -655,7 +661,7 @@ func ValidateSave(save saveState) error {
 				gacha.Price <= 0 || gacha.CardNum <= 0 ||
 				gacha.CardNumMax < gacha.CardNum || gacha.EndTime <= 0 ||
 				gacha.UserSelectMax < 0 || gacha.UserSelectMax > len(gacha.CardIDs) ||
-				gacha.PlayCount < 0 || (len(gacha.CardIDs) == 0 && len(gacha.RewardPool) == 0) ||
+				gacha.PlayCount < 0 || (len(gacha.CardIDs) == 0 && len(gacha.RewardPool) == 0 && len(gacha.BoxRounds) == 0) ||
 				len(gacha.CardWeights) != len(gacha.CardIDs) ||
 				!validGachaResultPolicy(gacha) {
 				return fmt.Errorf("CN save gacha %d profile is invalid (arthur_type=%d)", gacha.GachaID, gacha.ArthurType)
@@ -663,9 +669,16 @@ func ValidateSave(save saveState) error {
 			if err := gamestate.ValidateGachaRules(gacha); err != nil {
 				return err
 			}
-			if !validGachaBannerKey(gacha.BannerKey) ||
-				!validGachaPublicationKey(gacha.PublicationKey) ||
-				(gacha.PublicationKey != "" && gacha.PublicationKey != "operator" && gacha.BannerKey == "") {
+			validBanner := validGachaBannerKey(gacha.BannerKey)
+			validPublication := validGachaPublicationKey(gacha.PublicationKey)
+			if gacha.PublicationKey == "custom" {
+				validPublication = gacha.GachaID >= 70000000 && gacha.GachaID < 80000000 && gacha.GroupID >= 70000000 && gacha.GroupID < 80000000 && gacha.CardNum <= 11
+				if strings.HasPrefix(gacha.BannerKey, "custom_") && len(gacha.BannerKey) == 71 {
+					_, err := hex.DecodeString(gacha.BannerKey[7:])
+					validBanner = err == nil
+				}
+			}
+			if !validBanner || !validPublication || (gacha.PublicationKey != "" && gacha.PublicationKey != "operator" && gacha.BannerKey == "") {
 				return errors.New("CN save gacha banner policy is invalid")
 			}
 			if gacha.DailyFirstFree {
@@ -1114,6 +1127,7 @@ func SaveFromState(state gamestate.State) saveState {
 		Gachas:                         state.Gachas,
 		GachaSelections:                cloneGachaSelections(state.GachaSelections),
 		GachaDailyClaims:               append([]gamestate.GachaDailyClaim(nil), state.GachaDailyClaims...),
+		GachaBoxes:                     gamestate.CloneGachaBoxes(state.GachaBoxes),
 		FriendPointInboxCursor:         state.FriendPointInboxCursor,
 		CardActions:                    cardActions,
 		CardDevelopment:                cloneCardDevelopmentState(state.CardDevelopment),

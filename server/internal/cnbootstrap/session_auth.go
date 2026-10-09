@@ -42,6 +42,17 @@ func authenticateCNSessions(accounts *accountstore.Accounts) func(http.Handler) 
 			}
 			userID, err := accounts.ResolveSessionContext(request.Context(), sessionKey)
 			if err != nil {
+				// GiftCodeAdReceive calls onGiftCode even when CommonReceive fails,
+				// leaving its code at 0 (success). Native failures must reach the
+				// method's positive error code, with a successful common envelope.
+				if request.URL.Path == "/GiftCodeAd" {
+					code := 5
+					if errors.Is(err, accountstore.ErrInvalidSession) {
+						code = 8
+					}
+					writeCNGiftCodeResult(writer, code)
+					return
+				}
 				if errors.Is(err, accountstore.ErrInvalidSession) {
 					common := cnBootstrapCommon()
 					common["res_code"] = -3208
@@ -63,7 +74,7 @@ func authenticateCNSessions(accounts *accountstore.Accounts) func(http.Handler) 
 
 func isUnauthenticatedCNPost(path string) bool {
 	switch path {
-	case "/loginSDK.php", "/mods_switch.php", "/Ping", "/log.php", "/subcribe_push.php":
+	case "/loginSDK.php", "/mods_switch.php", "/Ping", "/log.php", "/subcribe_push.php", "/api/cdk/redeem":
 		return true
 	}
 	return strings.HasPrefix(path, "/disabled/envsdk/") || strings.HasPrefix(path, "/d/")

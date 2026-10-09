@@ -447,6 +447,11 @@ type DocumentSummary struct {
 	ReceiptCount    int
 }
 
+// ListDocuments lists all operation documents with the given prefix, including CDKs.
+func (storage *Database) ListDocuments(prefix string, limit, offset int) ([]DocumentSummary, int, error) {
+	return storage.ListBatchDocuments(prefix, "", false, limit, offset)
+}
+
 // ListBatchDocuments lists batch documents whose payload carries "title" and "user_ids".
 // search matches the key or title literally; unfinished keeps batches with fewer receipts than recipients.
 func (storage *Database) ListBatchDocuments(prefix, search string, unfinished bool, limit, offset int) ([]DocumentSummary, int, error) {

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"kairisei.local/server/internal/accountstore"
+	"kairisei.local/server/internal/gamestate"
 )
 
 type gachaTrashEntry struct {
@@ -68,6 +69,21 @@ func (o *Operations) gachaPurgePlan(groupID int) (accountstore.GachaPurgePlan, c
 	}
 	doc.Pools = slices.DeleteFunc(doc.Pools, func(p customGachaPool) bool { return p.GroupID == groupID })
 	plan.Writes = append(plan.Writes, accountstore.DocumentWrite{Key: customGachaKey, Expected: o.customGachaRevision, Value: doc, Operation: "gacha-custom"})
+	legacy, err := o.storage.ReadDocument(customGachaCatalogKey)
+	if err != nil {
+		return plan, doc, err
+	}
+	if legacy.Revision > 0 {
+		var profiles []gamestate.GachaProfile
+		if err = json.Unmarshal(legacy.Payload, &profiles); err != nil {
+			return plan, doc, err
+		}
+		kept := slices.DeleteFunc(profiles, func(p gamestate.GachaProfile) bool { return slices.Contains(plan.GachaIDs, p.GachaID) })
+		if len(kept) != len(profiles) {
+			plan.Writes = append(plan.Writes, accountstore.DocumentWrite{Key: customGachaCatalogKey, Expected: legacy.Revision, Value: kept, Operation: "gacha-custom"})
+		}
+	}
+
 	publication, err := o.storage.ReadDocument(gachaPublicationKey)
 	if err != nil {
 		return plan, doc, err
@@ -105,6 +121,7 @@ func (a *API) purgeGacha(ctx context.Context, groupID int, expected string) (acc
 		removed[id] = true
 		delete(o.gachaBases, id)
 		delete(o.customGachas, id)
+		delete(o.legacyCustomGachas, id)
 		delete(o.managedGachaGroupByID, id)
 	}
 	delete(o.managedGachaGroups, groupID)
@@ -116,6 +133,7 @@ func (a *API) purgeGacha(ctx context.Context, groupID int, expected string) (acc
 		}
 	}
 	o.gachaConfigurations = kept
+	o.syncCustomGachaCatalog()
 	o.customGachaRevision++
 	o.customGachaNextID = registry.NextID
 	o.gachaRevision++

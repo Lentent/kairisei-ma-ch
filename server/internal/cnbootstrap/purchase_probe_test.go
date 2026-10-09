@@ -157,7 +157,7 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	}
 	buy := func(index, added, balance int) {
 		t.Helper()
-		result := call("/QueryOrder", fmt.Sprintf(`{"order":"local:8:%032x"}`, index), fmt.Sprintf("purchase-switch-%d-%d", index, balance), 0)
+		result := call("/QueryOrder", fmt.Sprintf(`{"order":"local:1:%032x"}`, index), fmt.Sprintf("purchase-switch-%d-%d", index, balance), 0)
 		if string(result["code"]) != "1" || string(result["addcoin"]) != fmt.Sprint(added) || string(result["coin_free"]) != fmt.Sprint(balance) {
 			t.Fatalf("purchase result: %v", result)
 		}
@@ -166,10 +166,15 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 	buy(1, 0, 0)
 	settings("PUT", true, 0, 200)
 	buy(1, 0, 0) // opening the switch must not backfill a completed order
-	buy(2, 6480, 6480)
+	buy(2, 250, 250)
 	settings("PUT", false, 0, 409)
 	settings("PUT", false, 1, 200)
-	buy(3, 0, 6480)
+	buy(3, 0, 250)
+	// Fund the expansion probe using retained monthly-card renewals.
+	settings("PUT", true, 2, 200)
+	for index := 4; index <= 8; index++ {
+		buy(index, 250, 250*(index-2))
+	}
 	for _, kind := range []int{2, 10} {
 		base := 100
 		if kind == 10 {
@@ -191,7 +196,7 @@ func probeCompleteRuntimePurchase(t *testing.T, handler http.Handler, savePath, 
 		}
 	}
 	expanded, err := accounts.LoadState(identity.UserID)
-	if err != nil || expanded.User.CardMax != 180 || expanded.User.CardContainerMax != 3080 || expanded.User.CoinFree != 5200 {
+	if err != nil || expanded.User.CardMax != 180 || expanded.User.CardContainerMax != 3080 || expanded.User.CoinFree != 220 {
 		t.Fatalf("expansion persistence: cards=%d container=%d free=%d err=%v", expanded.User.CardMax, expanded.User.CardContainerMax, expanded.User.CoinFree, err)
 	}
 

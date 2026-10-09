@@ -8,6 +8,9 @@ import (
 
 // Every display and play resolves the same account-owned step and collection.
 func (s *Account) currentGachaLocked(profile gamestate.GachaProfile) gamestate.GachaProfile {
+	if len(profile.BoxRounds) > 0 {
+		return currentBoxGacha(profile, s.gachaBoxLocked(profile))
+	}
 	profile = profile.CurrentStep()
 	if !profile.UnownedOnly {
 		return profile
@@ -101,6 +104,13 @@ func (s *Account) validateGachaRulesLocked(profile gamestate.GachaProfile) error
 		return err
 	}
 	pools := [][]gamestate.WeightedReward{profile.RewardPool}
+	for _, round := range profile.BoxRounds {
+		for _, entry := range round.Rewards {
+			if err := s.validateRewardLocked(entry.Reward); err != nil {
+				return fmt.Errorf("gacha %d: %w", profile.GachaID, err)
+			}
+		}
+	}
 	for _, step := range profile.Steps {
 		pools = append(pools, step.RewardPool)
 	}

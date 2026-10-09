@@ -24,6 +24,8 @@ type application struct {
 	business    *accounthttp.Router
 	recorder    *recorder
 	progression gamestate.PlayerProgressionPolicy
+	cdk         http.Handler
+	cdkRedeemer nativeCDKRedeemer
 }
 
 func (app *application) router() chi.Router {
@@ -33,6 +35,14 @@ func (app *application) router() chi.Router {
 	router.Use(normalizeLeadingSlashes)
 	router.Use(app.maintenanceRequests)
 	router.Use(authenticateCNSessions(app.accounts))
+	if app.cdk != nil {
+		router.Get("/cdk", app.cdk.ServeHTTP)
+		router.Get("/cdk.js", app.cdk.ServeHTTP)
+		router.Post("/api/cdk/redeem", app.cdk.ServeHTTP)
+	}
+	if app.cdkRedeemer != nil {
+		router.Post("/GiftCodeAd", cnBootstrapGiftCodeAd(app.cdkRedeemer))
+	}
 	router.Get("/healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
@@ -45,40 +55,10 @@ func (app *application) router() chi.Router {
 	for _, name := range []string{"default", "apple-review", "qa"} {
 		router.Get("/local/server/"+name+".list", cnBootstrapServerList(app.config.Network.AdvertiseHost, app.config.Network.HTTPPort))
 	}
-	router.Get("/local/gacha/banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.GachaBanner)
-	})
-	router.Get("/local/gacha/five-star-banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.FiveStarGachaBanner)
-	})
-	for key, bannerPath := range app.resources.GachaBanners {
-		if key == "five_star_ticket" {
-			continue
-		}
-		key := key
-		bannerPath := bannerPath
-		router.Get("/local/gacha/"+key+".png", func(writer http.ResponseWriter, request *http.Request) {
-			writer.Header().Set("Content-Type", "image/png")
-			writer.Header().Set("Cache-Control", "no-store")
-			http.ServeFile(writer, request, bannerPath)
-		})
-	}
-	// Operator-uploaded pool covers (content-addressed files next to the save database).
+	app.resources.BannerAssets.register(router)
+	router.Get("/local/gacha/{file}", app.operations.CustomGachaBanner)
+	router.Head("/local/gacha/{file}", app.operations.CustomGachaBanner)
 	router.Get("/local/gacha-covers/{file}", adminapi.ServeGachaCover(app.gachaCoverDir()))
-	router.Get("/local/home/banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.HomeBanner)
-	})
-	router.Get("/local/home/event-banner.png", func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "image/png")
-		writer.Header().Set("Cache-Control", "no-store")
-		http.ServeFile(writer, request, app.resources.HomeEventBanner)
-	})
 	emptyJSON := func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		writer.Header().Set("Cache-Control", "no-store")
@@ -112,8 +92,9 @@ func (app *application) router() chi.Router {
 	app.registerGameRoutes(router)
 	router.Get("/disabled/products", cnBootstrapProducts)
 	router.Get("/disabled/web", app.operations.LocalNotice)
+	router.Get("/disabled/web/auto", app.autoNotice)
 	router.Get("/disabled/web/deck-guide", cnBootstrapDeckGuide)
-	router.Get("/disabled/web/information/2015/7/kechengbiao", cnBootstrapDungeonSchedule)
+	router.Get("/disabled/web/information/2015/7/kechengbiao", app.operations.LocalDungeonSchedule)
 	introHandler, err := newCNIntroHandler(app.resources.GachaBanner)
 	if err != nil {
 		app.config.Logger.Warn("local download guide unavailable", "error", err)
@@ -174,6 +155,8 @@ func (app *application) handler() (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize CN admin handler: %w", err)
 	}
+	app.cdk = adminHandler.(interface{ CDKHandler() http.Handler }).CDKHandler()
+	app.cdkRedeemer = adminHandler.(nativeCDKRedeemer)
 	return &cnDeploymentHandler{Handler: app.router(), admin: adminHandler, database: app.accounts.Database(), operations: app.operations}, nil
 }
 

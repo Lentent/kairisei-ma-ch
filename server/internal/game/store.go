@@ -36,176 +36,180 @@ type cardDevelopmentRule struct {
 }
 
 type Account struct {
-	evolutionRestrictions       *EvolutionRestrictions
-	playerRevision              uint64
-	gachaRevision               uint64
-	operatorGachaPlays          map[int]int // plays of operator pools not yet appended to gachas
-	gachaCoverBaseURL           string
-	teamBattleScores            map[int]gamestate.TeamBattleScoreProgress
-	localShop                   gamestate.LocalShopState
-	localCrystalPurchaseEnabled bool
-	mu                          sync.RWMutex
-	cards                       []CardInfo
-	containerCards              []CardInfo
-	stackCards                  []gamestate.CardStack
-	stackCardTemplates          map[int]gamestate.CardStack
-	spheres                     []gamestate.Sphere
-	sphereDefinitions           map[int]gamestate.SphereDefinition
-	sphereExperience            map[int][]int
-	sphereEvoPrices             map[string][]int
-	sphereProgression           gamestate.SphereProgressionPolicy
-	sphereMax                   int
-	buddies                     []gamestate.Buddy
-	buddyDefinitions            map[int]gamestate.BuddyDefinition
-	buddyExperience             map[int][]int
-	buddyEvoPrices              map[string][]int
-	buddyProgression            gamestate.BuddyProgressionPolicy
-	buddyMax                    int
-	decks                       []DeckInfo
-	avatars                     []gamestate.Avatar
-	avatarParts                 map[int]struct{}
-	avatarDefinitions           map[int]gamestate.AvatarPartDefinition
-	avatarShopParts             map[int]struct{}
-	avatarDefaultDecks          [][]int
-	avatarCompletions           []gamestate.AvatarSeriesCompletion
-	avatarShopPolicy            gamestate.AvatarShopPolicy
-	cardTemplates               map[int]CardInfo
-	cardDefinitions             map[int]gamestate.Card
-	cardCategoryProfiles        []gamestate.CardCategoryProfile
-	cardGroupProfiles           []gamestate.CardGroupProfile
-	cardExperience              map[int][]int
-	cardProgression             gamestate.CardProgressionPolicy
-	deckRankPolicy              gamestate.DeckRankPolicy
-	highestDeckRank             int
-	lastHomeDeckRank            int
-	cardLoveRules               map[int]cardLoveRule
-	cardDevelopmentRules        map[int]cardDevelopmentRule
-	cardDevelopmentPolicy       gamestate.CardDevelopmentPolicy
-	stive                       int
-	cardFameTraining            *gamestate.CardFameTraining
-	cardMax                     int
-	cardContainerMax            int
-	deckSlots                   int
-	supportSlotCapacity         int
-	supportDeckSetCardNum       int
-	supportDeckRules            []gamestate.SupportDeckSlotUnlockRule
-	supportUnlockedSlots        []int8
-	cardCollectionIDs           map[int]struct{}
-	cardCollectionLoveMaxIDs    map[int]struct{}
-	cardCollectionPages         [][10]int
-	buddySlots                  int
-	missions                    []gamestate.Mission
-	presents                    []gamestate.Present
-	presentHistories            []gamestate.Present
-	popupReadIDs                map[int]struct{}
-	loginBonusPolicy            gamestate.LoginBonusPolicy
-	tutorialCompletionMail      TutorialCompletionMail
-	loginBonusState             gamestate.LoginBonusState
-	nextUniqueID                int64
-	nextSphereUniqueID          int64
-	nextBuddyUniqueID           int64
-	currentNaviID               int8
-	naviUnlockFlag              int64
-	selectableNaviIDs           map[int8]struct{}
-	naviCatalogIDs              map[int8]struct{}
-	naviPurchasePrice           int
-	naviSettings                map[int8]NaviSetting
-	stampIDs                    map[int]struct{}
-	stampDeck                   []int
-	costumeIDs                  map[int]struct{}
-	collectionRewardIDs         map[[2]int]struct{}
-	currentActiveArthur         int8
-	currentLevel                int
-	currentExperience           int
-	currentLevelExperience      int
-	nextLevelExperience         int
-	currentJobs                 []gamestate.JobParameter
-	currentFriendMax            int
-	playerProgression           gamestate.PlayerProgressionPolicy
-	currentName                 string
-	currentComment              string
-	honorIDs                    map[int]struct{}
-	deckHonorIDs                []int
-	gold                        int
-	friendPoint                 int
-	friendPointInboxCursor      int64
-	coin                        int
-	coinFree                    int
-	pvpPoint                    int
-	pvp                         gamestate.PVPPlayerState
-	items                       map[int]gamestate.Item
-	itemDefinitions             map[int]gamestate.ItemDefinition
-	userBuffProfiles            map[int]gamestate.UserBuffProfile
-	itemGachaProfiles           map[int]gamestate.ItemGachaProfile
-	itemExchangeProfiles        map[int]gamestate.ItemExchangeProfile
-	itemLackTipProfiles         map[int]gamestate.ItemLackTipProfile
-	eventShopProfiles           map[int]gamestate.EventShopProfile
-	eventShopPurchases          map[int]int
-	tradeShopProfiles           map[int]gamestate.TradeShopProfile
-	tradeShopPurchases          map[int]int
-	itemShopTabs                []gamestate.ItemShopTab
-	itemShopSettings            map[int]ItemShopSetting
-	itemShopPurchases           map[int]int
-	itemShopPeriods             map[int]gamestate.ItemShopPeriodCounts
-	gachas                      []gamestate.GachaProfile
-	gachaWindows                map[int][2]int64
-	gachaSelections             map[int][]gamestate.Reward
-	gachaDailyClaims            map[int]string
-	bp                          int
-	bpMax                       int
-	bpRecoveryInterval          time.Duration
-	bpNextRecovery              time.Time
-	gameOptionFlag              int
-	pushOptionFlag              int
-	tutorialFlag                int64
-	unlockedFeatureIDs          map[uint]struct{}
-	onboarding                  gamestate.OnboardingState
-	cardActions                 gamestate.CardActionState
-	ap                          int
-	apMax                       int
-	apRecoveryInterval          time.Duration
-	apNextRecovery              time.Time
-	exploreActive               bool
-	exploreActiveRewards        *[]gamestate.Reward
-	exploreArthurType           int8
-	exploreDeckIndex            int8
-	exploreStartedAt            time.Time
-	exploreStages               []gamestate.ExploreStage
-	exploreStageCursor          int
-	exploreActiveStage          int
-	followMax                   int
-	storyMainParts              []gamestate.StoryMainPart
-	cnStoryMainParts            []gamestate.StoryMainPart
-	storySubCharacters          []gamestate.StorySubCharacter
-	storyEvents                 []gamestate.StoryEvent
-	storyRewardPolicy           gamestate.StoryRewardPolicy
-	storyBattleIDsByStory       map[string]map[int]struct{}
-	activeMainStoryID           int
-	activeMainStoryCN           bool
-	activeSubStoryID            int
-	burstProgress               [4]uint8
-	storyTeamBattleSession      gamestate.StoryTeamBattleSession
-	mainQuest                   json.RawMessage
-	stageQuests                 map[int]json.RawMessage
-	defaultStageQuestAreaID     int
-	teamBattleSolo              json.RawMessage
-	disabledTeamBattleBossIDs   map[int]bool
-	teamBattleLimitedGroupIDs   []int
-	teamBattleScheduleSoloPush  map[int]struct{}
-	teamBattleScheduleMultiPush map[int]struct{}
-	teamBattleReceipts          map[int64]gamestate.TeamBattleResultReceipt
-	teamBattleStartReceipts     []gamestate.TeamBattleStartReceipt
-	teamBattleContinueReceipts  []gamestate.TeamBattleContinueReceipt
-	teamBattleSoloReceipts      map[string]gamestate.TeamBattleSoloResultReceipt
-	lastExploreResultReceipt    *gamestate.ExploreResultReceipt
-	pvpResultReceipts           map[int]gamestate.PVPResultReceipt
-	teamBattleFameBonus         gamestate.TeamBattleFameBonusPolicy
-	teamBattleHostBonus         gamestate.TeamBattleHostBonusPolicy
-	towerQuestProfiles          map[int]gamestate.TowerQuestProfile
-	towerQuestProgress          map[int]gamestate.TowerQuestProgress
-	pendingStageAreaID          int
-	activeBattle                *TeamBattleContext
-	initialStateRepair          bool
+	evolutionRestrictions        *EvolutionRestrictions
+	playerRevision               uint64
+	gachaRevision                uint64
+	operatorGachaPlays           map[int]int // plays of operator pools not yet appended to gachas
+	gachaBoxes                   map[int]gamestate.GachaBoxProgress
+	gachaCoverBaseURL            string
+	teamBattleScores             map[int]gamestate.TeamBattleScoreProgress
+	localShop                    gamestate.LocalShopState
+	localCrystalPurchaseEnabled  bool
+	mu                           sync.RWMutex
+	cards                        []CardInfo
+	containerCards               []CardInfo
+	stackCards                   []gamestate.CardStack
+	stackCardTemplates           map[int]gamestate.CardStack
+	spheres                      []gamestate.Sphere
+	sphereDefinitions            map[int]gamestate.SphereDefinition
+	sphereExperience             map[int][]int
+	sphereEvoPrices              map[string][]int
+	sphereProgression            gamestate.SphereProgressionPolicy
+	sphereMax                    int
+	buddies                      []gamestate.Buddy
+	buddyDefinitions             map[int]gamestate.BuddyDefinition
+	buddyExperience              map[int][]int
+	buddyEvoPrices               map[string][]int
+	buddyProgression             gamestate.BuddyProgressionPolicy
+	buddyMax                     int
+	decks                        []DeckInfo
+	avatars                      []gamestate.Avatar
+	avatarParts                  map[int]struct{}
+	avatarDefinitions            map[int]gamestate.AvatarPartDefinition
+	avatarShopParts              map[int]struct{}
+	avatarDefaultDecks           [][]int
+	avatarCompletions            []gamestate.AvatarSeriesCompletion
+	avatarShopPolicy             gamestate.AvatarShopPolicy
+	cardTemplates                map[int]CardInfo
+	cardDefinitions              map[int]gamestate.Card
+	cardCategoryProfiles         []gamestate.CardCategoryProfile
+	cardGroupProfiles            []gamestate.CardGroupProfile
+	cardExperience               map[int][]int
+	cardProgression              gamestate.CardProgressionPolicy
+	deckRankPolicy               gamestate.DeckRankPolicy
+	highestDeckRank              int
+	lastHomeDeckRank             int
+	cardLoveRules                map[int]cardLoveRule
+	cardDevelopmentRules         map[int]cardDevelopmentRule
+	cardDevelopmentPolicy        gamestate.CardDevelopmentPolicy
+	stive                        int
+	cardFameTraining             *gamestate.CardFameTraining
+	cardMax                      int
+	cardContainerMax             int
+	deckSlots                    int
+	supportSlotCapacity          int
+	supportDeckSetCardNum        int
+	supportDeckRules             []gamestate.SupportDeckSlotUnlockRule
+	supportUnlockedSlots         []int8
+	cardCollectionIDs            map[int]struct{}
+	cardCollectionLoveMaxIDs     map[int]struct{}
+	cardCollectionPages          [][10]int
+	buddySlots                   int
+	missions                     []gamestate.Mission
+	missionDefinitions           []MissionDefinition
+	missionConfigurationRevision uint64
+	presents                     []gamestate.Present
+	presentHistories             []gamestate.Present
+	popupReadIDs                 map[int]struct{}
+	noticePublication            NoticePublication
+	loginBonusPolicy             gamestate.LoginBonusPolicy
+	tutorialCompletionMail       TutorialCompletionMail
+	loginBonusState              gamestate.LoginBonusState
+	nextUniqueID                 int64
+	nextSphereUniqueID           int64
+	nextBuddyUniqueID            int64
+	currentNaviID                int8
+	naviUnlockFlag               int64
+	selectableNaviIDs            map[int8]struct{}
+	naviCatalogIDs               map[int8]struct{}
+	naviPurchasePrice            int
+	naviSettings                 map[int8]NaviSetting
+	stampIDs                     map[int]struct{}
+	stampDeck                    []int
+	costumeIDs                   map[int]struct{}
+	collectionRewardIDs          map[[2]int]struct{}
+	currentActiveArthur          int8
+	currentLevel                 int
+	currentExperience            int
+	currentLevelExperience       int
+	nextLevelExperience          int
+	currentJobs                  []gamestate.JobParameter
+	currentFriendMax             int
+	playerProgression            gamestate.PlayerProgressionPolicy
+	currentName                  string
+	currentComment               string
+	honorIDs                     map[int]struct{}
+	deckHonorIDs                 []int
+	gold                         int
+	friendPoint                  int
+	friendPointInboxCursor       int64
+	coin                         int
+	coinFree                     int
+	pvpPoint                     int
+	pvp                          gamestate.PVPPlayerState
+	items                        map[int]gamestate.Item
+	itemDefinitions              map[int]gamestate.ItemDefinition
+	userBuffProfiles             map[int]gamestate.UserBuffProfile
+	itemGachaProfiles            map[int]gamestate.ItemGachaProfile
+	itemExchangeProfiles         map[int]gamestate.ItemExchangeProfile
+	itemLackTipProfiles          map[int]gamestate.ItemLackTipProfile
+	eventShopProfiles            map[int]gamestate.EventShopProfile
+	eventShopPurchases           map[int]int
+	tradeShopProfiles            map[int]gamestate.TradeShopProfile
+	tradeShopPurchases           map[int]int
+	itemShopTabs                 []gamestate.ItemShopTab
+	itemShopSettings             map[int]ItemShopSetting
+	itemShopPurchases            map[int]int
+	itemShopPeriods              map[int]gamestate.ItemShopPeriodCounts
+	gachas                       []gamestate.GachaProfile
+	gachaWindows                 map[int][2]int64
+	gachaSelections              map[int][]gamestate.Reward
+	gachaDailyClaims             map[int]string
+	bp                           int
+	bpMax                        int
+	bpRecoveryInterval           time.Duration
+	bpNextRecovery               time.Time
+	gameOptionFlag               int
+	pushOptionFlag               int
+	tutorialFlag                 int64
+	unlockedFeatureIDs           map[uint]struct{}
+	onboarding                   gamestate.OnboardingState
+	cardActions                  gamestate.CardActionState
+	ap                           int
+	apMax                        int
+	apRecoveryInterval           time.Duration
+	apNextRecovery               time.Time
+	exploreActive                bool
+	exploreActiveRewards         *[]gamestate.Reward
+	exploreArthurType            int8
+	exploreDeckIndex             int8
+	exploreStartedAt             time.Time
+	exploreStages                []gamestate.ExploreStage
+	exploreStageCursor           int
+	exploreActiveStage           int
+	followMax                    int
+	storyMainParts               []gamestate.StoryMainPart
+	cnStoryMainParts             []gamestate.StoryMainPart
+	storySubCharacters           []gamestate.StorySubCharacter
+	storyEvents                  []gamestate.StoryEvent
+	storyRewardPolicy            gamestate.StoryRewardPolicy
+	storyBattleIDsByStory        map[string]map[int]struct{}
+	activeMainStoryID            int
+	activeMainStoryCN            bool
+	activeSubStoryID             int
+	burstProgress                [4]uint8
+	storyTeamBattleSession       gamestate.StoryTeamBattleSession
+	mainQuest                    json.RawMessage
+	stageQuests                  map[int]json.RawMessage
+	defaultStageQuestAreaID      int
+	teamBattleSolo               json.RawMessage
+	disabledTeamBattleBossIDs    map[int]bool
+	teamBattleLimitedGroupIDs    []int
+	teamBattleScheduleSoloPush   map[int]struct{}
+	teamBattleScheduleMultiPush  map[int]struct{}
+	teamBattleReceipts           map[int64]gamestate.TeamBattleResultReceipt
+	teamBattleStartReceipts      []gamestate.TeamBattleStartReceipt
+	teamBattleContinueReceipts   []gamestate.TeamBattleContinueReceipt
+	teamBattleSoloReceipts       map[string]gamestate.TeamBattleSoloResultReceipt
+	lastExploreResultReceipt     *gamestate.ExploreResultReceipt
+	pvpResultReceipts            map[int]gamestate.PVPResultReceipt
+	teamBattleFameBonus          gamestate.TeamBattleFameBonusPolicy
+	teamBattleHostBonus          gamestate.TeamBattleHostBonusPolicy
+	towerQuestProfiles           map[int]gamestate.TowerQuestProfile
+	towerQuestProgress           map[int]gamestate.TowerQuestProgress
+	pendingStageAreaID           int
+	activeBattle                 *TeamBattleContext
+	initialStateRepair           bool
 }
 
 func CardsFromState(cards []gamestate.Card, slot int) []CardInfo {
@@ -288,8 +292,16 @@ func cloneLoginBonusSchedule(schedule []gamestate.LoginBonusDay) []gamestate.Log
 }
 
 func New(state gamestate.State) (*Account, error) {
+	if err := gamestate.ValidateGachaBoxes(state.GachaBoxes); err != nil {
+		return nil, err
+	}
 	if err := gamestate.ValidateItemShopProgress(state.ItemShopPurchases, state.ItemShopPeriods); err != nil {
 		return nil, err
+	}
+	// Upgrade the original capacity when loading existing accounts or older seeds.
+	// Follow and follower capacity share this value; mutual friends have a separate cap.
+	if state.Friends.FollowMax == 50 {
+		state.Friends.FollowMax = 500
 	}
 	if state.PlayerProgressionPolicy.ConfigVersion > 0 {
 		policy := state.PlayerProgressionPolicy
@@ -495,6 +507,7 @@ func New(state gamestate.State) (*Account, error) {
 		itemShopPeriods:             maps.Clone(state.ItemShopPeriods),
 		gachas:                      CloneGachaProfiles(state.Gachas),
 		operatorGachaPlays:          maps.Clone(state.OperatorGachaPlays),
+		gachaBoxes:                  gamestate.CloneGachaBoxes(state.GachaBoxes),
 		gachaSelections:             make(map[int][]gamestate.Reward, len(state.GachaSelections)),
 		gachaDailyClaims:            make(map[int]string, len(state.GachaDailyClaims)),
 		bp:                          state.User.BP,
@@ -994,12 +1007,19 @@ func New(state gamestate.State) (*Account, error) {
 	if len(result.gachas) == 0 {
 		return nil, errors.New("card store requires a configured CN gacha")
 	}
+	for _, progress := range result.gachaBoxes {
+		for _, entry := range progress.Remaining {
+			if err := result.validateRewardLocked(entry.Reward); err != nil {
+				return nil, fmt.Errorf("saved gacha box reward: %w", err)
+			}
+		}
+	}
 	for _, gacha := range result.gachas {
 		if err := result.validateGachaRulesLocked(gacha); err != nil {
 			return nil, err
 		}
 		if gacha.PayType == 4 {
-			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || definition.ItemType != "GACHA_TICKET" {
+			if definition, exists := result.itemDefinitions[gacha.PayTypeID]; !exists || (gacha.PublicationKey != "custom" && definition.ItemType != "GACHA_TICKET") {
 				return nil, fmt.Errorf("gacha %d references an invalid ticket item", gacha.GachaID)
 			}
 		}
@@ -1013,7 +1033,7 @@ func New(state gamestate.State) (*Account, error) {
 		definition, exists := result.itemDefinitions[itemID]
 		if !exists || definition.ItemType != "GACHA" || definition.Function != "GACHA_EXEC" ||
 			definition.FunctionValue != profile.FunctionValue || (len(profile.Rewards) == 0 && len(profile.RewardPool) == 0) ||
-			(profile.Evidence != "INFERRED_OFFICIAL_DESCRIPTION_EXACT_CARD_BASE" && profile.Evidence != "PLACEHOLDER_LOCAL_POLICY_OFFICIAL_CN_ITEM_DESCRIPTION") {
+			!gamestate.ValidItemGachaEvidence(profile.Evidence) {
 			return nil, fmt.Errorf("item gacha profile %d is invalid", itemID)
 		}
 		for _, reward := range profile.Rewards {
@@ -1022,7 +1042,7 @@ func New(state gamestate.State) (*Account, error) {
 			}
 		}
 		if len(profile.RewardPool) > 0 {
-			if err := gamestate.ValidateRewardPool(profile.RewardPool); err != nil {
+			if err := gamestate.ValidateItemGachaRewardPool(profile.RewardPool); err != nil {
 				return nil, err
 			}
 			for _, entry := range profile.RewardPool {

@@ -101,12 +101,26 @@ func pastBossProgress(source []json.RawMessage, progress json.RawMessage) ([]jso
 		if err := json.Unmarshal(group["13"], &bosses); err != nil {
 			return nil, err
 		}
-		for _, boss := range bosses {
+		type archiveEntry struct {
+			id     int
+			fields map[string]json.RawMessage
+		}
+		entries := make([]archiveEntry, len(bosses))
+		for index, boss := range bosses {
 			var id int
 			if err := json.Unmarshal(boss["0"], &id); err != nil {
 				return nil, err
 			}
 			boss["10"], _ = json.Marshal(states[id])
+			entries[index] = archiveEntry{id: id, fields: boss}
+		}
+		// The stock archive renders bosses by array index, but its click
+		// handlers use TeamSlStMItemList's descending boss-ID list. Return
+		// whole entries in that same order so labels, costs and clears agree
+		// with the selected encounter, including independent own-deck IDs.
+		sort.SliceStable(entries, func(i, j int) bool { return entries[i].id > entries[j].id })
+		for index, entry := range entries {
+			bosses[index] = entry.fields
 		}
 		group["13"], _ = json.Marshal(bosses)
 		result[i], _ = json.Marshal(group)

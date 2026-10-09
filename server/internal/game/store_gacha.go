@@ -77,6 +77,7 @@ func (s *Account) VisibleGachasLocked() []gamestate.GachaProfile {
 			candidates = append(candidates, gacha)
 		}
 	}
+	candidates = s.preferredBoxGachasLocked(candidates)
 	// Preserve one affordable single-draw payment per profession; the native
 	// profession picker must receive all the distinct profession choices.
 	key := func(g gamestate.GachaProfile) [2]int { return [2]int{g.GroupID, int(g.ArthurType)} }
@@ -436,7 +437,7 @@ func (s *Account) PlayGacha(
 		return gachaPlayResult{}, ErrGachaUnavailable
 	}
 	gacha := &profile
-	if gacha.PlayCount == math.MaxInt || (gacha.UnownedOnly && len(gacha.CardIDs) == 0) {
+	if (gacha.PlayCount == math.MaxInt && len(gacha.BoxRounds) == 0) || (gacha.UnownedOnly && len(gacha.CardIDs) == 0) {
 		return gachaPlayResult{}, ErrGachaUnavailable
 	}
 	if !s.GachaAvailableForPlayLocked(gachaID) ||
@@ -523,7 +524,21 @@ func (s *Account) PlayGacha(
 		}
 	}
 	rewards := make([]gamestate.Reward, drawCount)
+	var boxProgress gamestate.GachaBoxProgress
+	if len(gacha.BoxRounds) > 0 {
+		boxProgress = s.gachaBoxLocked(*gacha)
+	}
 	for draw := range rewards {
+		if len(gacha.BoxRounds) > 0 {
+			// Each draw advances the previous planned inventory, including across
+			// rounds. Nothing reaches account state until the entire batch validates.
+			reward, progress, err := drawGachaBox(*gacha, boxProgress)
+			if err != nil {
+				return gachaPlayResult{}, err
+			}
+			rewards[draw], boxProgress = reward, progress
+			continue
+		}
 		if len(gacha.RewardPool) > 0 {
 			reward, err := drawWeightedReward(gacha.RewardPool)
 			if err != nil {
@@ -567,7 +582,15 @@ func (s *Account) PlayGacha(
 	case 6:
 		s.coin -= paymentCost
 	}
-	s.gachas[index].PlayCount++
+	if s.gachas[index].PlayCount < math.MaxInt {
+		s.gachas[index].PlayCount++
+	}
+	if len(gacha.BoxRounds) > 0 {
+		if s.gachaBoxes == nil {
+			s.gachaBoxes = make(map[int]gamestate.GachaBoxProgress)
+		}
+		s.gachaBoxes[gacha.GroupID] = boxProgress
+	}
 	if dailyFree {
 		s.gachaDailyClaims[gachaID] = dayKey
 	}

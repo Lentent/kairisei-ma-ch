@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Config.Title}}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f2ead7;color:#392d1d;font-family:sans-serif;line-height:1.6}main{max-width:980px;margin:auto;padding:24px}h1{margin:0 0 18px;color:#74531e;border-bottom:3px solid #c69b44;padding-bottom:12px;font-size:1.65rem;overflow-wrap:break-word}.intro{background:#fff8df;border:2px solid #c69b44;border-radius:12px;padding:18px}.text{white-space:pre-wrap;overflow-wrap:break-word}.stats{margin:12px 0 0;color:#735827;font-size:.85rem}.section{margin-top:26px}h2{font-size:1.25rem;color:#74531e;margin:0 0 12px}.card{background:#fffdf6;border:1px solid #c6ae77;border-radius:10px;padding:17px;margin:12px 0}.heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.name{font-size:1.08rem;font-weight:bold;color:#664412;overflow-wrap:break-word}.status{white-space:nowrap;border-radius:16px;background:#eee8dd;color:#715d43;padding:3px 10px;font-size:.8rem;font-weight:bold}.open{background:#e7f3de;color:#287039}.upcoming{background:#fff1c6;color:#8a631d}.meta{font-size:.82rem;color:#806b49;margin:5px 0 10px}.schedule{border-top:1px solid #eee0c0;padding-top:10px;font-size:.93rem}.note{margin-top:10px;padding:10px 12px;background:#f8f1df;border-radius:6px;font-size:.9rem}.empty{text-align:center;padding:30px;color:#806b49}.footer{font-size:.85rem;color:#735d39;border-top:1px solid #c6ae77;margin-top:26px;padding-top:16px}.updated{font-size:.78rem;color:#8b7858;margin-top:12px}@media(max-width:600px){main{padding:16px 12px}h1{font-size:1.45rem}.intro{padding:14px}.card{padding:14px}.heading{gap:8px}.name{font-size:1rem}}
+</style></head><body><main>
+<h1>{{.Config.Title}}</h1>
+<section class="intro"><div class="text">{{.Config.Description}}</div><p class="stats">已发布 {{.Count}} 组副本 · 当前开放 {{.Open}} 组 · 北京时间（UTC+8）</p></section>
+{{range .Sections}}<section class="section"><h2>{{.Title}}</h2>
+{{range .Entries}}<article class="card"><div class="heading"><div class="name">{{.DisplayName}}</div><span class="status {{.StatusCode}}">{{.Status}}</span></div>
+<div class="meta">{{.CategoryLabel}}{{if .Difficulties}} · {{range $i, $v := .Difficulties}}{{if $i}} / {{end}}{{$v}}{{end}}{{end}}</div>
+<div class="schedule">{{.Schedule}}</div>{{if .Note}}<div class="note text">{{.Note}}</div>{{end}}</article>{{end}}
+</section>{{else}}<div class="empty">暂无已发布副本，请留意后续日程。</div>{{end}}
+{{if .Config.Footer}}<footer class="footer text">{{.Config.Footer}}</footer>{{end}}
+<div class="updated">状态更新时间：{{.Updated}}（北京时间）</div>
+</main></body></html>

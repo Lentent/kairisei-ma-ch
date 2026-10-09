@@ -5,12 +5,18 @@ const cardStars=card=>card.rarity?`${card.rarity} 星`:'';
 const cardSourceDescription=card=>cardFacts(card);
 const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],groups:[],policy:null,gachaPresets:[],gachaPolicy:null,gachaSelected:new Set(),audit:[],selected:new Set(),mode:'all',grantUser:null,catalog:[],catalogKind:'card',catalogSource:'',catalogJob:0,catalogRarity:0,catalogTotal:0,catalogPage:0,catalogRequest:0,mailReward:null,loaded:new Set(),currentView:'dashboard',bossCatalog:'activity',bossKind:'all',bossPage:0};
 const titles={maintenance:'维护工具',evolution:'卡牌进化链','activity-rewards':'圣剑杯与探索','player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置',shop:'道具商店','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
+titles.collections="称号与礼盒";titles.cdk="礼包兑换码";titles.missions="任务管理";
+titles['custom-cards']='自制卡牌';titles['dungeon-schedule']='副本日程表';
 const viewMeta={
+  'custom-cards':['扭蛋与商店','复制卡牌、上传卡面、组合技能效果并生成资源更新包'],
+  missions:['系统','每日与成就任务、完成条件及多种奖励'],
+ collections:["系统","称号、礼盒与开箱奖励"],cdk:["玩家","创建礼包码、查看兑换记录与发奖"],
   evolution:['扭蛋与商店','按星级查看进化链，独立控制每条进化方向的开放状态'],
   dashboard:['概览','服务状态、玩家活跃、待处理事项与组队房间'],
   accounts:['玩家','筛选玩家、查看存档、调整资源与绑定，跨页选择收件人'],
   mail:['玩家','选择收件人与奖励，预览后按批次发放；中断后可从批次继续'],
-  bosses:['战斗与活动','活动／往期目录的开放名单与展示时间，以及各难度入口规则'],
+  bosses:['战斗与活动','活动／往期目录开放名单、每组日期与每周排期，以及各难度入口规则'],
+  'dungeon-schedule':['战斗与活动','编辑游戏内日程表的标题、说明和备注，自动匹配已发布 Boss 与开放排期'],
   drops:['战斗与活动','按难度配置怪物／部位掉落与名声奖励，新开战生效'],
   'activity-rewards':['战斗与活动','圣剑杯九档固定奖励、回合与倍率，探索逐项概率奖励'],
   'pool-editor':['扭蛋与商店','编辑卡池内容与价格 → 保存草稿并预览 → 发布'],
@@ -48,7 +54,7 @@ function toast(message,error=false){
 }
 const conflictHint='配置已被其他页面或操作更新（版本冲突）。当前草稿仍保留在页面上，不会被强制覆盖。';
 function errorText(e){return e?.status===409?conflictHint:e?.status===0?e.message:(e?.message||String(e))}
-const draftExporters={'activity-rewards':'#activity-export',drops:'#drop-export',exchanges:'#exchange-export','pool-editor':'#pool-export'};
+const draftExporters={'activity-rewards':'#activity-export',drops:'#drop-export',exchanges:'#exchange-export','pool-editor':'#pool-export','dungeon-schedule':'#dungeon-schedule-export'};
 function viewAlert(view){return $(`#${view} > .view-alert`)}
 function clearViewAlert(view){const el=viewAlert(view);if(el){el.hidden=true;el.innerHTML=''}}
 function showViewAlert(view,{kind='error',title,message,actions=[]}){
@@ -121,6 +127,7 @@ async function switchView(name){
   document.title=`${titles[name]} · Kairisei MA 本地运营后台`;
   try{history.replaceState(null,'','#'+name)}catch{/* Deep links are optional. */}
   closeNavDrawer();window.scrollTo(0,0);
+  if(name==='dungeon-schedule'&&state.loaded.has(name)&&!adminPolicyDirty(name))state.loaded.delete(name);
   updatePolicyControls();await loadView(name);
 }
 async function loadView(name,force=false){
@@ -131,16 +138,21 @@ async function loadView(name,force=false){
     if(name==='evolution')await loadEvolutionEditor();
     else if(name==='activity-rewards')await loadActivityRewards();
     else if(name==='player-policy')await loadPlayerPolicy();
+    else if(name==='missions')await loadMissions();
     else if(name==='dashboard'){state.status=await api('/api/status');renderDashboard();loadDashboardTodos()}
     else if(name==='accounts')await loadAccountsPage();
     else if(name==='mail')await loadMailWorkspace();
+    else if(name==='cdk')await loadCDKWorkspace();
     else if(name==='bosses')await loadBossPublication(state.bossCatalog);
+    else if(name==='dungeon-schedule')await loadDungeonSchedule();
     else if(name==='gachas'){
       const [presets,policy]=await Promise.all([api('/api/gacha-presets'),api('/api/gacha-policy')]);
       state.gachaPresets=presets.presets;state.gachaPolicy=policy.publication;
       state.gachaSelected=new Set(state.gachaPolicy.group_ids||[]);renderGachas();
     }
     else if(name==='pool-editor')await loadPoolEditor();
+    else if(name==='collections')await loadCollections();
+    else if(name==='custom-cards')await loadCustomCards();
     else if(name==='audit')await loadAuditPage();
     else if(name==='settings')await loadRuntimeSettings();
     else if(name==='shop')await loadItemShop();
@@ -189,6 +201,7 @@ function renderPager(key,page,total,size,onPage){
 async function loadBossPublication(catalog){
   const [groups,policy]=await Promise.all([api('/api/boss-groups?catalog='+catalog),api('/api/boss-policy?catalog='+catalog)]);
   state.bossCatalog=catalog;state.groups=groups.groups;state.policy=policy.publication;state.mode=state.policy.mode;state.selected=new Set(state.policy.group_ids||[]);
+  state.bossSchedules=new Map((state.policy.group_schedules||[]).map(s=>[s.group_id,structuredClone(s)]));
   $('#boss-start').value=localTimeInput(state.policy.start_unix);$('#boss-end').value=localTimeInput(state.policy.end_unix);updateBossDifficultyFilter();state.bossPage=0;renderBosses();
 }
 $$('#boss-catalogs button').forEach(b=>b.onclick=async()=>{
@@ -201,6 +214,33 @@ function filteredGroups(){const q=$('#boss-search').value.trim();return state.gr
 function retryImage(img){const attempt=Number(img.dataset.retry||0);if(attempt<2){img.dataset.retry=String(attempt+1);const url=new URL(img.src,location.href);url.searchParams.set('_retry',`${attempt+1}-${Date.now()}`);setTimeout(()=>img.src=url.pathname+url.search,150*(attempt+1));return}img.dataset.failed='true';img.hidden=true}
 function image(url,label){return url?`<img src="${esc(url)}" alt="" loading="lazy" data-retry="0" onload="this.dataset.ok=1" onerror="retryImage(this)"><span>${esc((label||'?').slice(0,1))}</span>`:`<span>${esc((label||'?').slice(0,1))}</span>`}
 const bossKindLabel=c=>c==='material'?'素材副本':c==='3d'?'3D Boss':'2D Boss';
+state.bossSchedules=new Map();
+const bossDayNames=['周一','周二','周三','周四','周五','周六','周日'];
+function bossScheduleSummary(s){return s?`${s.weekdays?.length?s.weekdays.map(d=>bossDayNames[d-1]).join('、'):'每天'}${s.start_unix?' · '+when(s.start_unix)+' 起':''}${s.end_unix?' · '+when(s.end_unix)+' 止':''}`:'每天 · 沿用目录排期'}
+function normalizedBossSchedules(schedules){return JSON.stringify([...schedules].map(s=>({group_id:s.group_id,start_unix:s.start_unix||0,end_unix:s.end_unix||0,weekdays:[...new Set(s.weekdays||[])].sort((a,b)=>a-b)})).sort((a,b)=>a.group_id-b.group_id))}
+let bossScheduleGroup=null;
+function closeBossSchedule(){$('#boss-schedule-modal').classList.remove('open');bossScheduleGroup=null}
+$('#boss-rows').addEventListener('click',e=>{
+  const button=e.target.closest('[data-boss-schedule]');if(!button||policyBusy('bosses'))return;
+  bossScheduleGroup=state.groups.find(g=>g.group_id===Number(button.dataset.bossSchedule));if(!bossScheduleGroup)return;
+  const s=state.bossSchedules.get(bossScheduleGroup.group_id);
+  $('#boss-schedule-title').textContent=bossScheduleGroup.name+' · 独立排期';
+  $('#boss-group-start').value=localTimeInput(s?.start_unix);$('#boss-group-end').value=localTimeInput(s?.end_unix);
+  $$('.boss-weekdays input').forEach(c=>c.checked=!s?.weekdays?.length||s.weekdays.includes(Number(c.value)));
+  $('#boss-schedule-error').hidden=true;$('#boss-schedule-modal').classList.add('open');
+});
+$$('[data-boss-days]').forEach(b=>b.onclick=()=>{const days=b.dataset.bossDays.split(',').map(Number);$$('.boss-weekdays input').forEach(c=>c.checked=days.includes(Number(c.value)))});
+$('#boss-schedule-cancel').onclick=closeBossSchedule;
+$('#boss-schedule-reset').onclick=()=>{if(!bossScheduleGroup)return;state.bossSchedules.delete(bossScheduleGroup.group_id);closeBossSchedule();renderBosses()};
+$('#boss-schedule-apply').onclick=()=>{
+  if(!bossScheduleGroup)return;
+  const start=unixInput('#boss-group-start'),end=unixInput('#boss-group-end'),days=$$('.boss-weekdays input:checked').map(c=>Number(c.value));
+  const error=!days.length?'请至少选择一个开放日；要关闭此 Boss，请从「仅选中组」的开放名单移除。':end&&end<=start?'结束时间须晚于开始时间。':'';
+  $('#boss-schedule-error').hidden=!error;$('#boss-schedule-error').textContent=error;if(error)return;
+  if(!start&&!end&&days.length===7)state.bossSchedules.delete(bossScheduleGroup.group_id);
+  else state.bossSchedules.set(bossScheduleGroup.group_id,{group_id:bossScheduleGroup.group_id,start_unix:start,end_unix:end,weekdays:days.length===7?[]:days});
+  closeBossSchedule();renderBosses();toast('独立排期已加入草稿，发布设置后生效');
+};
 state.bossView=(()=>{try{return localStorage.getItem('kairisei-admin-boss-view')||'list'}catch{return 'list'}})();
 $$('#boss-view button').forEach(b=>b.onclick=()=>{state.bossView=b.dataset.mode;try{localStorage.setItem('kairisei-admin-boss-view',state.bossView)}catch{/* Per-browser convenience only. */}state.bossPage=0;renderBosses()});
 function renderBosses(){
@@ -212,16 +252,17 @@ function renderBosses(){
   $$('#boss-kinds button').forEach(b=>b.classList.toggle('active',b.dataset.kind===state.bossKind));
   $('#mode-all').classList.toggle('active',state.mode==='all');$('#mode-selected').classList.toggle('active',state.mode==='allowlist');
   $('#boss-revision').textContent=`revision ${state.policy?.revision||0}`;
-  $('#boss-summary').innerHTML=`<b>${state.mode==='all'?'全部开放模式（勾选不生效）':`已选 ${state.selected.size} 组`}</b><span>筛选结果 ${rows.length} / 全部 ${state.groups.length} 组 · 本页 ${visible.length} 组</span>`;
+  $('#boss-summary').innerHTML=`<b>${state.mode==='all'?'全部开放模式（仍按排期展示）':`已选 ${state.selected.size} 组`}</b><span>筛选结果 ${rows.length} / 全部 ${state.groups.length} 组 · 本页 ${visible.length} 组</span>`;
   $('#save-policy').disabled=policyBusy('bosses')||!state.policy;
   const dirty=state.policy&&adminPolicyDirty('bosses');setSaveState('#boss-draft-state',dirty?'有未发布的修改':'与已发布设置一致',dirty?'dirty':'ok');
   const check=g=>{const on=state.selected.has(g.group_id);return `<input class="check boss-check" type="checkbox" data-id="${g.group_id}" aria-label="选择${esc(g.name)}" title="${state.mode==='all'?'全部开放模式下无需勾选':'勾选即列入开放名单'}" ${on?'checked':''} ${state.mode==='all'?'disabled':''}>`};
   const openTag=g=>{const open=bossIsPublished(g);return `<span class="tag ${open?'ok':''}">${open?'当前开放':'当前关闭'}</span>`};
   const ids=g=>`${esc(g.boss_ids.slice(0,4).join(', '))}${g.boss_ids.length>4?'…':''}`;
+  const schedule=g=>`<button type="button" class="secondary sm" data-boss-schedule="${g.group_id}">独立排期</button><span class="sub boss-schedule-summary">${esc(bossScheduleSummary(state.bossSchedules.get(g.group_id)))}</span>`;
   $('#boss-rows').className=list?'boss-list-wrap':'boss-grid';
   if(!visible.length)$('#boss-rows').innerHTML=`<div class="empty"><b>没有匹配的 Boss 组</b>调整搜索或点击“清除筛选”。</div>`;
-  else if(list)$('#boss-rows').innerHTML=`<div class="table-wrap"><table class="boss-list"><thead><tr><th class="check-col"><span class="sr-only">选择</span></th><th><span class="sr-only">图片</span></th><th>名称</th><th>类型 / 难度</th><th>组 ID / BOSS ID</th><th>状态</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>${visible.map(g=>`<tr class="${state.selected.has(g.group_id)&&state.mode!=='all'?'selected':''}"><td>${check(g)}</td><td><div class="thumb">${image(g.image_url,g.name)}</div></td><td class="name-cell"><b>${esc(g.name)}</b>${g.past_name?`<span class="sub">${esc(g.past_name)}</span>`:''}</td><td>${bossKindLabel(g.category)} · ${g.bosses?.length||g.boss_count} 个难度 · 最多 ${g.max_segments||1} 波<span class="sub">${esc((g.difficulties||[]).join(' / ')||'未标注难度')}</span></td><td><code>${g.group_id}</code><span class="sub">${ids(g)}</span></td><td>${openTag(g)}</td><td><button class="secondary sm" data-boss-detail="${g.group_id}">难度规则</button></td></tr>`).join('')}</tbody></table></div>`;
-  else $('#boss-rows').innerHTML=visible.map(g=>{const on=state.selected.has(g.group_id);return `<div class="boss-card ${on&&state.mode!=='all'?'selected':''}"><label class="boss-select">${check(g)}</label><span class="card-state">${openTag(g)}</span><div class="boss-art">${image(g.image_url,g.name)}</div><div class="boss-copy"><span class="name" title="${esc(g.name)}">${esc(g.name)}</span>${g.past_name?`<span class="sub">${esc(g.past_name)}</span>`:''}<span class="sub">${bossKindLabel(g.category)} · ${g.bosses?.length||g.boss_count} 个难度 · 最多 ${g.max_segments||1} 波</span><span class="sub">${esc((g.difficulties||[]).join(' / ')||'未标注难度')}</span><span class="sub"><code>${g.group_id}</code> ${ids(g)}</span><div class="card-actions"><button class="secondary sm" data-boss-detail="${g.group_id}">难度规则与属性</button></div></div></div>`}).join('');
+  else if(list)$('#boss-rows').innerHTML=`<div class="table-wrap"><table class="boss-list"><thead><tr><th class="check-col"><span class="sr-only">选择</span></th><th><span class="sr-only">图片</span></th><th>名称</th><th>类型 / 难度</th><th>组 ID / BOSS ID</th><th>状态</th><th>出现排期</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>${visible.map(g=>`<tr class="${state.selected.has(g.group_id)&&state.mode!=='all'?'selected':''}"><td>${check(g)}</td><td><div class="thumb">${image(g.image_url,g.name)}</div></td><td class="name-cell"><b>${esc(g.name)}</b>${g.past_name?`<span class="sub">${esc(g.past_name)}</span>`:''}</td><td>${bossKindLabel(g.category)} · ${g.bosses?.length||g.boss_count} 个难度 · 最多 ${g.max_segments||1} 波<span class="sub">${esc((g.difficulties||[]).join(' / ')||'未标注难度')}</span></td><td><code>${g.group_id}</code><span class="sub">${ids(g)}</span></td><td>${openTag(g)}</td><td>${schedule(g)}</td><td><button class="secondary sm" data-boss-detail="${g.group_id}">难度规则</button></td></tr>`).join('')}</tbody></table></div>`;
+  else $('#boss-rows').innerHTML=visible.map(g=>{const on=state.selected.has(g.group_id);return `<div class="boss-card ${on&&state.mode!=='all'?'selected':''}"><label class="boss-select">${check(g)}</label><span class="card-state">${openTag(g)}</span><div class="boss-art">${image(g.image_url,g.name)}</div><div class="boss-copy"><span class="name" title="${esc(g.name)}">${esc(g.name)}</span>${g.past_name?`<span class="sub">${esc(g.past_name)}</span>`:''}<span class="sub">${bossKindLabel(g.category)} · ${g.bosses?.length||g.boss_count} 个难度 · 最多 ${g.max_segments||1} 波</span><span class="sub">${esc((g.difficulties||[]).join(' / ')||'未标注难度')}</span><span class="sub"><code>${g.group_id}</code> ${ids(g)}</span><div class="card-actions">${schedule(g)}<button class="secondary sm" data-boss-detail="${g.group_id}">难度规则与属性</button></div></div></div>`}).join('');
   $$('.boss-check').forEach(c=>c.onchange=()=>{const id=Number(c.dataset.id);c.checked?state.selected.add(id):state.selected.delete(id);renderBosses()});
 }
 function renderGachas(){
@@ -237,10 +278,12 @@ $('#mode-all').onclick=()=>{state.mode='all';renderBosses()};$('#mode-selected')
 $('#boss-start').onchange=$('#boss-end').onchange=()=>renderBosses();
 function policyBusy(name){return state.loading.has(name)||state.publishing.has(name)}
 function updatePolicyControls(){
-  for(const name of ['bosses','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','activity-rewards','evolution'])$('#'+name).inert=policyBusy(name);
+  if(typeof updateMissionControls==='function')updateMissionControls();
+  for(const name of ['bosses','dungeon-schedule','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','custom-cards','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
   for(const name of Object.keys(titles)){const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
   document.body.classList.toggle('busy',policyBusy(state.currentView));
   if(typeof updatePoolControls==='function')updatePoolControls();
+  if(typeof updateDungeonScheduleControls==='function')updateDungeonScheduleControls();
   $('#save-policy').disabled=policyBusy('bosses')||!state.policy;
   $('#gacha-save').disabled=policyBusy('gachas')||!state.gachaPolicy;
   $('#refresh').disabled=policyBusy(state.currentView);
@@ -252,13 +295,14 @@ $('#save-policy').onclick=async()=>{
   clearInvalid($('#bosses'));
   if(start&&end&&end<=start){markInvalid($('#boss-end'),'结束时间须晚于开始时间');showViewAlert('bosses',{title:'不能发布：排期无效',message:'目录结束展示时间须晚于开始时间。'});return}
   if(state.mode==='allowlist'&&!state.selected.size&&!confirm('“仅选中组”模式下没有勾选任何目录组，发布后该目录将全部关闭。确定继续？'))return;
-  const body={mode:state.mode,group_ids:state.mode==='all'?[]:[...state.selected],start_unix:start,end_unix:end,expected_revision:state.policy.revision};
-  if(!confirm(`${state.bossCatalog==='past'?'往期 BOSS':'活动／素材副本'}发布预览：${body.mode==='all'?'全部开放':`仅开放 ${body.group_ids.length} 组`}\n开始：${describeTime(body.start_unix)}\n结束：${describeTime(body.end_unix)}\n确认发布目录排期？`))return;
+  const body={mode:state.mode,group_ids:state.mode==='all'?[]:[...state.selected],start_unix:start,end_unix:end,group_schedules:[...state.bossSchedules.values()],expected_revision:state.policy.revision};
+  if(!confirm(`${state.bossCatalog==='past'?'往期 BOSS':'活动／素材副本'}发布预览：${body.mode==='all'?'全部开放':`仅开放 ${body.group_ids.length} 组`}\n开始：${describeTime(body.start_unix)}\n结束：${describeTime(body.end_unix)}\n独立排期：${body.group_schedules.length} 组（星期按北京时间）\n确认发布目录排期？`))return;
   state.publishing.add('bosses');updatePolicyControls();
   try{
     const data=await api('/api/boss-policy?catalog='+state.bossCatalog,{method:'PUT',body:JSON.stringify(body)});
     state.policy=data.publication;state.mode=state.policy.mode;state.selected=new Set(state.policy.group_ids||[]);
-    state.loaded.delete('dashboard');state.loaded.delete('audit');clearViewAlert('bosses');renderBosses();toast('Boss 发布设置已保存，按排期开放');
+    state.bossSchedules=new Map((state.policy.group_schedules||[]).map(s=>[s.group_id,structuredClone(s)]));
+    state.loaded.delete('dashboard');state.loaded.delete('audit');if(typeof dungeonSchedulePublicationChanged==='function')dungeonSchedulePublicationChanged();clearViewAlert('bosses');renderBosses();toast('Boss 发布设置已保存，按排期开放');
   }catch(e){reportError('bosses',e,'发布')}finally{state.publishing.delete('bosses');updatePolicyControls()}
 };
 $('#gacha-select-all').onclick=()=>{state.gachaSelected=new Set(state.gachaPresets.map(g=>g.group_id));renderGachas()};

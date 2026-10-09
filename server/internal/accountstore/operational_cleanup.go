@@ -137,7 +137,7 @@ func pruneOperationalMetadata(raw []byte, refs OperationalReferences, retired ma
 	for _, entry := range []struct {
 		key  string
 		keep map[int]bool
-	}{{"gacha_plays", refs.Gachas}, {"shop_purchases", refs.Items}, {"shop_periods", refs.Items}} {
+	}{{"gacha_plays", refs.Gachas}, {"gacha_boxes", refs.Gachas}, {"shop_purchases", refs.Items}, {"shop_periods", refs.Items}} {
 		if len(progress[entry.key]) == 0 {
 			continue
 		}

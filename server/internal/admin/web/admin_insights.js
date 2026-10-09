@@ -105,7 +105,7 @@ setInterval(async()=>{
 const bossRuleEditor={rules:new Map(),revision:0,group:null,dirty:false,busy:false,request:0};
 $('#boss-attribute').innerHTML=attributeOptions;
 $('#drop-attribute').innerHTML=attributeOptions;
-function bossIsPublished(g){const p=state.policy,now=Date.now()/1000;return !!p&&(!p.start_unix||now>=p.start_unix)&&(!p.end_unix||now<p.end_unix)&&(p.mode==='all'||(p.group_ids||[]).includes(g.group_id))}
+function bossIsPublished(g){const p=state.policy,now=Date.now()/1000,s=p?.group_schedules?.find(s=>s.group_id===g.group_id),day=(new Date((now+8*3600)*1000).getUTCDay()+6)%7+1;return !!p&&(!p.start_unix||now>=p.start_unix)&&(!p.end_unix||now<p.end_unix)&&(p.mode==='all'||(p.group_ids||[]).includes(g.group_id))&&(!s||((!s.start_unix||now>=s.start_unix)&&(!s.end_unix||now<s.end_unix)&&(!s.weekdays?.length||s.weekdays.includes(day))))}
 function bossMatchesFilters(g){
   const attr=$('#boss-attribute').value,difficulty=$('#boss-difficulty').value,published=$('#boss-published').value;
   return (!attr||(g.bosses||[]).some(b=>b.targets.some(t=>(t.stats?.attribute||'').split('_').includes(attr))))&&(!difficulty||(g.difficulties||[]).includes(difficulty))&&(!published||bossIsPublished(g)===(published==='open'));

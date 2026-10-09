@@ -17,17 +17,11 @@ type LocalShopProduct struct {
 }
 
 // The monthly amounts match CN settings/str_table.csv 215/1000/1-3.
-// Ordinary crystal bundles and free prices are local configuration, not a
-// reconstruction of the retired channel's product or payment service.
+// Only the two free local cards are offered. This catalog also validates orders,
+// so removed crystal bundles cannot be purchased through stale client requests.
 func LocalShopProducts() []LocalShopProduct {
 	return []LocalShopProduct{
 		{"1", "本地月卡（30天）", 250},
 		{"2", "本地无穷卡", 600},
-		{"3", "本地水晶礼包", 60},
-		{"4", "本地水晶礼包", 300},
-		{"5", "本地水晶礼包", 680},
-		{"6", "本地水晶礼包", 1280},
-		{"7", "本地水晶礼包", 3280},
-		{"8", "本地水晶礼包", 6480},
 	}
 }

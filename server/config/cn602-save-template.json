@@ -944,7 +944,7 @@
   ],
   "profiles": [],
   "friends": {
-    "follow_max": 50,
+    "follow_max": 500,
     "users": []
   },
   "stamps": {

@@ -115,13 +115,17 @@ $('#audit-after').onchange=$('#audit-before').onchange=()=>{clearInvalid($('#aud
 $('#audit-reset').onclick=()=>{$('#audit-search').value='';$('#audit-operation').value='';$('#audit-after').value='';$('#audit-before').value='';clearInvalid($('#audit'));reloadAudit()};
 $('#audit-export').onclick=()=>downloadJSON('操作记录.json',auditPage.rows);
 function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDirty();
+  if(name==='dungeon-schedule')return typeof dungeonScheduleDirty==='function'&&dungeonScheduleDirty();
   if(name==='evolution')return typeof evolutionDirty==='function'&&evolutionDirty();
+  if(name==='missions')return typeof missionPolicyDirty==='function'&&missionPolicyDirty();
+  if(name==='collections')return typeof collectionEditor!=='undefined'&&collectionEditor.dirty;
+  if(name==='custom-cards')return typeof customCardEditor!=='undefined'&&customCardEditor.dirty;
   if(name==='pool-editor')return poolEditor.dirty;
   if(typeof contentDirty==='function'&&contentDirty(name))return true;
   if(name==='settings')return runtimeSettingsDirty();
   if(name==='shop')return itemShopDirty();
   const normalized=values=>JSON.stringify([...values].sort((a,b)=>a-b));
-  if(name==='bosses'&&state.policy)return state.mode!==state.policy.mode||normalized(state.selected)!==normalized(state.policy.group_ids||[])||unixInput('#boss-start')!==(state.policy.start_unix||0)||unixInput('#boss-end')!==(state.policy.end_unix||0);
+  if(name==='bosses'&&state.policy)return state.mode!==state.policy.mode||(state.mode==='allowlist'&&normalized(state.selected)!==normalized(state.policy.group_ids||[]))||unixInput('#boss-start')!==(state.policy.start_unix||0)||unixInput('#boss-end')!==(state.policy.end_unix||0)||normalizedBossSchedules(state.bossSchedules.values())!==normalizedBossSchedules(state.policy.group_schedules||[]);
   if(name==='gachas'&&state.gachaPolicy)return normalized(state.gachaSelected)!==normalized(state.gachaPolicy.group_ids||[]);
   return false;
 }
