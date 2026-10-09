@@ -76,6 +76,8 @@ kairisei-ma-cn602-server/       ← 运行目录，也是 -PackageRoot 指向的
 
 **`resource-set/` 与 `deployment.json`、服务端程序放在同一层。** 不需要把资源复制进源码的 `server/` 或 `_local/bin/`，也不需要单独拆开资源目录。发布版本升级时一起更新配套服务端、资源包和客户端，保留 `_local/data/` 中的数据库与自己的部署配置。
 
+设置页 GitHub 地址文字属于服务器下发资源，编译 Go 不会应用文字修改。可用 [`tools/resources/hide-settings-github.py`](../tools/resources/README.md) 对服务器当前资源集检查并应用，自动备份并更新该资源及当前索引。服务器资源无需与本地相同；不要直接覆盖本地的旧索引。也可只下载服务器当前的四份相关文件，在本地生成增量修改，详见工具说明。
+
 Linux 同样替换自己系统对应的程序，再使用包内对应的 Linux 启动脚本；保留配套的 `Start-Server-linux.sh` 与 `server-arguments.sh`。
 
 ### 可选：从源码目录调用 Windows 启停脚本
