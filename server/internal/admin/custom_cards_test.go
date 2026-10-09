@@ -32,6 +32,102 @@ func TestCustomSkillRowsPreserveBranchesAndOtherLines(t *testing.T) {
 	}
 }
 
+func TestCustomCSVPreservesNativeQuotedFields(t *testing.T) {
+	row := []string{"11", `"技能,名称"`, `"保留引号"`, "ATTACK"}
+	out, err := rewriteCustomCSV("", map[string][][]string{"11": {row}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := customCSVRows([]byte(out))
+	if err != nil || !reflect.DeepEqual(parsed, [][]string{row}) {
+		t.Fatalf("client fields changed: %q, %v", out, err)
+	}
+	for _, text := range []string{"新增,描述", "新增\n描述", "新增\r描述", "新增\x00描述", `新增"描述`} {
+		if _, err := rewriteCustomCSV("", map[string][][]string{"11": {{"11", text, "ATTACK"}}}); err == nil {
+			t.Fatalf("accepted a field that corrupts client columns: %q", text)
+		}
+	}
+}
+
+func TestCustomEffectsKeepTemplateDirectionAfterEditing(t *testing.T) {
+	s := customUnitSources()
+	for i, role := range s.Roles {
+		copy(role[1:8], []string{fmt.Sprintf("script2d_%d", i), "cutin", "playlist", "hit", "TARGET", "charge", "movie"})
+	}
+	// Continuation rows carry effects, while direction is owned by the first.
+	continuation := append([]string(nil), s.Roles[0]...)
+	for i := 1; i < 8; i++ {
+		continuation[i] = ""
+	}
+	s.Roles = append(s.Roles, continuation)
+	c, err := s.template(101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.ID = customCardFirstID
+	c.Roles[0], c.Roles[2] = c.Roles[2], c.Roles[0]
+	c.RoleSources[0], c.RoleSources[2] = c.RoleSources[2], c.RoleSources[0]
+	c.Roles[0][20] = "777"
+	for _, edit := range []string{"reorder", "remove", "foreign"} {
+		t.Run(edit, func(t *testing.T) {
+			edited := c
+			edited.Roles = cloneCustomRows(c.Roles)
+			if edit == "remove" {
+				edited.Roles = edited.Roles[:2]
+			}
+			if edit == "foreign" {
+				copy(edited.Roles[0][1:8], []string{"foreign2d", "foreigncutin", "foreignplaylist", "foreignhit", "SELF", "foreigncharge", "foreignmovie"})
+			}
+			_, _, roles, _, err := materializeCustomCard(edited, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(roles[0][1:8], s.Roles[0][1:8]) || !reflect.DeepEqual(roles[1][1:8], s.Roles[1][1:8]) || roles[0][20] != "777" {
+				t.Fatalf("lost template direction or edited effect: %v", roles)
+			}
+			if edited.Roles[0][1] == "script2d_0" {
+				t.Fatal("export mutated the draft")
+			}
+		})
+	}
+}
+
+func TestCustomCardsRespectClientGroupCapacity(t *testing.T) {
+	s := customUnitSources()
+	a := &API{catalogByKey: map[string]AdminCatalogEntry{"6:101": {ResourceState: "ready"}}}
+	c, err := s.template(101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.ID = customCardFirstID
+	for i := 1; i < customClientSkillGroupLimit; i++ {
+		c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
+		c.RoleSources = append(c.RoleSources, customRoleSource{101, 0})
+	}
+	if err := a.validateCustomCards(&customCardDraft{[]customCard{c}}, s); err != nil {
+		t.Fatalf("five effects per group must be accepted: %v", err)
+	}
+	c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
+	c.RoleSources = append(c.RoleSources, customRoleSource{101, 0})
+	if err := a.validateCustomCards(&customCardDraft{[]customCard{c}}, s); err == nil {
+		t.Fatal("six effects overflow the client's fixed role array")
+	}
+	if _, _, _, _, err := materializeCustomCard(c, s); err == nil {
+		t.Fatal("export accepted an overflowing group")
+	}
+	c.Roles = c.Roles[:2]
+	for len(c.Skills) < 6 {
+		c.Skills = append(c.Skills, append([]string(nil), c.Skills[0]...))
+	}
+	if err := validateCustomClientSkillCapacity(c); err != nil {
+		t.Fatalf("five branches plus another skill must be accepted: %v", err)
+	}
+	c.Skills = append(c.Skills, append([]string(nil), c.Skills[0]...))
+	if err := validateCustomClientSkillCapacity(c); err == nil {
+		t.Fatal("six branches overflow the client's fixed extend array")
+	}
+}
+
 func customUnitSources() customCardSources {
 	row := make([]string, 62)
 	row[0], row[4], row[5], row[9], row[26], row[27] = "101", "冠名", "模板", "3", "11", "12"
@@ -527,6 +623,38 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	if combat.Cards[c.TemplateID].NormalSkillID == combat.Cards[c.ID].NormalSkillID {
 		t.Fatal("template skill overwritten")
+	}
+	generatedRoleRows, err := customCSVRows(files["resource-set/"+customRoleCSVPath])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, exportedCard := range testCards {
+		base, err := s.template(exportedCard.TemplateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := customSkillIDs(exportedCard)
+		seen := map[int]bool{}
+		for _, originalRole := range base.Roles {
+			fn := customRowInt(originalRole, 0)
+			if seen[fn] {
+				continue
+			}
+			seen[fn] = true
+			found := false
+			for _, exportedRole := range generatedRoleRows {
+				if customRowInt(exportedRole, 0) == ids[fn] {
+					found = true
+					if !reflect.DeepEqual(exportedRole[1:8], originalRole[1:8]) {
+						t.Fatalf("card %d lost template direction for function %d", exportedCard.ID, fn)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("card %d missing function %d", exportedCard.ID, fn)
+			}
+		}
 	}
 	// The client and server must have identical rows for the new card/functions.
 	client, e := readResourceBundle(files["resource-set/resources/patch/main_c/container.dat"])

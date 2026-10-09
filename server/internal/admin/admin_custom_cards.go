@@ -23,6 +23,10 @@ const customCardFirstID = 98000001
 const customCardLastID = 98999999
 const customSkillFirstID = 1900000000
 
+// CN SkillRoleCsvData.roles and SkillCsvData.extends are fixed arrays of five
+// entries (Const.SKILL_ROLE_MAX / SKILL_EXTEND_MAX), including in the 6.0.8 APK.
+const customClientSkillGroupLimit = 5
+
 // Skills and roles retain their template identities in the draft. Export gives
 // every referenced function its own ID, including branch functions shared by
 // several variants. Only names, descriptions and VALUE parameters are editable.
@@ -224,7 +228,27 @@ func (s customCardSources) template(id int) (customCard, error) {
 	if len(card.Skills) > 40 || len(card.Roles) > 120 {
 		return card, errors.New("模板技能过于复杂，请选择其他卡牌")
 	}
+	if e := validateCustomClientSkillCapacity(card); e != nil {
+		return card, e
+	}
 	return card, nil
+}
+
+func validateCustomClientSkillCapacity(c customCard) error {
+	for _, group := range []struct {
+		rows [][]string
+		name string
+	}{{c.Skills, "技能分支"}, {c.Roles, "效果"}} {
+		counts := map[int]int{}
+		for _, row := range group.rows {
+			id := customRowInt(row, 0)
+			counts[id]++
+			if counts[id] > customClientSkillGroupLimit {
+				return fmt.Errorf("卡牌%d的组%d最多支持%d项%s，请减少该组数量后再导出", c.ID, id, customClientSkillGroupLimit, group.name)
+			}
+		}
+	}
+	return nil
 }
 func (a *API) customCardsDraft(s customCardSources) (customCardDraft, int, error) {
 	d := customCardDraft{Cards: []customCard{}}
@@ -417,6 +441,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 			if !hasRole {
 				return errors.New("每个技能分支至少保留一项效果")
 			}
+		}
+		if e := validateCustomClientSkillCapacity(*c); e != nil {
+			return e
 		}
 		if len(c.Artwork) > 0 {
 			if _, e := decodeCustomArtwork(c.Artwork); e != nil {

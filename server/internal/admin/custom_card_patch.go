@@ -19,21 +19,30 @@ import (
 	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/multiplayer"
+	"kairisei.local/server/internal/protocol"
 )
 
 // Unlike item.csv, skills legitimately have several rows with the same ID.
 func rewriteCustomCSV(text string, changes map[string][][]string) (string, error) {
 	encode := func(rows [][]string) (string, error) {
 		var b strings.Builder
-		w := csv.NewWriter(&b)
-		w.UseCRLF = true
 		for _, row := range rows {
-			if e := w.Write(row); e != nil {
-				return "", e
+			// The client retains quote characters and parses one physical line
+			// at a time. RFC 4180 escaping would change inherited fields.
+			line := strings.Join(row, ",")
+			parsed := protocol.SplitCSVLine(line)
+			if strings.ContainsAny(line, "\r\n\x00") || len(parsed) != len(row) {
+				return "", errors.New("卡牌文本不支持换行或未配对的引号、英文逗号，请使用中文标点")
 			}
+			for i, field := range parsed {
+				if field != row[i] {
+					return "", errors.New("卡牌文本不符合客户端CSV格式，请使用中文标点")
+				}
+			}
+			b.WriteString(line)
+			b.WriteString("\r\n")
 		}
-		w.Flush()
-		return b.String(), w.Error()
+		return b.String(), nil
 	}
 	lines := strings.SplitAfter(text, "\n")
 	seen := map[string]bool{}
@@ -74,6 +83,9 @@ func rewriteCustomCSV(text string, changes map[string][][]string) (string, error
 }
 
 func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]string, [][]string, gamestate.Card, error) {
+	if e := validateCustomClientSkillCapacity(c); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
 	row := append([]string(nil), s.Cards[c.TemplateID]...)
 	id := strconv.Itoa(c.ID)
 	row[0], row[1], row[2], row[3] = id, id, id, id
@@ -110,8 +122,20 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	if e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
+	// The client reads a function's direction from its first role row only.
+	// Reordering/removing effects must never replace the template's direction
+	// with an empty continuation row or another card's resource references.
+	directions := map[int][]string{}
+	for _, r := range base.Roles {
+		fn := customRowInt(r, 0)
+		if _, exists := directions[fn]; !exists {
+			directions[fn] = r[1:8]
+		}
+	}
 	for _, r := range roles {
-		r[0] = strconv.Itoa(ids[customRowInt(r, 0)])
+		fn := customRowInt(r, 0)
+		copy(r[1:8], directions[fn])
+		r[0] = strconv.Itoa(ids[fn])
 		for i, kind := range s.Rules[r[8]] {
 			if kind == "ATTR" && r[20+i] == base.Attribute {
 				r[20+i] = c.Attribute
