@@ -444,6 +444,8 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	// Add a second supported effect from an existing source to the normal branch.
 	c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
 	c.RoleSources = append(c.RoleSources, customRoleSource{10000010, 0})
+	c.CutinTemplateID = 10000020
+	c.ActionSources = []customCardActionSource{{FunctionID: customRowInt(c.Roles[0], 0), CardID: 10000020, SourceFunctionID: 11100101}}
 	im := image.NewNRGBA(image.Rect(0, 0, 128, 192))
 	for y := 0; y < 192; y++ {
 		for x := 0; x < 128; x++ {
@@ -454,6 +456,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	_ = png.Encode(&art, im)
 	c.Artwork = art.Bytes()
 	a.catalogByKey["6:10000010"] = AdminCatalogEntry{Name: "模板", ResourceState: "ready", ImageURL: "/assets/card/10000010.webp"}
+	a.catalogByKey["6:10000020"] = AdminCatalogEntry{Name: "动作来源", ResourceState: "ready"}
 	// Real resource sets can already contain published custom IDs. Preserve
 	// those IDs in this synthetic draft, and exercise artwork re-export for
 	// them too. The draft and ZIP remain disposable; no fixture is applied.
@@ -497,6 +500,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	d, rev, e := a.customCardsDraft(s)
 	if e != nil || len(d.Cards) != len(testCards) || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) {
 		t.Fatalf("restart: %v", e)
+	}
+	if d.Cards[0].CutinTemplateID != c.CutinTemplateID || !reflect.DeepEqual(d.Cards[0].ActionSources, c.ActionSources) {
+		t.Fatal("presentation selections lost after storage restart")
 	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})
 	if w.Code != 200 {
@@ -558,6 +564,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 		row := generatedCards[exportedCard.ID]
 		if len(row) == 0 || customRowInt(row, 36) != exportedCard.ID {
 			t.Fatalf("uploaded artwork does not own card %d PictID", exportedCard.ID)
+		}
+		if exportedCard.CutinTemplateID != 0 && row[35] != s.Cards[exportedCard.CutinTemplateID][35] {
+			t.Fatal("selected cut-in style missing from client card table")
 		}
 		cardSources := assertCustomArtworkExport(t, exportedCard, s, sourceAssets, files["resource-set/asset-map.json"], files, "resource-set/")
 		if exportedCard.ID == c.ID {
@@ -641,12 +650,23 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 				continue
 			}
 			seen[fn] = true
+			wantDirection := originalRole[1:8]
+			for _, source := range exportedCard.ActionSources {
+				if source.FunctionID == fn {
+					for _, sourceRole := range s.Roles {
+						if customRowInt(sourceRole, 0) == source.SourceFunctionID {
+							wantDirection = sourceRole[1:8]
+							break
+						}
+					}
+				}
+			}
 			found := false
 			for _, exportedRole := range generatedRoleRows {
 				if customRowInt(exportedRole, 0) == ids[fn] {
 					found = true
-					if !reflect.DeepEqual(exportedRole[1:8], originalRole[1:8]) {
-						t.Fatalf("card %d lost template direction for function %d", exportedCard.ID, fn)
+					if !reflect.DeepEqual(exportedRole[1:8], wantDirection) {
+						t.Fatalf("card %d lost selected direction for function %d", exportedCard.ID, fn)
 					}
 					break
 				}

@@ -122,15 +122,17 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	if e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
+	cutin, directionRows, e := customCardPresentation(c, s, nil)
+	if e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
+	row[35] = cutin
 	// The client reads a function's direction from its first role row only.
-	// Reordering/removing effects must never replace the template's direction
-	// with an empty continuation row or another card's resource references.
+	// Reordering/removing effects must never replace the selected direction
+	// with an empty continuation row or an unrelated effect's references.
 	directions := map[int][]string{}
-	for _, r := range base.Roles {
-		fn := customRowInt(r, 0)
-		if _, exists := directions[fn]; !exists {
-			directions[fn] = r[1:8]
-		}
+	for fn, r := range directionRows {
+		directions[fn] = r[1:8]
 	}
 	for _, r := range roles {
 		fn := customRowInt(r, 0)
@@ -776,7 +778,7 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	if e != nil {
 		return nil, e
 	}
-	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；技能条件、演出、成长、稀有度及进化规则沿用模板，新卡不自动加入原进化链。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
+	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；技能条件、成长、稀有度及进化规则沿用模板，新卡不自动加入原进化链。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
 	if e != nil {
 		return nil, e
 	}

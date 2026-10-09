@@ -31,20 +31,27 @@ const customClientSkillGroupLimit = 5
 // every referenced function its own ID, including branch functions shared by
 // several variants. Only names, descriptions and VALUE parameters are editable.
 type customCard struct {
-	ID          int                     `json:"card_id"`
-	TemplateID  int                     `json:"template_card_id"`
-	Name        string                  `json:"name"`
-	Prefix      string                  `json:"prefix"`
-	Cost        int                     `json:"cost"`
-	ArthurType  int8                    `json:"arthur_type"`
-	Attribute   string                  `json:"attribute"`
-	Initial     gamestate.CardParameter `json:"initial"`
-	Maximum     gamestate.CardParameter `json:"maximum"`
-	LoveBonus   gamestate.CardParameter `json:"love_bonus"`
-	Skills      [][]string              `json:"skills"`
-	Roles       [][]string              `json:"roles"`
-	RoleSources []customRoleSource      `json:"role_sources"`
-	Artwork     []byte                  `json:"artwork,omitempty"`
+	ID              int                      `json:"card_id"`
+	TemplateID      int                      `json:"template_card_id"`
+	Name            string                   `json:"name"`
+	Prefix          string                   `json:"prefix"`
+	Cost            int                      `json:"cost"`
+	ArthurType      int8                     `json:"arthur_type"`
+	Attribute       string                   `json:"attribute"`
+	Initial         gamestate.CardParameter  `json:"initial"`
+	Maximum         gamestate.CardParameter  `json:"maximum"`
+	LoveBonus       gamestate.CardParameter  `json:"love_bonus"`
+	Skills          [][]string               `json:"skills"`
+	Roles           [][]string               `json:"roles"`
+	RoleSources     []customRoleSource       `json:"role_sources"`
+	Artwork         []byte                   `json:"artwork,omitempty"`
+	CutinTemplateID int                      `json:"cutin_template_card_id,omitempty"`
+	ActionSources   []customCardActionSource `json:"action_sources,omitempty"`
+}
+type customCardActionSource struct {
+	FunctionID       int `json:"function_id"`
+	CardID           int `json:"card_id"`
+	SourceFunctionID int `json:"source_function_id"`
 }
 type customRoleSource struct {
 	CardID int `json:"card_id"`
@@ -289,7 +296,15 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 503, e.Error())
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "applied": s.Applied, "parameter_rules": s.Rules})
+	names := map[int]string{}
+	for _, c := range d.Cards {
+		for _, id := range append([]int{c.CutinTemplateID}, customActionSourceCardIDs(c)...) {
+			if row := s.Cards[id]; len(row) > 5 {
+				names[id] = row[5]
+			}
+		}
+	}
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "applied": s.Applied, "parameter_rules": s.Rules, "presentation_names": names})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -443,6 +458,12 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 			}
 		}
 		if e := validateCustomClientSkillCapacity(*c); e != nil {
+			return e
+		}
+		if _, _, e := customCardPresentation(*c, s, func(id int) bool {
+			entry, ok := a.catalogByKey[adminCatalogKey(6, id)]
+			return ok && entry.ResourceState != "unavailable"
+		}); e != nil {
 			return e
 		}
 		if len(c.Artwork) > 0 {
