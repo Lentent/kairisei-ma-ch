@@ -204,7 +204,7 @@ async function loadBossPublication(catalog){
   state.bossSchedules=new Map((state.policy.group_schedules||[]).map(s=>[s.group_id,structuredClone(s)]));
   $('#boss-start').value=localTimeInput(state.policy.start_unix);$('#boss-end').value=localTimeInput(state.policy.end_unix);updateBossDifficultyFilter();state.bossPage=0;renderBosses();
 }
-$$('#boss-catalogs button').forEach(b=>b.onclick=async()=>{
+$$('#boss-catalogs button[data-catalog]').forEach(b=>b.onclick=async()=>{
   const catalog=b.dataset.catalog;if(catalog===state.bossCatalog||policyBusy('bosses'))return;
   if(adminPolicyDirty('bosses')&&!confirm('当前目录有未保存的修改，切换将放弃这些修改。是否继续？'))return;
   state.loading.add('bosses');updatePolicyControls();

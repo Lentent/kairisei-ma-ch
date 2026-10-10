@@ -1074,9 +1074,10 @@ type TeamBattleReplayBattle struct {
 }
 
 type TeamBattleReplay struct {
-	BossID       int  `json:"boss_id"`
-	EnemyPartyID int  `json:"enemy_party_id"`
-	EnemyType    int8 `json:"enemy_type"`
+	EnemyOverrides []TeamBattleEnemyOverride `json:"enemy_overrides,omitempty"`
+	BossID         int                       `json:"boss_id"`
+	EnemyPartyID   int                       `json:"enemy_party_id"`
+	EnemyType      int8                      `json:"enemy_type"`
 	// Battles is the active multi-segment contract. An empty slice retains the
 	// historical one-segment EnemyPartyID/EnemyType projection for old SQLite
 	// snapshots and generated event profiles.

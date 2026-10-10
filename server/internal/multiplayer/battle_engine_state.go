@@ -4,9 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+
+	"kairisei.local/server/internal/gamestate"
 )
 
 type BattleEngine struct {
+	enemyOverrides   []gamestate.TeamBattleEnemyOverride
+	statWaveIndex    int
 	catalog          *CombatCatalog
 	seed             uint32
 	rng              xorShift128
@@ -287,7 +291,8 @@ func newBattleEngine(catalog *CombatCatalog, spec RoomSpec, members []Member) (*
 		return nil, fmt.Errorf("enemy party %d is unavailable", spec.EnemyPartyID)
 	}
 	engine := &BattleEngine{
-		catalog: catalog, seed: uint32(spec.Seed), rng: newXorShift128(uint32(spec.Seed)),
+		enemyOverrides: gamestate.CloneTeamBattleEnemyOverrides(spec.EnemyOverrides),
+		catalog:        catalog, seed: uint32(spec.Seed), rng: newXorShift128(uint32(spec.Seed)),
 		costInitial: spec.CostInitial, holdMax: spec.HoldMax, continueAllowed: spec.ContinueAllowed,
 		phase: battlePhaseCreated, selectedPlays: make(map[int]cardPlaySubmission, maxRoomMembers),
 		enemyUses: make(map[int]int), openingDraw: new([4][10]bool),
@@ -437,6 +442,9 @@ func (engine *BattleEngine) loadEnemyParty(party CombatEnemyParty, drops []Battl
 	}
 	if engine.enemyCount == 0 {
 		return errors.New("combat enemy party is empty")
+	}
+	if err := engine.applyEnemyOverrides(); err != nil {
+		return err
 	}
 	for _, drop := range drops {
 		if drop.EnemyIndex < 0 || drop.EnemyIndex >= engine.enemyCount || engine.enemies[drop.EnemyIndex].EnemyID == 0 {

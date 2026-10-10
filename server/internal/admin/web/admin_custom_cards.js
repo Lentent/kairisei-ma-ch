@@ -1,6 +1,6 @@
 'use strict';
-const customCardEditor={config:{cards:[]},revision:0,nextID:98000001,selected:0,dirty:false,rules:{},help:{},targetLabels:{},valueLabels:{},applied:{},occupied:[],effect:null};
-function loadCustomCardHelp(d){customCardEditor.rules=d.parameter_rules||{};customCardEditor.help=d.effect_help||{};customCardEditor.targetLabels=d.target_labels||{};customCardEditor.valueLabels=d.value_labels||{}}
+const customCardEditor={config:{cards:[]},revision:0,nextID:98000001,selected:0,dirty:false,rules:{},help:{},targetLabels:{},valueLabels:{},applied:{},occupied:[],presentationNames:{},effect:null};
+function loadCustomCardHelp(d){customCardEditor.rules=d.parameter_rules||{};customCardEditor.help=d.effect_help||{};customCardEditor.targetLabels=d.target_labels||{};customCardEditor.valueLabels=d.value_labels||{};if(d.presentation_names)customCardEditor.presentationNames=d.presentation_names}
 function customEffectHelp(code){return customCardEditor.help[code]||{name:code,description:'此效果尚未配置中文说明，请结合来源卡技能说明。',parameters:[]}}
 function customTargetLabel(target){return customCardEditor.targetLabels[target]||target||'沿用模板目标'}
 function customValueLabel(value){return customCardEditor.valueLabels[value]||value||'空'}
@@ -64,6 +64,8 @@ function renderCustomCards(){
   $('#custom-card-title').textContent=c?`${c.name} · ${c.card_id}`:'选择或新增一张卡';$('#custom-card-template-info').textContent=c?`模板卡 ${c.template_card_id} · 等级、稀有度、语音和条件分支沿用模板`:'';
   for(const [id,key] of [['name','name'],['prefix','prefix'],['job','arthur_type'],['attr','attribute'],['cost','cost']])$('#custom-card-'+id).value=c?.[key]??'';
   renderCustomCardPreview();
+  $('#custom-card-cutin-info').textContent=c?.cutin_template_card_id?`出牌特写：${customPresentationName(c.cutin_template_card_id)}`:'出牌特写：沿用模板';
+  $('#custom-card-cutin-reset').disabled=!c?.cutin_template_card_id;
   $('#custom-card-stats').innerHTML=c?['hp','attack','magic','mind'].map((key,i)=>`<tr><th>${['HP','物理攻击','魔法攻击','回复量'][i]}</th>${['initial','maximum','love_bonus'].map(group=>`<td><input type="number" min="0" max="10000000" data-custom-stat="${group}:${key}" value="${c[group][key]}" aria-label="${['HP','物理攻击','魔法攻击','回复量'][i]} ${group==='initial'?'初始':group==='maximum'?'满级':'忠诚加成'}"></td>`).join('')}</tr>`).join(''):'';
   $$('[data-custom-stat]').forEach(el=>el.oninput=()=>{const [group,key]=el.dataset.customStat.split(':');c[group][key]=Number(el.value);customCardChanged()});
   renderCustomSkills();updateDraftIndicators();
@@ -75,7 +77,8 @@ function renderCustomSkills(){
   const groups=functions.map((fn,k)=>{
     const indices=c.roles.map((r,i)=>Number(r[0])===fn?i:-1).filter(i=>i>=0);
     const branches=c.skills.map((r,i)=>(Number(r[49])||Number(r[0]))===fn?i+1:0).filter(Boolean).join('、');
-    return `<div class="custom-effect-group"><div class="toolbar"><h3>效果组 ${k+1}</h3><span class="hint">关联技能分支 ${branches}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-add-effect="${fn}">从现有卡添加效果</button></div>${indices.map((i,j)=>{
+    const action=(c.action_sources||[]).find(s=>Number(s.function_id)===fn);
+    return `<div class="custom-effect-group"><div class="toolbar"><h3>效果组 ${k+1}</h3><span class="hint">关联技能分支 ${branches} · ${indices.length}/5 项效果</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-add-effect="${fn}" ${indices.length>=5?'disabled':''}>从现有卡添加效果</button></div><div class="toolbar"><span class="hint">攻击／技能动作：${action?esc(customPresentationName(action.card_id)):'沿用模板'}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-action="${fn}">选择动作来源</button><button type="button" class="secondary sm" data-custom-action-reset="${fn}" ${action?'':'disabled'}>恢复模板动作</button></div>${indices.map((i,j)=>{
       const r=c.roles[i],source=c.role_sources[i],rules=customCardEditor.rules[r[8]]||[],h=customEffectHelp(r[8]);
       return `<div class="custom-effect-row" id="custom-effect-row-${i}"><div class="toolbar"><b>${j+1}. ${esc(h.name)}</b><span class="hint">来源卡 ${source.card_id} · 目标 ${esc(customTargetLabel(r[9]))}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-move="${i}:-1" ${j===0?'disabled':''} aria-label="上移效果">↑</button><button type="button" class="secondary sm" data-custom-move="${i}:1" ${j===indices.length-1?'disabled':''} aria-label="下移效果">↓</button><button type="button" class="danger sm" data-custom-remove-effect="${i}" ${indices.length<2?'disabled':''}>移除</button></div><p class="custom-effect-explanation">${esc(h.description)}</p>${h.formula?`<p class="hint custom-effect-formula">${esc(h.formula)}</p>`:''}<div class="custom-effect-params">${rules.map((type,p)=>customEffectParameterHTML(r,type,p,i)).join('')}</div><details class="custom-effect-code"><summary>查看效果编号</summary><span class="hint">${esc(r[8])} · 参数顺序与来源模板一致</span></details></div>`;
     }).join('')}</div>`;
@@ -87,6 +90,30 @@ function renderCustomSkills(){
   $$('[data-custom-remove-effect]').forEach(el=>el.onclick=()=>{const i=Number(el.dataset.customRemoveEffect);c.roles.splice(i,1);c.role_sources.splice(i,1);customCardChanged();renderCustomSkills()});
   $$('[data-custom-move]').forEach(el=>el.onclick=()=>{const [i,dir]=el.dataset.customMove.split(':').map(Number),same=c.roles.map((r,k)=>r[0]===c.roles[i][0]?k:-1).filter(k=>k>=0),other=same[same.indexOf(i)+dir];if(other===undefined)return;[c.roles[i],c.roles[other]]=[c.roles[other],c.roles[i]];[c.role_sources[i],c.role_sources[other]]=[c.role_sources[other],c.role_sources[i]];customCardChanged();renderCustomSkills()});
   $$('[data-custom-add-effect]').forEach(el=>el.onclick=()=>chooseCustomEffect(Number(el.dataset.customAddEffect)));
+  $$('[data-custom-action]').forEach(el=>el.onclick=()=>chooseCustomAction(Number(el.dataset.customAction)));
+  $$('[data-custom-action-reset]').forEach(el=>el.onclick=()=>{c.action_sources=(c.action_sources||[]).filter(s=>Number(s.function_id)!==Number(el.dataset.customActionReset));customCardChanged();renderCustomSkills()});
+}
+function customPresentationName(id){return customCardEditor.presentationNames[id]||`卡牌 ${id}`}
+$('#custom-card-cutin-pick').onclick=()=>{
+  const c=currentCustomCard();if(!c)return;
+  openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张特写来源卡');customCardAction(async()=>{
+    const d=await api(`/api/custom-cards/template/${rows[0].reward_type_id}`);
+    c.cutin_template_card_id=d.card.template_card_id;customCardEditor.presentationNames[d.card.template_card_id]=d.card.name;customCardChanged();renderCustomCards();
+  })},['card']);
+};
+$('#custom-card-cutin-reset').onclick=()=>{const c=currentCustomCard();if(c){delete c.cutin_template_card_id;customCardChanged();renderCustomCards()}};
+function chooseCustomAction(fn){
+  const c=currentCustomCard(),to=c.skills.find(r=>(Number(r[49])||Number(r[0]))===fn);
+  openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张动作来源卡');customCardAction(async()=>{
+    const d=await api(`/api/custom-cards/template/${rows[0].reward_type_id}`),source=d.card;
+    customCardEditor.presentationNames[source.template_card_id]=source.name;
+    const groups=[...new Set(source.roles.map(r=>Number(r[0])))].map(sourceFn=>({fn:sourceFn,row:source.roles.find(r=>Number(r[0])===sourceFn),skill:source.skills.find(r=>(Number(r[49])||Number(r[0]))===sourceFn)})).filter(g=>g.skill&&g.skill[10]===to[10]&&g.skill[19]===to[19]&&g.row[1]&&g.row[3]);
+    $('#custom-effect-title').textContent='选择攻击／技能动作';
+    $('#custom-effect-source').textContent=`来源：${source.name}。选择与当前技能类型、目标范围匹配的动作，2D演出、3D动作和命中特效一起切换。`;
+    $('#custom-effect-options').innerHTML=groups.map((g,i)=>`<button class="custom-card-choice" type="button" data-custom-action-option="${g.fn}"><b>${esc(g.skill[1])} · 动作组 ${i+1}</b><span>${esc(g.skill[3])}</span></button>`).join('')||'<p class="empty">这张卡没有匹配的完整动作，请关闭后选择另一张来源卡。</p>';
+    $$('[data-custom-action-option]').forEach(el=>el.onclick=()=>{c.action_sources=(c.action_sources||[]).filter(s=>Number(s.function_id)!==fn);c.action_sources.push({function_id:fn,card_id:source.template_card_id,source_function_id:Number(el.dataset.customActionOption)});customCardChanged();renderCustomSkills();$('#custom-effect-modal').classList.remove('open')});
+    $('#custom-effect-modal').classList.add('open');
+  })},['card']);
 }
 async function customCardAction(fn){if(policyBusy('custom-cards'))return;state.publishing.add('custom-cards');updatePolicyControls();try{await fn()}catch(e){reportError('custom-cards',e,'操作');toast(e.message,true)}finally{state.publishing.delete('custom-cards');updatePolicyControls()}}
 function nextCustomCardID(used){for(let id=98000001;id<=98999999;id++)if(!used.has(id))return id;throw new Error('卡牌ID已用完')}
@@ -100,6 +127,7 @@ function validateCustomCardDesign(d){
   for(const c of d.cards){
     if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!['FIRE','ICE','WIND','LIGHT','DARK'].includes(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some(s=>!object(s)||!integer(s.card_id,1,2147483647)||!integer(s.index,0,119))||['artwork','icon_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
     if(ids.has(c.card_id))throw new Error('设计文件包含重复的卡牌ID');
+    if(c.cutin_template_card_id!==undefined&&!integer(c.cutin_template_card_id,0,2147483647)||c.action_sources!=null&&(!Array.isArray(c.action_sources)||c.action_sources.some(s=>!object(s)||!integer(s.function_id,1,2147483647)||!integer(s.card_id,1,2147483647)||!integer(s.source_function_id,1,2147483647))))throw new Error('设计文件的演出来源结构无效');
     if(occupied.has(c.card_id)&&e.applied[c.card_id]!==c.template_card_id)throw new Error('设计文件不能覆盖当前资源中的其他卡牌');
     ids.add(c.card_id);
   }
@@ -107,8 +135,9 @@ function validateCustomCardDesign(d){
 }
 $('#custom-card-new').onclick=()=>openContentPicker(rows=>{if(customCardEditor.config.cards.length+rows.length>200)throw new Error('最多制作200张卡');customCardAction(async()=>{const cards=[],used=customCardUsedIDs();for(const row of rows){const d=await api(`/api/custom-cards/template/${row.reward_type_id}`),c=d.card;loadCustomCardHelp(d);c.card_id=nextCustomCardID(used);used.add(c.card_id);c.name=`${c.name}（自制）`.slice(0,40);cards.push(c)}customCardEditor.config.cards.push(...cards);if(cards.length)customCardEditor.selected=cards[cards.length-1].card_id;customCardChanged();renderCustomCards()})},['card']);
 function chooseCustomEffect(fn){const c=currentCustomCard();openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张效果来源卡');customCardAction(async()=>{const d=await api(`/api/custom-cards/template/${rows[0].reward_type_id}`);loadCustomCardHelp(d);customCardEditor.effect={cardID:c.card_id,fn,source:d.card};$('#custom-effect-source').textContent=`来源：${d.card.name}。选择一项效果加入当前效果组。`;
+  $('#custom-effect-title').textContent='选择技能效果';
   $('#custom-effect-options').innerHTML=d.card.roles.map((r,i)=>{const h=customEffectHelp(r[8]),rules=customCardEditor.rules[r[8]]||[],params=rules.map((type,p)=>type==='VALUE'&&h.parameters[p]?.name!=='模板保留字段'?`${customParameterHelp(r,p).name}：${customParameterValueText(r[20+p]??'',customParameterHelp(r,p).unit)}`:'').filter(Boolean).join(' · ');return `<button class="custom-card-choice" type="button" data-custom-effect-option="${i}"><b>${esc(h.name)} · ${esc(customTargetLabel(r[9]))}</b><span>${esc(h.description)}</span><span>${esc(params)}</span><span>来源技能：${esc(d.card.skills.find(s=>(Number(s[49])||Number(s[0]))===Number(r[0]))?.[3]||'沿用来源卡说明')}</span></button>`}).join('');
-  $$('[data-custom-effect-option]').forEach(el=>el.onclick=()=>{const e=customCardEditor.effect,target=customCardEditor.config.cards.find(c=>c.card_id===e.cardID);if(!target)return;if(target.roles.length>=120)return toast('每张卡最多120项效果',true);const index=Number(el.dataset.customEffectOption),r=[...e.source.roles[index]];r[0]=String(e.fn);target.roles.push(r);target.role_sources.push({card_id:e.source.template_card_id,index});customCardChanged();renderCustomSkills();$('#custom-effect-modal').classList.remove('open')});$('#custom-effect-modal').classList.add('open')})},['card'])}
+  $$('[data-custom-effect-option]').forEach(el=>el.onclick=()=>{const e=customCardEditor.effect,target=customCardEditor.config.cards.find(c=>c.card_id===e.cardID);if(!target)return;if(target.roles.filter(r=>Number(r[0])===Number(e.fn)).length>=5)return toast('每个效果组最多5项效果，请先移除该组的效果',true);const index=Number(el.dataset.customEffectOption),r=[...e.source.roles[index]];r[0]=String(e.fn);target.roles.push(r);target.role_sources.push({card_id:e.source.template_card_id,index});customCardChanged();renderCustomSkills();$('#custom-effect-modal').classList.remove('open')});$('#custom-effect-modal').classList.add('open')})},['card'])}
 $('#custom-effect-close').onclick=()=>$('#custom-effect-modal').classList.remove('open');
 $('#custom-card-search').oninput=renderCustomCardList;
 for(const [id,key,numeric] of [['name','name',false],['prefix','prefix',false],['job','arthur_type',true],['attr','attribute',false],['cost','cost',true]])$('#custom-card-'+id).oninput=()=>{const c=currentCustomCard();if(!c)return;c[key]=numeric?Number($('#custom-card-'+id).value):$('#custom-card-'+id).value;customCardChanged();renderCustomCardList();$('#custom-card-title').textContent=`${c.name} · ${c.card_id}`};

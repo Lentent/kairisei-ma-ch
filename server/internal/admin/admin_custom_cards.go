@@ -23,25 +23,36 @@ const customCardFirstID = 98000001
 const customCardLastID = 98999999
 const customSkillFirstID = 1900000000
 
+// CN SkillRoleCsvData.roles and SkillCsvData.extends are fixed arrays of five
+// entries (Const.SKILL_ROLE_MAX / SKILL_EXTEND_MAX), including in the 6.0.8 APK.
+const customClientSkillGroupLimit = 5
+
 // Skills and roles retain their template identities in the draft. Export gives
 // every referenced function its own ID, including branch functions shared by
 // several variants. Only names, descriptions and VALUE parameters are editable.
 type customCard struct {
-	ID          int                     `json:"card_id"`
-	TemplateID  int                     `json:"template_card_id"`
-	Name        string                  `json:"name"`
-	Prefix      string                  `json:"prefix"`
-	Cost        int                     `json:"cost"`
-	ArthurType  int8                    `json:"arthur_type"`
-	Attribute   string                  `json:"attribute"`
-	Initial     gamestate.CardParameter `json:"initial"`
-	Maximum     gamestate.CardParameter `json:"maximum"`
-	LoveBonus   gamestate.CardParameter `json:"love_bonus"`
-	Skills      [][]string              `json:"skills"`
-	Roles       [][]string              `json:"roles"`
-	RoleSources []customRoleSource      `json:"role_sources"`
-	Artwork     []byte                  `json:"artwork,omitempty"`
-	IconArtwork []byte                  `json:"icon_artwork,omitempty"`
+	ID              int                      `json:"card_id"`
+	TemplateID      int                      `json:"template_card_id"`
+	Name            string                   `json:"name"`
+	Prefix          string                   `json:"prefix"`
+	Cost            int                      `json:"cost"`
+	ArthurType      int8                     `json:"arthur_type"`
+	Attribute       string                   `json:"attribute"`
+	Initial         gamestate.CardParameter  `json:"initial"`
+	Maximum         gamestate.CardParameter  `json:"maximum"`
+	LoveBonus       gamestate.CardParameter  `json:"love_bonus"`
+	Skills          [][]string               `json:"skills"`
+	Roles           [][]string               `json:"roles"`
+	RoleSources     []customRoleSource       `json:"role_sources"`
+	Artwork         []byte                   `json:"artwork,omitempty"`
+	IconArtwork     []byte                   `json:"icon_artwork,omitempty"`
+	CutinTemplateID int                      `json:"cutin_template_card_id,omitempty"`
+	ActionSources   []customCardActionSource `json:"action_sources,omitempty"`
+}
+type customCardActionSource struct {
+	FunctionID       int `json:"function_id"`
+	CardID           int `json:"card_id"`
+	SourceFunctionID int `json:"source_function_id"`
 }
 
 func (c customCard) hasCustomArtwork() bool {
@@ -230,7 +241,27 @@ func (s customCardSources) template(id int) (customCard, error) {
 	if len(card.Skills) > 40 || len(card.Roles) > 120 {
 		return card, errors.New("模板技能过于复杂，请选择其他卡牌")
 	}
+	if e := validateCustomClientSkillCapacity(card); e != nil {
+		return card, e
+	}
 	return card, nil
+}
+
+func validateCustomClientSkillCapacity(c customCard) error {
+	for _, group := range []struct {
+		rows [][]string
+		name string
+	}{{c.Skills, "技能分支"}, {c.Roles, "效果"}} {
+		counts := map[int]int{}
+		for _, row := range group.rows {
+			id := customRowInt(row, 0)
+			counts[id]++
+			if counts[id] > customClientSkillGroupLimit {
+				return fmt.Errorf("卡牌%d的组%d最多支持%d项%s，请减少该组数量后再导出", c.ID, id, customClientSkillGroupLimit, group.name)
+			}
+		}
+	}
+	return nil
 }
 func (a *API) customCardsDraft(s customCardSources) (customCardDraft, int, error) {
 	d := customCardDraft{Cards: []customCard{}}
@@ -281,7 +312,15 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 503, e.Error())
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels()})
+	names := map[int]string{}
+	for _, c := range d.Cards {
+		for _, id := range append([]int{c.CutinTemplateID}, customActionSourceCardIDs(c)...) {
+			if row := s.Cards[id]; len(row) > 5 {
+				names[id] = row[5]
+			}
+		}
+	}
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -433,6 +472,15 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 			if !hasRole {
 				return errors.New("每个技能分支至少保留一项效果")
 			}
+		}
+		if e := validateCustomClientSkillCapacity(*c); e != nil {
+			return e
+		}
+		if _, _, e := customCardPresentation(*c, s, func(id int) bool {
+			entry, ok := a.catalogByKey[adminCatalogKey(6, id)]
+			return ok && entry.ResourceState != "unavailable"
+		}); e != nil {
+			return e
 		}
 		for _, upload := range []struct {
 			name string

@@ -43,6 +43,9 @@ func (engine *BattleEngine) Start() ([]BattleResult, error) {
 	}
 	for index := 0; index < engine.enemyCount; index++ {
 		enemy := &engine.enemies[index]
+		if enemy.BaseAttribute != engine.catalog.Enemies[enemy.EnemyID].Attribute {
+			results = append(results, rewriteResult(enemy.MemberType, enemy.Attribute))
+		}
 		results = append(results,
 			BattleResult{Command: resultBaseParam, Args: baseParameterArgs(enemy.MemberType, enemy.MaxHP, enemy.Attack, enemy.Magic, enemy.Recovery, enemy.Defense, enemy.MDefense)},
 			BattleResult{Command: resultBattleParam, Args: battleParameterArgs(enemy.MemberType, enemy.HP, enemy.MaxHP, enemy.Attack, enemy.Magic, enemy.Recovery, enemy.Defense, enemy.MDefense, enemy.LimitAttack, enemy.LimitMagic, enemy.LimitRecovery)},

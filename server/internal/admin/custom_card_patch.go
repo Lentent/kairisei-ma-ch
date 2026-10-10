@@ -19,21 +19,30 @@ import (
 	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/multiplayer"
+	"kairisei.local/server/internal/protocol"
 )
 
 // Unlike item.csv, skills legitimately have several rows with the same ID.
 func rewriteCustomCSV(text string, changes map[string][][]string) (string, error) {
 	encode := func(rows [][]string) (string, error) {
 		var b strings.Builder
-		w := csv.NewWriter(&b)
-		w.UseCRLF = true
 		for _, row := range rows {
-			if e := w.Write(row); e != nil {
-				return "", e
+			// The client retains quote characters and parses one physical line
+			// at a time. RFC 4180 escaping would change inherited fields.
+			line := strings.Join(row, ",")
+			parsed := protocol.SplitCSVLine(line)
+			if strings.ContainsAny(line, "\r\n\x00") || len(parsed) != len(row) {
+				return "", errors.New("卡牌文本不支持换行或未配对的引号、英文逗号，请使用中文标点")
 			}
+			for i, field := range parsed {
+				if field != row[i] {
+					return "", errors.New("卡牌文本不符合客户端CSV格式，请使用中文标点")
+				}
+			}
+			b.WriteString(line)
+			b.WriteString("\r\n")
 		}
-		w.Flush()
-		return b.String(), w.Error()
+		return b.String(), nil
 	}
 	lines := strings.SplitAfter(text, "\n")
 	seen := map[string]bool{}
@@ -74,6 +83,9 @@ func rewriteCustomCSV(text string, changes map[string][][]string) (string, error
 }
 
 func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]string, [][]string, gamestate.Card, error) {
+	if e := validateCustomClientSkillCapacity(c); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
 	row := append([]string(nil), s.Cards[c.TemplateID]...)
 	id := strconv.Itoa(c.ID)
 	row[0], row[1], row[2], row[3] = id, id, id, id
@@ -110,6 +122,17 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	if e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
+	cutin, directionRows, e := customCardPresentation(c, s, nil)
+	if e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
+	row[35] = cutin
+	// The client reads a function's direction from its first role row only.
+	// Preserve the chosen action independently of each borrowed effect.
+	directions := map[int][]string{}
+	for fn, r := range directionRows {
+		directions[fn] = r[1:8]
+	}
 	sourceTemplates := map[int]customCard{c.TemplateID: base}
 	for j, r := range roles {
 		// A borrowed effect follows its own source branch's attribute. Comparing
@@ -135,7 +158,9 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 				break
 			}
 		}
-		r[0] = strconv.Itoa(ids[customRowInt(r, 0)])
+		fn := customRowInt(r, 0)
+		copy(r[1:8], directions[fn])
+		r[0] = strconv.Itoa(ids[fn])
 		for i, kind := range s.Rules[r[8]] {
 			if kind == "ATTR" && r[20+i] == attribute {
 				r[20+i] = c.Attribute
@@ -850,7 +875,7 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	if e != nil {
 		return nil, e
 	}
-	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；技能条件、演出、成长、稀有度及进化规则沿用模板，新卡不自动加入原进化链。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
+	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；技能条件、成长、稀有度及进化规则沿用模板，新卡不自动加入原进化链。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
 	if e != nil {
 		return nil, e
 	}

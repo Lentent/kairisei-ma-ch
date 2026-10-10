@@ -52,40 +52,33 @@ type dropTarget struct {
 	Stats       *enemyStats `json:"stats,omitempty"`
 }
 
-type enemyStats struct {
-	EnemyID         int    `json:"enemy_id"`
-	Attribute       string `json:"attribute"`
-	HP              int    `json:"hp"`
-	Attack          int    `json:"attack"`
-	Magic           int    `json:"magic"`
-	Defense         int    `json:"defense"`
-	MagicDefense    int    `json:"magic_defense"`
-	DamageReduction int    `json:"damage_reduction"`
-	AttributeFixed  [5]int `json:"attribute_fixed"`
-}
+type enemyStats = gamestate.TeamBattleEnemyStats
 
 type DropBoss struct {
-	Category   string       `json:"category"`
-	BossID     int          `json:"boss_id"`
-	GroupID    int          `json:"group_id"`
-	Name       string       `json:"name"`
-	Difficulty string       `json:"difficulty"`
-	Targets    []dropTarget `json:"targets"`
+	SourceBossID int          `json:"source_boss_id,omitempty"`
+	Category     string       `json:"category"`
+	BossID       int          `json:"boss_id"`
+	GroupID      int          `json:"group_id"`
+	Name         string       `json:"name"`
+	Difficulty   string       `json:"difficulty"`
+	Targets      []dropTarget `json:"targets"`
 }
 
 type contentStore struct {
-	activities       activityRewards
-	activityRevision int
-	base             gamestate.State
-	bosses           map[int]DropBoss
-	drops            map[int]BossDrops
-	shops            map[int]exchangeShop
-	dropRevision     int
-	shopRevision     int
-	rules            map[int]BossRules
-	ruleRevision     int
-	ruleBases        map[int]bossRuleEntry
-	configuration    game.ContentConfiguration
+	customBosses       []customBoss
+	customBossRevision int
+	activities         activityRewards
+	activityRevision   int
+	base               gamestate.State
+	bosses             map[int]DropBoss
+	drops              map[int]BossDrops
+	shops              map[int]exchangeShop
+	dropRevision       int
+	shopRevision       int
+	rules              map[int]BossRules
+	ruleRevision       int
+	ruleBases          map[int]bossRuleEntry
+	configuration      game.ContentConfiguration
 }
 
 type exchangeShop struct {
@@ -100,11 +93,18 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 	root := filepath.Join(filepath.Dir(battleMasterPath), "cn602-battle-master")
 	parties := map[int]multiplayer.CombatEnemyParty{}
 	enemies := map[int]multiplayer.CombatEnemyDefinition{}
+	levels := map[int]multiplayer.CombatEnemyLevel{}
 	if _, err := os.Stat(filepath.Join(root, "enemy_party.csv")); err == nil {
 		var err error
 		parties, enemies, err = multiplayer.LoadOperationsEnemyCatalog(root)
 		if err != nil {
 			return err
+		}
+		if _, err := os.Stat(filepath.Join(root, "enemy_lvup.csv")); err == nil {
+			levels, err = multiplayer.LoadOperationsEnemyLevels(root)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	standalone := map[int]bool{}
@@ -189,8 +189,14 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 							if def, ok := enemies[e.EnemyID]; ok {
 								target.Stats = &enemyStats{EnemyID: def.ID, Attribute: def.Attribute,
 									HP: def.HP * e.HPRate, Attack: def.Attack, Magic: def.Magic,
-									Defense: def.Defense, MagicDefense: def.MagicDefense,
+									Recovery: def.Recovery,
+									Defense:  def.Defense, MagicDefense: def.MagicDefense,
 									DamageReduction: def.DamageReduction, AttributeFixed: def.AttributeFixed}
+								if lv, ok := levels[def.ID]; ok {
+									target.Stats.AttributeRates = &lv.AttributeRates
+									target.Stats.StatusResistances = &lv.StatusResistances
+									target.Stats.DOTReductions = &lv.DOTReductions
+								}
 							}
 							row.Targets = append(row.Targets, target)
 						}
@@ -227,6 +233,9 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 		if err = json.Unmarshal(doc.Payload, &c.shops); err != nil {
 			return err
 		}
+	}
+	if err := o.loadCustomBosses(c); err != nil {
+		return err
 	}
 	c.rules = map[int]BossRules{}
 	doc, err = o.storage.ReadDocument(bossRulesKey)
@@ -273,12 +282,20 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 	}
 	c.configuration = game.ContentConfiguration{Revision: 1, State: state}
 	o.content = c
+	o.battleGroupIDs, err = battlePublicationGroupIDs(state)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (c *contentStore) project(drops map[int]BossDrops, shops map[int]exchangeShop, rules map[int]BossRules) (gamestate.State, error) {
 	state := gamestate.State{TeamBattleSolo: c.base.TeamBattleSolo, TeamBattlePastBossGroups: c.base.TeamBattlePastBossGroups}
 	state.TeamBattleRewards = append([]gamestate.TeamBattleRewardProfile(nil), c.base.TeamBattleRewards...)
+	state.TeamBattleReplays = slices.Clone(c.base.TeamBattleReplays)
+	if err := c.projectCustomBosses(&state); err != nil {
+		return state, err
+	}
 	byBoss := map[int][]map[string]int{}
 	for i, p := range state.TeamBattleRewards {
 		config, ok := drops[c.rewardBossID(p.BossID)]
@@ -351,6 +368,13 @@ func (c *contentStore) project(drops map[int]BossDrops, shops map[int]exchangeSh
 	err := c.projectBossRules(&state, rules)
 	if err == nil {
 		err = c.projectActivityRewards(&state)
+	}
+	if err == nil {
+		for _, b := range c.customBosses {
+			if !b.Enabled {
+				state.DisabledTeamBattleBossIDs[b.BossID] = true
+			}
+		}
 	}
 	return state, err
 }
@@ -475,7 +499,11 @@ func (a *API) dropEditor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := BossDrops{BossID: id, Drops: []gamestate.TeamBattleEnemyDrop{}}
-	for _, p := range c.base.TeamBattleRewards {
+	profiles := slices.Clone(c.base.TeamBattleRewards)
+	for _, b := range c.customBosses {
+		profiles = append(profiles, b.Reward)
+	}
+	for _, p := range profiles {
 		if p.BossID == id && p.StageQuestAreaID == 0 && p.TowerID == 0 {
 			base.Drops = editableDrops(p.EnemyDrops)
 			base.FameRewards = slices.Clone(p.FameRewards)

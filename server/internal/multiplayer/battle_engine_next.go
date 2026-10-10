@@ -22,6 +22,7 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 		return nil, fmt.Errorf("next enemy party %d is unavailable", partyID)
 	}
 	next := *engine
+	next.statWaveIndex++
 	if err := next.loadEnemyParty(party, drops); err != nil {
 		return nil, err
 	}

@@ -2,6 +2,18 @@ package multiplayer
 
 import "path/filepath"
 
+func LoadOperationsEnemyLevels(root string) (map[int]CombatEnemyLevel, error) {
+	levels := map[int]CombatEnemyLevel{}
+	err := readCombatCSV(filepath.Join(root, "enemy_lvup.csv"), func(row []string) error {
+		v, err := parseCombatEnemyLevel(row)
+		if err == nil {
+			levels[v.ID] = v
+		}
+		return err
+	})
+	return levels, err
+}
+
 // LoadOperationsEnemyCatalog reuses the combat parsers without loading skills
 // or building an engine. Editors must offer real occupied slots, not guess that
 // every enemy party has four targets.
