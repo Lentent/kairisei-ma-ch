@@ -7,6 +7,7 @@ const state={loading:new Set(),publishing:new Set(),status:null,accounts:[],grou
 const titles={maintenance:'维护工具',evolution:'卡牌进化链','activity-rewards':'圣剑杯与探索','player-policy':'公告与奖励',drops:'Boss 掉落',exchanges:'兑换所配置',shop:'道具商店','pool-editor':'卡池配置',dashboard:'运行概览',accounts:'账号管理',mail:'礼物发放',bosses:'Boss 发布',gachas:'扭蛋发布',audit:'操作审计',settings:'运营设置'};
 titles.collections="称号与礼盒";titles.cdk="礼包兑换码";titles.missions="任务管理";
 titles['custom-cards']='自制卡牌';titles['dungeon-schedule']='副本日程表';
+titles['custom-bosses']='自定义 Boss';
 const viewMeta={
   'custom-cards':['扭蛋与商店','复制卡牌、上传卡面、组合技能效果并生成资源更新包'],
   missions:['系统','每日与成就任务、完成条件及多种奖励'],
@@ -16,6 +17,7 @@ const viewMeta={
   accounts:['玩家','筛选玩家、查看存档、调整资源与绑定，跨页选择收件人'],
   mail:['玩家','选择收件人与奖励，预览后按批次发放；中断后可从批次继续'],
   bosses:['战斗与活动','活动／往期目录开放名单、每组日期与每周排期，以及各难度入口规则'],
+  'custom-bosses':['战斗与活动','复制 Boss，配置回合与出招顺序、调整伤害、借用玩家 Buff 招式'],
   'dungeon-schedule':['战斗与活动','编辑游戏内日程表的标题、说明和备注，自动匹配已发布 Boss 与开放排期'],
   drops:['战斗与活动','按难度配置怪物／部位掉落与名声奖励，新开战生效'],
   'activity-rewards':['战斗与活动','圣剑杯九档固定奖励、回合与倍率，探索逐项概率奖励'],
@@ -144,6 +146,7 @@ async function loadView(name,force=false){
     else if(name==='mail')await loadMailWorkspace();
     else if(name==='cdk')await loadCDKWorkspace();
     else if(name==='bosses')await loadBossPublication(state.bossCatalog);
+    else if(name==='custom-bosses')await loadCustomBossPage();
     else if(name==='dungeon-schedule')await loadDungeonSchedule();
     else if(name==='gachas'){
       const [presets,policy]=await Promise.all([api('/api/gacha-presets'),api('/api/gacha-policy')]);

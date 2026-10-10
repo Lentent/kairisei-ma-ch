@@ -281,6 +281,17 @@ func (engine *BattleEngine) executeEnemyAttack(actor *battleEnemy, selected int,
 	power += attackRevengeBonus(actor.DamageTaken, actorStats, modifiers.revengeRate, modifiers.revengeParameter, modifiers.revengeCapRate)
 	power += attackRevengeBonus(actor.TurnDamage, actorStats, modifiers.nowTurnRevengeRate, modifiers.nowTurnRevengeParameter, modifiers.nowTurnRevengeCapRate)
 	hits := maxInt(1, combatParameterInt(role.Parameters[4]))
+	if a := role.CustomAttack; a != nil {
+		if a.Power != nil {
+			power = *a.Power
+		}
+		if a.PowerRate != nil {
+			power = int(int64(power) * int64(*a.PowerRate) / 100)
+		}
+		if a.Hits != nil {
+			hits = *a.Hits
+		}
+	}
 	targets := engine.enemyRolePlayerTargets(actor, selected, role)
 	if len(targets) == 0 {
 		return nil, nil
@@ -681,6 +692,9 @@ func (engine *BattleEngine) executeEnemyParameterRole(actor *battleEnemy, select
 			if strings.Contains(role.Function, "BY_NOW_TURN_DAMAGE") {
 				amount = nowTurnDamageParameterValue(role, actor.TurnDamage, 0, 1)
 			}
+			if role.CustomBuffValue != nil {
+				amount = *role.CustomBuffValue
+			}
 			if debuff {
 				amount = -amount
 			}
@@ -743,6 +757,9 @@ func (engine *BattleEngine) executeEnemyHeal(actor *battleEnemy, selected int, r
 				// level 1. Native FUN_0007adb0 passes that same object to the role
 				// producer after projecting level 1 in ResultCmd50.
 				amount = targetMaxHPHealRoleValue(role, level, target.MaxHP)
+			}
+			if role.CustomBuffValue != nil {
+				amount = *role.CustomBuffValue
 			}
 			reported, hp := nativeHealCommit(target.HP, target.MaxHP, amount, target.Effects, true)
 			target.HP = hp
@@ -1082,6 +1099,9 @@ func (engine *BattleEngine) enemyRoleEnemyTargets(actor *battleEnemy, selected i
 }
 
 func enemyPersistentRoleValue(role CombatSkillRole, level int, actor *battleEnemy) int {
+	if role.CustomBuffValue != nil {
+		return *role.CustomBuffValue
+	}
 	switch role.Function {
 	case "REGENERATE_FIXED":
 		return fixedRegenerateRoleValue(role, level, 1, combatEnemyStatValue(actor, role.Parameters[5]))

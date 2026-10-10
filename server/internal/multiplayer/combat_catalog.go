@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/protocol"
 )
 
@@ -145,17 +146,19 @@ type CombatSkillDefinition struct {
 }
 
 type CombatSkillRole struct {
-	SourceSkillID int // Bound on an execution copy; immutable CSV SkillID is the role-set key.
-	SkillID       int
-	RoleIndex     int
-	Effect2D      string
-	Effect3D      string
-	HitEffect     string
-	HitPosition   string
-	Function      string
-	Target        string
-	ExcludeSelf   bool
-	Attributes    [9]bool
+	CustomAttack    *gamestate.TeamBattleEnemyAction
+	CustomBuffValue *int
+	SourceSkillID   int // Bound on an execution copy; immutable CSV SkillID is the role-set key.
+	SkillID         int
+	RoleIndex       int
+	Effect2D        string
+	Effect3D        string
+	HitEffect       string
+	HitPosition     string
+	Function        string
+	Target          string
+	ExcludeSelf     bool
+	Attributes      [9]bool
 	// CSV masks are explicit, including an empty mask. Programmatic operator
 	// roles without a target rule leave this false (not a native NULL mask).
 	HasTargetAttributes bool

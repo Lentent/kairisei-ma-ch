@@ -23,6 +23,17 @@ func (engine *BattleEngine) applyEnemyOverrides() error {
 		if err := gamestate.ValidateTeamBattleEnemyStats(s); err != nil {
 			return err
 		}
+		if err := gamestate.ValidateTeamBattleEnemyActions(row.Actions); err != nil {
+			return err
+		}
+		for _, a := range row.Actions {
+			if _, _, err := engine.catalog.CustomEnemySkill(a); err != nil {
+				return err
+			}
+		}
+		enemy.CustomActions = row.Actions
+		enemy.IncludeOriginalActions = row.IncludeOriginalActions
+		enemy.CustomAnimationModel = row.AnimationModel
 		enemy.HP, enemy.MaxHP, enemy.BaseMaxHP = s.HP, s.HP, s.HP
 		enemy.Attack, enemy.BaseAttack = s.Attack, s.Attack
 		enemy.Magic, enemy.BaseMagic = s.Magic, s.Magic

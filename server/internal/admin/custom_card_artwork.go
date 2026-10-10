@@ -28,21 +28,50 @@ func decodeCustomArtwork(raw []byte) (image.Image, error) {
 
 // Fit without stretching; transparent margins preserve the template's canvas.
 func fitCustomArtwork(src image.Image, w, h int) *image.NRGBA {
+	return fitCustomArtworkForDisplay(src, w, h, w, h)
+}
+
+// Fit in the client's display space before encoding to the template texture.
+// CN UI uses square textures for non-square quads: Card10's Dmy_Chr is
+// 400x560 and Card50's Dmy_chr is 613x490 (ui_card.dat). Fitting only in
+// texture space stretches uploaded artwork when those quads are rendered.
+func fitCustomTextureArtwork(src image.Image, name string, w, h int, cardMode ...string) *image.NRGBA {
+	switch {
+	case strings.HasPrefix(name, "chr10_"):
+		if len(cardMode) > 0 && cardMode[0] == "contain" {
+			return fitCustomArtworkForDisplay(src, w, h, 5, 7)
+		}
+		// Official chr10 artwork is composed for the portrait frame separately
+		// from chr60/chr51. Fill that frame and crop excess instead of placing
+		// a complete square illustration between two visible horizontal gaps.
+		return scaleCustomArtworkForDisplay(src, w, h, 5, 7, true)
+	case strings.HasPrefix(name, "chr50_"):
+		return fitCustomArtworkForDisplay(src, w, h, 613, 490)
+	default:
+		return fitCustomArtwork(src, w, h)
+	}
+}
+
+func fitCustomArtworkForDisplay(src image.Image, w, h, displayW, displayH int) *image.NRGBA {
+	return scaleCustomArtworkForDisplay(src, w, h, displayW, displayH, false)
+}
+
+func scaleCustomArtworkForDisplay(src image.Image, w, h, displayW, displayH int, cover bool) *image.NRGBA {
 	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
 	b := src.Bounds()
 	w2, h2 := w, h
-	if w*b.Dy() > h*b.Dx() {
-		w2 = h * b.Dx() / b.Dy()
+	if (displayW*b.Dy() > displayH*b.Dx()) != cover {
+		w2 = w * displayH * b.Dx() / (displayW * b.Dy())
 	} else {
-		h2 = w * b.Dy() / b.Dx()
+		h2 = h * displayW * b.Dy() / (displayH * b.Dx())
 	}
 	w2 = max(w2, 1)
 	h2 = max(h2, 1)
 	x0, y0 := (w-w2)/2, (h-h2)/2
-	for y := 0; y < h2; y++ {
-		for x := 0; x < w2; x++ {
-			p := color.NRGBAModel.Convert(src.At(b.Min.X+x*b.Dx()/w2, b.Min.Y+y*b.Dy()/h2)).(color.NRGBA)
-			dst.SetNRGBA(x0+x, y0+y, p)
+	for y := max(y0, 0); y < min(y0+h2, h); y++ {
+		for x := max(x0, 0); x < min(x0+w2, w); x++ {
+			p := color.NRGBAModel.Convert(src.At(b.Min.X+(x-x0)*b.Dx()/w2, b.Min.Y+(y-y0)*b.Dy()/h2)).(color.NRGBA)
+			dst.SetNRGBA(x, y, p)
 		}
 	}
 	return dst
@@ -51,7 +80,7 @@ func fitCustomArtwork(src image.Image, w, h int) *image.NRGBA {
 // CN 5.3 Texture2D: aligned name, five ints, two bools, image/dimension,
 // GLTextureSettings, lightmap/color space, inline byte array, StreamingInfo.
 // Other layouts fail before a ZIP is returned. RGBA32 needs no GPU codec.
-func rewriteCustomTexture(raw []byte, newName string, art image.Image) ([]byte, error) {
+func rewriteCustomTexture(raw []byte, newName string, art image.Image, cardMode ...string) ([]byte, error) {
 	c := resourceCursor{b: raw, order: binary.LittleEndian}
 	n := int(c.u32())
 	c.take(n)
@@ -92,7 +121,7 @@ func rewriteCustomTexture(raw []byte, newName string, art image.Image) ([]byte, 
 	if c.p != len(raw) {
 		return nil, errors.New("卡面模板纹理尾部不支持")
 	}
-	pixels := fitCustomArtwork(art, w, h)
+	pixels := fitCustomTextureArtwork(art, newName, w, h, cardMode...)
 	rgba := make([]byte, w*h*4)
 	for y := 0; y < h; y++ {
 		copy(rgba[y*w*4:(y+1)*w*4], pixels.Pix[(h-1-y)*pixels.Stride:(h-y)*pixels.Stride])
@@ -140,7 +169,12 @@ func rewriteCustomArtworkContainer(object []byte, paths map[string]string, oldPi
 	return bytes.ReplaceAll(object, []byte(oldID), []byte(newID)), nil
 }
 
-func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string, icon ...image.Image) (result []byte, cab string, err error) {
+type customArtworkOverrides struct {
+	icon, card image.Image
+	cardMode   string
+}
+
+func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string, overrides customArtworkOverrides) (result []byte, cab string, err error) {
 	defer func() {
 		if v := recover(); v != nil {
 			err = fmt.Errorf("卡面资源格式不支持：%v", v)
@@ -180,10 +214,13 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 			newName := strings.TrimSuffix(name, oldID) + newID
 			textureNames[newName] = true
 			selected := art
-			if strings.HasPrefix(name, "chr20_") && len(icon) > 0 && icon[0] != nil {
-				selected = icon[0]
+			if strings.HasPrefix(name, "chr20_") && overrides.icon != nil {
+				selected = overrides.icon
 			}
-			return rewriteCustomTexture(object, newName, selected)
+			if strings.HasPrefix(name, "chr10_") && overrides.card != nil {
+				selected = overrides.card
+			}
+			return rewriteCustomTexture(object, newName, selected, overrides.cardMode)
 		}
 		if class == 142 {
 			next, e := rewriteCustomArtworkContainer(object, paths, oldPict, newPict)

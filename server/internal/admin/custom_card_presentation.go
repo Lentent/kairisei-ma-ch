@@ -78,7 +78,7 @@ func customCardPresentation(c customCard, s customCardSources, ready func(int) b
 		if !exists || row[1] == "" || row[3] == "" {
 			return "", nil, errors.New("来源效果组须包含完整的2D脚本和3D动作")
 		}
-		toSkill, fromSkill := customFunctionSkill(base, source.FunctionID), customFunctionSkill(from, source.SourceFunctionID)
+		toSkill, fromSkill := customFunctionSkill(c, source.FunctionID), customFunctionSkill(from, source.SourceFunctionID)
 		if toSkill == nil || fromSkill == nil || toSkill[10] != fromSkill[10] || toSkill[19] != fromSkill[19] {
 			return "", nil, errors.New("动作来源的技能类型和目标范围须与当前效果组相同")
 		}

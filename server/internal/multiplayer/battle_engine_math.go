@@ -186,6 +186,9 @@ func cardTrapDamageRoleValue(role CombatSkillRole, level int, _ int, source int)
 }
 
 func fixedBuffRoleValue(role CombatSkillRole, level int, chainCount int) int {
+	if role.CustomBuffValue != nil {
+		return *role.CustomBuffValue
+	}
 	first, second := fixedBuffRoleSegments(role, level)
 	value := first + second
 	if chainCount > 1 && role.ChainRate != 0 {

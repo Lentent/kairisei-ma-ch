@@ -87,6 +87,9 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		return nil, nil, nil, gamestate.Card{}, e
 	}
 	row := append([]string(nil), s.Cards[c.TemplateID]...)
+	if e := applyCustomCardDialogue(c, row); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
 	id := strconv.Itoa(c.ID)
 	row[0], row[1], row[2], row[3] = id, id, id, id
 	row[4], row[5], row[9] = c.Prefix, c.Name, strconv.Itoa(c.Cost)
@@ -468,7 +471,7 @@ func validateGeneratedCustomCombat(root string, files map[string][]byte) error {
 }
 
 func buildCustomCardImages(c customCard, row []string, s customCardSources, assets, manifest map[string]any, files, original map[string][]byte, root string) error {
-	var im, icon image.Image
+	var im, icon, cardArtwork image.Image
 	var e error
 	if len(c.Artwork) > 0 {
 		im, e = decodeCustomArtwork(c.Artwork)
@@ -481,6 +484,17 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 		if e != nil {
 			return e
 		}
+	}
+	if len(c.CardArtwork) > 0 {
+		cardArtwork, e = decodeCustomArtwork(c.CardArtwork)
+		if e != nil {
+			return e
+		}
+	}
+	// Keep the full illustration separate from a portrait-only upload. Use
+	// that portrait as the automatic icon only when no full art was uploaded.
+	if icon == nil && im == nil {
+		icon = cardArtwork
 	}
 	oldPict := customRowInt(s.Cards[c.TemplateID], 36)
 	oldID := fmt.Sprintf("%08d", oldPict)
@@ -542,7 +556,7 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 				containerPaths[oldPath] = customArtworkResourcePath(oldPath, oldPict, c.ID)
 			}
 		}
-		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im, containerPaths, icon)
+		next, cab, e := buildCustomArtworkBundle(raw, info["scrambled"].(bool), oldPict, c.ID, im, containerPaths, customArtworkOverrides{icon: icon, card: cardArtwork, cardMode: c.CardArtworkMode})
 		if e != nil {
 			return e
 		}

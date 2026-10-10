@@ -138,53 +138,56 @@ type battleDisplayPower struct {
 }
 
 type battleEnemy struct {
-	Trance               battleEnemyTrance
-	StatusCooldown       [15]int
-	MemberType           int
-	EnemyID              int
-	Parent               int
-	HP                   int
-	MaxHP                int
-	BaseMaxHP            int
-	Attack               int
-	BaseAttack           int
-	Magic                int
-	BaseMagic            int
-	Recovery             int
-	BaseRecovery         int
-	Defense              int
-	BaseDefense          int
-	MDefense             int
-	BaseMDefense         int
-	DamageReduction      int
-	AttributeFixed       [5]int
-	LimitAttack          int
-	LimitMagic           int
-	LimitRecovery        int
-	DamageTaken          int
-	TurnDamage           int
-	TurnPhysical         int
-	TurnMagic            int
-	AITurn               battleEnemyAITurnStats
-	AIFlags              uint32   // 4cee1+13b24; preserved by TurnPhase's 56dea reset.
-	AIVariables          [5]int32 // 4cee1+13b28; actor-local, preserved across turns.
-	ExecutedBuffKinds    [69]uint32
-	DiedTurn             int
-	DeathCount           int
-	BaseAttribute        string
-	Attribute            string
-	Level                CombatEnemyLevel
-	Awake                int
-	Broken               bool
-	PendingBreak         bool // 59b54 is consumed after all roles, even if a later heal restored HP.
-	ActionConsumed       int
-	ChargedActions       [5]enemyActionCandidate
-	ChargedActionCount   int
-	DeathActionTriggered bool
-	Drops                []BattleDrop
-	DropResolved         bool
-	DropReleased         bool
-	Effects              []battleEffect
+	Trance                 battleEnemyTrance
+	StatusCooldown         [15]int
+	MemberType             int
+	EnemyID                int
+	Parent                 int
+	HP                     int
+	MaxHP                  int
+	BaseMaxHP              int
+	Attack                 int
+	BaseAttack             int
+	Magic                  int
+	BaseMagic              int
+	Recovery               int
+	BaseRecovery           int
+	Defense                int
+	BaseDefense            int
+	MDefense               int
+	BaseMDefense           int
+	DamageReduction        int
+	AttributeFixed         [5]int
+	LimitAttack            int
+	LimitMagic             int
+	LimitRecovery          int
+	DamageTaken            int
+	TurnDamage             int
+	TurnPhysical           int
+	TurnMagic              int
+	AITurn                 battleEnemyAITurnStats
+	AIFlags                uint32   // 4cee1+13b24; preserved by TurnPhase's 56dea reset.
+	AIVariables            [5]int32 // 4cee1+13b28; actor-local, preserved across turns.
+	ExecutedBuffKinds      [69]uint32
+	DiedTurn               int
+	DeathCount             int
+	BaseAttribute          string
+	Attribute              string
+	Level                  CombatEnemyLevel
+	CustomActions          []gamestate.TeamBattleEnemyAction
+	IncludeOriginalActions bool
+	CustomAnimationModel   string
+	Awake                  int
+	Broken                 bool
+	PendingBreak           bool // 59b54 is consumed after all roles, even if a later heal restored HP.
+	ActionConsumed         int
+	ChargedActions         [5]enemyActionCandidate
+	ChargedActionCount     int
+	DeathActionTriggered   bool
+	Drops                  []BattleDrop
+	DropResolved           bool
+	DropReleased           bool
+	Effects                []battleEffect
 }
 
 // battleEffect is the durable state shared by the rule families in the

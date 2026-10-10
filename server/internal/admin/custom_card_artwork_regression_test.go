@@ -86,6 +86,7 @@ func TestCustomCardIndependentIconAndIllustration(t *testing.T) {
 	}
 	c.IconArtwork = makeArt(color.NRGBA{G: 255, A: 255})
 	illustration := makeArt(color.NRGBA{R: 255, A: 255})
+	portrait := makeArt(color.NRGBA{B: 255, A: 255})
 	assetsRaw, err := os.ReadFile(filepath.Join(root, "asset-map.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -94,15 +95,25 @@ func TestCustomCardIndependentIconAndIllustration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, iconOnly := range []bool{false, true} {
-		name := "different_images"
-		if iconOnly {
-			name = "icon_only_preserves_template"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		full, portrait, noIcon bool
+	}{
+		{"different_images", true, false, false},
+		{"icon_only_preserves_template", false, false, false},
+		{"independent_portrait_and_full_art", true, true, false},
+		{"portrait_only_preserves_full_art", false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			card := c
-			if !iconOnly {
+			if tc.full {
 				card.Artwork = illustration
+			}
+			if tc.portrait {
+				card.CardArtwork = portrait
+			}
+			if tc.noIcon {
+				card.IconArtwork = nil
 			}
 			row, _, _, _, err := materializeCustomCard(card, s)
 			if err != nil {
@@ -131,11 +142,12 @@ func TestCustomCardIndependentIconAndIllustration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if color.NRGBAModel.Convert(preview.At(80, 80)).(color.NRGBA).G != 255 {
+			previewPixel := color.NRGBAModel.Convert(preview.At(80, 80)).(color.NRGBA)
+			if !tc.noIcon && previewPixel.G != 255 || tc.noIcon && previewPixel.B != 255 {
 				t.Fatal("admin preview did not use icon")
 			}
 			var expected []byte
-			if iconOnly {
+			if !tc.full {
 				expected, err = os.ReadFile(filepath.Join(root, "resources/image/chr51/chr51_10000222.png"))
 			} else {
 				expected = illustration

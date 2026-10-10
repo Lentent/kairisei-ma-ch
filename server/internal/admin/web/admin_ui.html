@@ -44,6 +44,7 @@
       <button data-view="mail"><svg class="icon"><use href="#i-gift"/></svg><span>礼物发放</span></button>
       <div class="nav-group">战斗与活动</div>
       <button data-view="bosses"><svg class="icon"><use href="#i-flag"/></svg><span>Boss 发布</span></button>
+      <button data-view="custom-bosses"><svg class="icon"><use href="#i-wrench"/></svg><span>自定义 Boss</span></button>
       <button data-view="dungeon-schedule"><svg class="icon"><use href="#i-scroll"/></svg><span>副本日程表</span></button>
       <button data-view="drops"><svg class="icon"><use href="#i-gem"/></svg><span>Boss 掉落</span></button>
       <button data-view="activity-rewards"><svg class="icon"><use href="#i-trophy"/></svg><span>圣剑杯与探索</span></button>
@@ -87,12 +88,15 @@
         <div class="panel"><div class="panel-head"><h2>我的卡牌</h2><span class="pill" id="custom-card-count">0 张</span></div><div class="panel-body"><input class="search" id="custom-card-search" type="search" placeholder="搜索名称或 ID" aria-label="搜索自制卡牌"><div id="custom-card-list" class="custom-card-list"></div></div></div>
         <div class="panel"><div class="panel-head"><div><h2 id="custom-card-title">选择或新增一张卡</h2><span class="hint" id="custom-card-template-info"></span></div><button class="danger sm" id="custom-card-remove" disabled>移除草稿</button></div><div class="panel-body">
           <fieldset id="custom-card-fields" disabled>
-            <div class="custom-card-art"><div id="custom-card-icon-preview" class="custom-card-preview custom-card-icon-preview"></div><div><label class="secondary file-button">上传卡面小图<input type="file" id="custom-card-icon" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-icon-reset" type="button">自动生成小图</button><p class="hint">建议256×256，适合头像或局部构图。未单独上传时从立绘生成；未上传立绘时沿用模板小图。</p><p id="custom-card-icon-info" class="hint"></p></div></div>
-            <div class="custom-card-art"><div id="custom-card-preview" class="custom-card-preview"></div><div><label class="secondary file-button">上传立绘<input type="file" id="custom-card-art" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-art-reset" type="button">沿用模板立绘</button><p class="hint">建议1024×1024透明PNG，自动生成普通和放大立绘。游戏贴图尺寸沿用所选模板。</p><p class="hint">小图和立绘均支持PNG/JPEG，每张最多4MB；宽高64–4096像素，总像素不超过800万。等比例缩放并补边，无需提前调整到建议尺寸。</p><p id="custom-card-art-info" class="hint"></p></div></div>
+            <div class="custom-card-art"><div id="custom-card-icon-preview" class="custom-card-preview custom-card-icon-preview"></div><div><label class="secondary file-button">上传卡面小图<input type="file" id="custom-card-icon" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-icon-reset" type="button">自动生成小图</button><p class="hint">建议256×256，适合头像或局部构图。未单独上传时优先从完整立绘生成，其次从普通卡面生成；均未上传时沿用模板小图。</p><p id="custom-card-icon-info" class="hint"></p></div></div>
+            <div class="custom-card-art"><div id="custom-card-frame-preview" class="custom-card-preview custom-card-frame-preview cover"></div><div><label class="secondary file-button">上传普通卡面<input type="file" id="custom-card-frame-art" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-frame-reset" type="button">从完整立绘生成</button><p class="hint">用于竖向卡框，建议5∶7构图（如1000×1400）。可与完整立绘使用不同图片；未单独上传时从完整立绘生成。</p><div class="field"><label for="custom-card-frame-fit">普通卡面构图</label><select id="custom-card-frame-fit"><option value="cover">铺满卡框（等比例裁切边缘）</option><option value="contain">完整显示（可能留透明边）</option></select></div><p class="hint">此构图设置仅影响普通卡面。原图已有透明区或人物在图片边缘被截断时，请上传单独构图的卡面。</p><p id="custom-card-frame-info" class="hint"></p></div></div>
+            <div class="custom-card-art"><div id="custom-card-preview" class="custom-card-preview"></div><div><label class="secondary file-button">上传完整立绘<input type="file" id="custom-card-art" accept="image/png,image/jpeg" hidden></label><button class="secondary sm" id="custom-card-art-reset" type="button">沿用模板立绘</button><p class="hint">用于放大图和出牌特写，建议1024×1024透明PNG，保持完整构图。只上传普通卡面时，完整立绘沿用模板。</p><p class="hint">三种图片均支持PNG/JPEG，每张最多4MB；宽高64–4096像素，总像素不超过800万，全部图片合计最多16MB。无需手工压扁图片。已发布卡牌需重新生成并应用资源更新包后生效。</p><p id="custom-card-art-info" class="hint"></p></div></div>
             <div class="grid2"><div class="field"><label for="custom-card-name">名称</label><input id="custom-card-name" maxlength="40"></div><div class="field"><label for="custom-card-prefix">冠名</label><input id="custom-card-prefix" maxlength="30" placeholder="例如：新春型"></div></div>
             <div class="grid3"><div class="field"><label for="custom-card-job">职业</label><select id="custom-card-job"><option value="0">通用</option><option value="1">佣兵</option><option value="2">富豪</option><option value="3">盗贼</option><option value="4">歌姬</option></select></div><div class="field"><label for="custom-card-attr">属性</label><select id="custom-card-attr"><option value="FIRE">火</option><option value="ICE">冰</option><option value="WIND">风</option><option value="LIGHT">光</option><option value="DARK">暗</option></select></div><div class="field"><label for="custom-card-cost">COST</label><input id="custom-card-cost" type="number" min="1" max="10"></div></div>
             <h3>卡牌四维</h3><p class="hint">设置初始、满级和忠诚度满额加成；等级成长与稀有度沿用模板，名声加成另行计算。</p><div class="table-wrap"><table class="dense"><thead><tr><th>属性</th><th>初始值</th><th>满级值</th><th>满忠诚度加成</th></tr></thead><tbody id="custom-card-stats"></tbody></table></div>
             <h3>出牌演出</h3><div class="toolbar"><span id="custom-card-cutin-info" class="hint">出牌特写：沿用模板</span><span class="spacer"></span><button type="button" class="secondary sm" id="custom-card-cutin-pick">选择出牌特写</button><button type="button" class="secondary sm" id="custom-card-cutin-reset">恢复模板特写</button></div><p class="hint">从现有卡牌选择特写样式，仍显示这张自制卡的卡面。攻击／技能动作在下方各效果组单独选择；2D模式的整段技能演出随动作来源切换。</p>
+            <h3>出牌台词（战斗画面最下方）</h3><p class="hint">按技能类型选择对应台词，最多100字，留空可清除；不能包含英文逗号、双引号或换行。仅修改字幕文字，语音继续使用模板录音。保存后需重新生成并应用资源更新包。</p>
+            <div class="grid2"><div class="field"><label for="custom-card-attack-dialogue">攻击／妨害／特殊技能台词</label><input id="custom-card-attack-dialogue" maxlength="100"><div class="toolbar"><span id="custom-card-attack-dialogue-state" class="hint"></span><button type="button" class="secondary sm" id="custom-card-attack-dialogue-reset">恢复模板台词</button></div></div><div class="field"><label for="custom-card-support-dialogue">回复／支援／防御技能台词</label><input id="custom-card-support-dialogue" maxlength="100"><div class="toolbar"><span id="custom-card-support-dialogue-state" class="hint"></span><button type="button" class="secondary sm" id="custom-card-support-dialogue-reset">恢复模板台词</button></div></div></div>
             <h3>技能与效果</h3><p class="hint">各条件分支沿用模板，每个效果组最多5项效果。可从其他卡牌选取效果、动作并调整数值及顺序。组合后请同步修改技能说明，属性变化不会自动改写演出颜色。</p><div id="custom-card-skills"></div>
             <details class="tool-drawer"><summary>效果参数说明</summary><p class="hint">数值参数的含义取决于效果，例如基础值、成长、倍率和持续回合。非数值的目标、类型和引用沿用来源卡；添加后请核对来源说明并进行实战测试。</p></details>
           </fieldset>
@@ -301,7 +305,7 @@
     <!-- Boss 发布 -->
     <section class="view" id="bosses">
       <div class="view-alert" role="alert" hidden></div>
-      <div class="tabs" id="boss-catalogs" role="group" aria-label="目录"><button class="active" data-catalog="activity">活动／素材副本</button><button data-catalog="past">往期 BOSS</button><button id="custom-boss-open" type="button">添加／编辑自定义 Boss</button></div>
+      <div class="tabs" id="boss-catalogs" role="group" aria-label="目录"><button class="active" data-catalog="activity">活动／素材副本</button><button data-catalog="past">往期 BOSS</button><button type="button" data-jump="custom-bosses">前往自定义 Boss</button></div>
       <div class="panel"><div class="panel-head"><div><h2>发布设置</h2><span class="hint">仅发布当前 Tab 的目录；两类入口独立。普通副本、圣剑学习和已开始的战斗不受影响。</span></div></div><div class="panel-body">
         <div class="publish-row">
           <div class="field"><label>开放方式</label><div class="mode"><button id="mode-all">全部开放</button><button id="mode-selected">仅选中组</button></div></div>
@@ -318,6 +322,33 @@
         <div class="pager" id="boss-pager"><button class="secondary" id="boss-prev">上一页</button><span id="boss-page-info" class="page-info"></span><label>跳至 <input id="boss-page" type="number" min="1" value="1" aria-label="页码"> 页</label><button class="secondary" id="boss-next">下一页</button></div>
       </div></div>
       <div class="savebar"><div class="savebar-status"><span class="pill gold" id="boss-revision">revision —</span><span id="boss-draft-state" aria-live="polite"></span></div><div class="savebar-actions"><button class="primary" id="save-policy" data-save-shortcut>发布策略</button></div></div>
+    </section>
+
+    <section class="view" id="custom-bosses">
+      <div class="view-alert" role="alert" hidden></div>
+      <div class="cb-topline"><div><span class="cb-eyebrow">BOSS WORKSHOP</span><h2>制作你的战斗</h2><p>从现有难度开始，逐步设置部位与每回合行动。</p></div><button id="custom-boss-open" type="button" class="primary">＋ 新建 Boss</button></div>
+      <div class="cb-workspace">
+        <aside class="cb-library" aria-label="已制作的 Boss"><div class="cb-library-head"><h3>我的 Boss</h3><span id="custom-boss-count" class="hint"></span></div><input id="custom-boss-list-search" class="search" type="search" aria-label="搜索我的 Boss" placeholder="搜索名称或 ID"><div id="custom-boss-list" class="cb-library-list"></div><p class="hint cb-library-note">配置保存在服务端，重启后保留。保存后的修改用于新建房间。</p></aside>
+        <div class="cb-editor" id="custom-boss-editor">
+          <div id="custom-boss-error" class="view-alert" role="alert" hidden></div>
+          <section id="custom-boss-create-panel" class="cb-create" hidden><span class="cb-eyebrow">从模板开始</span><h2>复制一个现有难度</h2><p class="hint">会生成独立 Boss，默认关闭。原 Boss 的配置不受影响。</p><div class="cb-field-grid"><div class="field"><label for="custom-boss-search">搜索模板</label><input id="custom-boss-search" type="search" placeholder="名称、难度或 ID"></div><div class="field"><label for="custom-boss-source">模板与难度</label><select id="custom-boss-source"></select></div></div><div class="cb-create-actions"><button type="button" class="primary" id="custom-boss-create">复制并开始编辑</button><button type="button" class="secondary" id="custom-boss-create-cancel">返回编辑</button></div><p class="hint">圣剑杯计分及亚瑟敌方编队暂不支持复制。</p></section>
+          <div id="custom-boss-empty" class="cb-empty" hidden><span class="cb-empty-mark">＋</span><h2>从一个 Boss 开始</h2><p>点击「新建 Boss」选择模板，或从左侧选择已制作的 Boss。</p></div>
+          <div id="custom-boss-form" hidden>
+            <header class="cb-editor-heading"><div><span class="cb-eyebrow" id="custom-boss-identity"></span><h2 id="custom-boss-title">自定义 Boss</h2><p id="custom-boss-template" class="hint"></p></div><span id="custom-boss-opening" class="pill"></span></header>
+            <div id="custom-boss-tabs" class="cb-tabs" role="tablist" aria-label="Boss 配置分区"><button type="button" id="cb-tab-basic" role="tab" data-boss-tab="basic" aria-controls="custom-boss-basic">01 基础与开放</button><button type="button" id="cb-tab-stats" role="tab" data-boss-tab="stats" aria-controls="custom-boss-part-scope">02 部位数值</button><button type="button" id="cb-tab-actions" role="tab" data-boss-tab="actions" aria-controls="custom-boss-part-scope">03 行动与 Buff</button></div>
+            <section id="custom-boss-basic" class="cb-basic" role="tabpanel" aria-labelledby="cb-tab-basic"><h3>名称与入场规则</h3><div class="cb-field-grid"><div class="field"><label for="custom-boss-name">Boss 名称</label><input id="custom-boss-name" maxlength="80"></div><div class="field"><label for="custom-boss-difficulty">难度名称</label><input id="custom-boss-difficulty" maxlength="30"></div><div class="field"><label for="custom-boss-bp">单人 AI 房体力</label><input id="custom-boss-bp" type="number" min="1" max="999"></div><div class="field"><label for="custom-boss-bp-half">组队体力</label><input id="custom-boss-bp-half" type="number" min="1" max="999"></div></div><div class="cb-rule-switches"><label><input id="custom-boss-enabled" type="checkbox"><span><b>允许开放</b><small>制作完成后开启，仍须满足发布名单及排期</small></span></label><label><input id="custom-boss-continue" type="checkbox"><span><b>允许复活</b><small>按游戏原费用消耗水晶</small></span></label></div><div class="cb-entry-note"><b>战斗模式：组队／AI 房间（当前固定）</b><p>一个人玩：从组队入口创建 AI 房间；多人玩：创建或加入组队房间。当前不能分别设置只允许单人或只允许多人，也不沿用模板的普通单人入口开关。</p><p>普通单人模式读取手机本地敌人资料，无法应用这里修改的数值和行动，因此未开放此入口。上方两项体力只调整费用。保存后新建房间使用新配置。</p><div class="cb-create-actions"><button type="button" class="secondary sm" data-jump="bosses">检查发布名单与排期</button><button type="button" class="secondary sm" id="custom-boss-drops">配置掉落</button></div></div></section>
+            <section id="custom-boss-part-scope" hidden><div class="cb-part-picker"><div><span class="cb-eyebrow">当前编辑范围</span><div id="custom-boss-waves" class="cb-waves" role="group" aria-label="波次"></div></div><div class="field"><label for="custom-boss-part">选择部位</label><select id="custom-boss-part"></select></div></div><div class="cb-part-heading"><div><h3 id="custom-boss-part-title"></h3><p id="custom-boss-part-note" class="hint"></p></div><span id="custom-boss-part-mode" class="pill"></span></div><div id="custom-boss-targets"></div></section>
+          </div>
+        </div>
+      </div>
+      <details class="cb-help"><summary>配置指南 · 回合、伤害与玩家 Buff</summary><div class="panel-body custom-boss-guide">
+        <ol><li>点击「新建 Boss」，选择一个现有 Boss 的具体难度并复制；在左侧选择已制作的 Boss 继续编辑。</li><li>修改名称、体力、各波次／部位的 HP 与属性。部位物攻、魔攻是 Boss 自身属性，不是给玩家加 Buff。</li><li>打开「行动与 Buff」，选择波次和部位，在顶部选择「只用原逻辑」「只用自定义行动」或「原逻辑＋自定义行动」。首次回合 1 是第一回合敌方行动，0 是开场；循环间隔 0 只放一次，首次 1／间隔 2 表示第 1、3、5……回合施放。</li><li>选择招式来源和效果分支。同一技能可能有攻击、强化、治疗等多个分支；选中后下方显示实际效果。用「上移／下移」调整同一部位同回合顺序，不同部位仍按战斗引擎的部位顺序行动。</li><li>保存配置后新建房间验收，再设置开放和发布名单。「只用自定义行动」在未安排的回合不出招；「原逻辑＋自定义行动」先执行该部位原有出招，再追加当回合的自定义行动，不占用原行动次数。开场被动、破坏技能仍继承模板。</li></ol>
+        <div class="custom-boss-guide-grid"><article><h3>攻击伤害怎么改</h3><p>攻击招式才显示伤害设置。每段基础伤害填 5000，用 5000 替换该次攻击的防御前威力；倍率填 50 表示减半，同时填写时先替换再乘倍率。留空沿用原计算。</p><p>例如基础伤害 5000、玩家防御 1000，在无其他修正时扣血 4000。攻击次数控制每个攻击效果的段数，多个攻击效果分别应用设置。</p></article><article><h3>给玩家加 Buff 怎么配</h3><p>Buff 也是招式，可以单独占一条行动，并指定施放回合。在「快速添加玩家 Buff」搜索当前资源中的增益、回复与减益解除招式，也可借用其他 Boss 招式。施放演出可自动匹配或选择原 Boss 的兼容动作；来源缺少 2D／3D 演出时会显示说明。</p><p><strong>可在每条行动下方分别设置玩家增益的数值、持续回合及适用的百分比／次数；留空沿用来源。作用范围与属性仍沿用所选分支。</strong>例如物攻增加点数填 5000、持续回合填 3，表示给目标玩家加 5000 物攻并持续 3 回合。物攻与魔攻等多个效果分别配置；一次性回复、抽卡和爆发槽使用自己的参数。选择后的「招式实际效果」会说明加给玩家还是 Boss 自身、加多少点、持续几回合。</p></article></div>
+        <h3>现成的玩家攻击 Buff</h3>
+        <div class="table-wrap"><table><thead><tr><th>招式来源</th><th>技能／效果分支</th><th>增益效果</th></tr></thead><tbody><tr><td>圣诞老人2017 · 中级 · 40320002</td><td>44320106／44320106</td><td>单个玩家物攻 +1000，持续99回合，可指定职业</td></tr><tr><td>圣夜型圣诞老人（黑）· 中级 · 30860102</td><td>35401160／35401160</td><td>全体玩家物攻、魔攻各 +1000，持续3回合</td></tr><tr><td>圣夜型圣诞老人（黑）· 上级 · 30860103</td><td>35401230／35401230</td><td>全体玩家物攻、魔攻各 +1000，持续4回合</td></tr></tbody></table></div>
+        <p class="hint">请核对技能和效果分支两个编号；其他分支可能是防御、回复等效果。单体可选随机玩家或指定职业，全体招式仍作用于全体。跨 Boss 演出与特殊机制须在手机上验收；每个部位最多100条行动、同回合最多20条。</p>
+      </div></details>
+      <div class="savebar cb-savebar"><div class="savebar-status"><span class="cb-status-dot" id="custom-boss-status-dot"></span><span id="custom-boss-state" aria-live="polite"></span></div><div class="savebar-actions"><button type="button" class="secondary" id="custom-boss-reset">撤销本次修改</button><button type="button" class="primary" id="custom-boss-save" data-save-shortcut disabled>保存配置</button></div></div>
     </section>
 
     <!-- Boss 掉落 -->
@@ -676,33 +707,6 @@
     <p id="boss-schedule-error" class="state-error" role="alert" hidden></p>
   </div>
   <div class="dialog-actions"><button type="button" class="secondary" id="boss-schedule-reset">移除独立排期</button><span class="spacer"></span><button type="button" class="secondary" id="boss-schedule-cancel" data-dismiss>取消</button><button type="button" class="primary" id="boss-schedule-apply">加入发布草稿</button></div>
-</div></div>
-<div class="modal" id="custom-boss-modal" role="dialog" aria-modal="true" aria-labelledby="custom-boss-title"><div class="dialog wide">
-  <div class="dialog-head"><div><h2 id="custom-boss-title">自定义 Boss</h2><p class="lead">复制现有难度，沿用外形、技能和行动机制，独立修改每一波的部位数值。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
-  <div class="dialog-body">
-    <div id="custom-boss-error" class="view-alert" role="alert" hidden></div>
-    <div class="field"><label for="custom-boss-select">已制作的 Boss</label><select id="custom-boss-select"><option value="">选择一个 Boss 继续编辑</option></select></div>
-    <details id="custom-boss-create-panel" open><summary>从现有 Boss 添加</summary>
-      <div class="field"><label for="custom-boss-search">搜索模板</label><input id="custom-boss-search" type="search" placeholder="输入 Boss 名称、难度或 ID"></div>
-      <div class="field"><label for="custom-boss-source">模板与难度</label><select id="custom-boss-source"></select></div>
-      <button type="button" class="secondary" id="custom-boss-create">复制为新 Boss</button><p class="hint">复制后先保持关闭，修改完成再开放。圣剑杯计分及亚瑟敌方编队暂不支持复制。</p>
-    </details>
-    <div id="custom-boss-form" hidden>
-      <p class="hint" id="custom-boss-template"></p>
-      <div class="publish-row">
-        <div class="field"><label for="custom-boss-name">Boss 名称</label><input id="custom-boss-name" maxlength="80"></div>
-        <div class="field"><label for="custom-boss-difficulty">难度名称</label><input id="custom-boss-difficulty" maxlength="30"></div>
-        <div class="field"><label for="custom-boss-bp">单人 AI 房体力</label><input id="custom-boss-bp" type="number" min="1" max="999"></div>
-        <div class="field"><label for="custom-boss-bp-half">组队体力</label><input id="custom-boss-bp-half" type="number" min="1" max="999"></div>
-      </div>
-      <div class="filterbar"><label><input id="custom-boss-enabled" type="checkbox">允许开放</label><label><input id="custom-boss-continue" type="checkbox">允许复活</label></div>
-      <p class="hint">开放还须满足「活动／素材副本」的发布名单及排期。HP 已包含原编队倍率；开场被动和战斗中的强化仍沿用原机制。</p>
-      <div id="custom-boss-targets"></div>
-      <p class="hint">调整物攻、魔攻不会改变技能中的固定伤害。这里修改基础数值与抗性，技能参数和行动顺序仍沿用模板。</p>
-      <button type="button" class="secondary" id="custom-boss-drops">配置此 Boss 的掉落</button>
-    </div>
-  </div>
-  <div class="dialog-actions"><span id="custom-boss-state" class="hint" aria-live="polite"></span><span class="spacer"></span><button type="button" class="secondary" id="custom-boss-close" data-dismiss>关闭</button><button type="button" class="primary" id="custom-boss-save" disabled>保存配置</button></div>
 </div></div>
 <div class="modal" id="boss-detail-modal" role="dialog" aria-modal="true" aria-labelledby="boss-detail-title"><div class="dialog wide">
   <div class="dialog-head"><div><h2 id="boss-detail-title">BOSS 难度与规则</h2><p class="lead">规则保存后用于后续开战；已开始的战斗不变。复活仍按游戏原费用扣除水晶。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>

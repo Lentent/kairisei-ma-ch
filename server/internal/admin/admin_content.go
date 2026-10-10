@@ -46,10 +46,12 @@ func editableDroppedReward(r gamestate.Reward) bool {
 }
 
 type dropTarget struct {
-	BattleIndex int         `json:"battle_index"`
-	EnemyIndex  int         `json:"enemy_index"`
-	Name        string      `json:"name"`
-	Stats       *enemyStats `json:"stats,omitempty"`
+	BattleIndex            int                               `json:"battle_index"`
+	EnemyIndex             int                               `json:"enemy_index"`
+	Name                   string                            `json:"name"`
+	Stats                  *enemyStats                       `json:"stats,omitempty"`
+	Actions                []gamestate.TeamBattleEnemyAction `json:"actions"`
+	IncludeOriginalActions bool                              `json:"include_original_actions,omitempty"`
 }
 
 type enemyStats = gamestate.TeamBattleEnemyStats
@@ -65,6 +67,7 @@ type DropBoss struct {
 }
 
 type contentStore struct {
+	customSkillCatalog *multiplayer.CombatCatalog
 	customBosses       []customBoss
 	customBossRevision int
 	activities         activityRewards
@@ -105,6 +108,13 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 			if err != nil {
 				return err
 			}
+		}
+		if _, err := os.Stat(filepath.Join(root, "skill_enemy.csv")); err == nil {
+			c.customSkillCatalog, err = multiplayer.LoadOperationsEnemySkills(root)
+			if err != nil {
+				return err
+			}
+			c.customSkillCatalog.EnemyLevels = levels
 		}
 	}
 	standalone := map[int]bool{}

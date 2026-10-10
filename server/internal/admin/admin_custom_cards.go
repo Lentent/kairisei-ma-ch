@@ -46,6 +46,10 @@ type customCard struct {
 	RoleSources     []customRoleSource       `json:"role_sources"`
 	Artwork         []byte                   `json:"artwork,omitempty"`
 	IconArtwork     []byte                   `json:"icon_artwork,omitempty"`
+	CardArtwork     []byte                   `json:"card_artwork,omitempty"`
+	CardArtworkMode string                   `json:"card_artwork_mode,omitempty"`
+	AttackDialogue  *string                  `json:"attack_dialogue,omitempty"`
+	SupportDialogue *string                  `json:"support_dialogue,omitempty"`
 	CutinTemplateID int                      `json:"cutin_template_card_id,omitempty"`
 	ActionSources   []customCardActionSource `json:"action_sources,omitempty"`
 }
@@ -56,7 +60,7 @@ type customCardActionSource struct {
 }
 
 func (c customCard) hasCustomArtwork() bool {
-	return len(c.Artwork) > 0 || len(c.IconArtwork) > 0
+	return len(c.Artwork) > 0 || len(c.IconArtwork) > 0 || len(c.CardArtwork) > 0
 }
 
 type customRoleSource struct {
@@ -320,7 +324,7 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names, "template_dialogues": customCardTemplateDialogues(s, d.Cards)})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -342,7 +346,7 @@ func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, "模板客户端资源不完整")
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels()})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "template_dialogues": customCardTemplateDialogues(s, []customCard{c})})
 }
 func customParameterValues(p gamestate.CardParameter) [4]int {
 	return [4]int{p.HP, p.Attack, p.Magic, p.Mind}
@@ -385,6 +389,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		if e != nil {
 			return e
 		}
+		if e := validateCustomCardDialogue(*c, s.Cards[c.TemplateID]); e != nil {
+			return e
+		}
 		if entry, ok := a.catalogByKey[adminCatalogKey(6, c.TemplateID)]; !ok || entry.ResourceState == "unavailable" {
 			return errors.New("模板客户端资源不完整")
 		}
@@ -409,9 +416,18 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 				return errors.New("技能行长度无效")
 			}
 			for k, v := range row {
-				if k == 1 || k == 3 {
-					if v != original[k] && !collectionText(v, map[int]int{1: 60, 3: 500}[k]) {
-						return errors.New("请填写有效技能名称和说明")
+				if k == 19 {
+					if v != original[k] && !customCardSkillTargetAllowed(row[10], v) {
+						return errors.New("技能目标无效；攻击技能请选择敌方单体或敌方全体")
+					}
+					continue
+				}
+				if k == 1 || k == 2 || k == 3 {
+					if k == 2 && v == "" {
+						continue
+					}
+					if v != original[k] && (!collectionText(v, map[int]int{1: 60, 2: 60, 3: 500}[k]) || k == 2 && strings.ContainsAny(v, ",\"")) {
+						return errors.New("请填写有效技能名称、副名和说明；副名最多60字，可留空，不能包含英文逗号、双引号或换行")
 					}
 					continue
 				}
@@ -419,6 +435,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 					return errors.New("技能条件和演出须沿用模板")
 				}
 			}
+		}
+		if e := validateCustomCardSharedTargets(*c, base); e != nil {
+			return e
 		}
 		functions := map[int]bool{}
 		for _, row := range base.Roles {
@@ -453,6 +472,12 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 				if k == 0 {
 					continue
 				}
+				if k == 9 {
+					if v != original[k] && !customCardEffectTargetAllowed(row[8], v) {
+						return errors.New("效果目标无效；攻击效果请选择沿用技能目标、敌方单体或敌方全体")
+					}
+					continue
+				}
 				if k >= 20 && k < 30 && s.Rules[original[8]][k-20] == "VALUE" {
 					if v == original[k] {
 						continue
@@ -464,7 +489,7 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 					continue
 				}
 				if v != original[k] {
-					return errors.New("技能类型、目标和枚举参数须沿用模板")
+					return errors.New("技能类型和枚举参数须沿用模板")
 				}
 			}
 		}
@@ -482,17 +507,20 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		}); e != nil {
 			return e
 		}
+		if c.CardArtworkMode != "" && c.CardArtworkMode != "cover" && c.CardArtworkMode != "contain" {
+			return errors.New("普通卡面构图须为铺满卡框或完整显示")
+		}
 		for _, upload := range []struct {
 			name string
 			data []byte
-		}{{"立绘", c.Artwork}, {"卡面小图", c.IconArtwork}} {
+		}{{"完整立绘", c.Artwork}, {"卡面小图", c.IconArtwork}, {"普通卡面", c.CardArtwork}} {
 			if len(upload.data) > 0 {
 				if _, e := decodeCustomArtwork(upload.data); e != nil {
 					return fmt.Errorf("%s：%w", upload.name, e)
 				}
 				artworkBytes += len(upload.data)
 				if artworkBytes > 16<<20 {
-					return errors.New("全部小图和立绘总大小须小于16MB，请压缩图片或分批制作")
+					return errors.New("全部小图、普通卡面和立绘总大小须小于16MB，请压缩图片或分批制作")
 				}
 			}
 		}

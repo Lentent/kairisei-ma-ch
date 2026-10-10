@@ -3,11 +3,13 @@ package multiplayer
 import (
 	"errors"
 	"fmt"
+	"kairisei.local/server/internal/gamestate"
 	"sort"
 	"strings"
 )
 
 type enemyActionCandidate struct {
+	custom        *gamestate.TeamBattleEnemyAction
 	action        CombatEnemyAction
 	triggerTarget int
 }
@@ -56,6 +58,9 @@ func (engine *BattleEngine) buildEnemyActionPlan(enemy *battleEnemy) []enemyActi
 	if enemy == nil || enemy.HP <= 0 {
 		return nil
 	}
+	if enemy.CustomActions != nil && !enemy.IncludeOriginalActions {
+		return engine.customEnemyActionPlan(enemy)
+	}
 	consumed := enemy.ActionConsumed
 	plan := make([]enemyActionCandidate, 0, maxInt(0, minInt(20, enemy.Level.ActionsPerTurn)))
 	// 5b0dc already rolled/charged the five special slots at TurnPhase.
@@ -96,10 +101,14 @@ func (engine *BattleEngine) buildEnemyActionPlan(enemy *battleEnemy) []enemyActi
 	}
 	sortEnemyActionPlan(plan)
 	enemy.ActionConsumed = consumed
-	return plan
+	// Custom additions do not consume or reorder the native action budget.
+	return append(plan, engine.customEnemyActionPlan(enemy)...)
 }
 
 func (engine *BattleEngine) buildEnemyChargeStartPlan(enemy *battleEnemy) []enemyActionCandidate {
+	if enemy != nil && enemy.CustomActions != nil && !enemy.IncludeOriginalActions {
+		return nil
+	}
 	if enemy == nil || enemy.HP <= 0 {
 		return nil
 	}
@@ -140,6 +149,18 @@ func (engine *BattleEngine) enemyAttackSign(enemy *battleEnemy) int {
 	if enemy == nil || enemy.HP <= 0 || combatEffectCount(enemy.Effects, "STAN", "") > 0 {
 		return 0
 	}
+	customSign := 0
+	if enemy.CustomActions != nil {
+		for _, candidate := range engine.customEnemyActionPlan(enemy) {
+			skill, _, err := engine.catalog.CustomEnemySkill(*candidate.custom)
+			if err == nil && (skill.Kind == "ATTACK" || skill.Kind == "SORCERY") {
+				customSign |= 1 << combatPhysicsIndex(skill.DamageKind)
+			}
+		}
+		if !enemy.IncludeOriginalActions {
+			return customSign
+		}
+	}
 	// 5bb7a copies the already charged queue and budget, but NOT the use
 	// counters. Ordinary skill slots require Rate>=100 before checking AI;
 	// normal fill has no rate gate and stops at its first failed eligibility.
@@ -171,7 +192,7 @@ func (engine *BattleEngine) enemyAttackSign(enemy *battleEnemy) int {
 		break
 	}
 	engine.rng = probe.rng
-	sign := 0
+	sign := customSign
 	for _, candidate := range plan {
 		skill, _, ok := engine.enemySkillBase(candidate.action.SkillID)
 		if !ok || skill.Kind != "ATTACK" && skill.Kind != "SORCERY" {
@@ -185,11 +206,24 @@ func (engine *BattleEngine) enemyAttackSign(enemy *battleEnemy) int {
 func (engine *BattleEngine) executeEnemyActionCandidate(enemy *battleEnemy, candidate enemyActionCandidate) ([]BattleResult, error) {
 	engine.enemyTriggerTarget = candidate.triggerTarget
 	action := candidate.action
+	var customSkill CombatSkillDefinition
+	var customRoles []CombatSkillRole
+	if candidate.custom != nil {
+		var err error
+		customSkill, customRoles, err = engine.catalog.CustomEnemySkill(*candidate.custom)
+		if err != nil {
+			return nil, err
+		}
+		action.Target = customEnemyTarget(*candidate.custom, customSkill)
+	}
 	target, found := engine.selectEnemyActionTarget(enemy, action)
 	if !found {
 		return nil, nil
 	}
-	skill, roles, matched := engine.selectEnemySkillBranch(enemy, action.SkillID, target)
+	skill, roles, matched := customSkill, customRoles, candidate.custom != nil
+	if candidate.custom == nil {
+		skill, roles, matched = engine.selectEnemySkillBranch(enemy, action.SkillID, target)
+	}
 	if !matched {
 		return nil, nil
 	}
@@ -210,13 +244,20 @@ func (engine *BattleEngine) executeEnemyActionCandidate(enemy *battleEnemy, cand
 	if skill.Target == "USER_ALL" && len(engine.playerTargetCandidates(false)) == 0 || skill.Target == "USER_ONE" && target == 0 {
 		return nil, nil
 	}
-	skillResult, err := enemySkillResult(enemy.MemberType, action.SkillID, target, skill, false)
+	presentation := skill
+	if candidate.custom != nil {
+		presentation = engine.customEnemyPresentation(enemy, *candidate.custom, skill, roles)
+	}
+	skillResult, err := enemySkillResult(enemy.MemberType, action.SkillID, target, presentation, false)
 	if err != nil {
 		return nil, err
 	}
 	results := []BattleResult{skillResult}
 	skillRows, err := engine.executeSkillRoleSet(enemy.MemberType, target, skill, roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		resolvedRole := role
+		if resolvedRole.Function == "ATTACK_AA" {
+			resolvedRole.CustomAttack = candidate.custom
+		}
 		resolvedRole.SourceSkillID = skill.ID
 		// The action's chosen member remains in ResultCmd50, but SELECT
 		// resolves SELF/all-target skills even when the AI selected one member.
@@ -344,6 +385,13 @@ func (engine *BattleEngine) executeEnemyFirstAttack() ([]BattleResult, error) {
 		}
 		consumed := 0
 		var plan []enemyActionCandidate
+		if enemy.CustomActions != nil && !enemy.IncludeOriginalActions {
+			plan = engine.customEnemyActionPlan(enemy)
+			if len(plan) > 0 {
+				plans = append(plans, enemyMemberActionPlan{enemyIndex: index, actions: plan})
+			}
+			continue
+		}
 		for _, action := range enemy.Level.Actions {
 			// An implicit condition has no explicit turn-zero enable bit.
 			if action.Category != "skill" || action.AIConditionID == 0 || len(plan) >= 20 {
@@ -353,8 +401,9 @@ func (engine *BattleEngine) executeEnemyFirstAttack() ([]BattleResult, error) {
 				plan = append(plan, candidate)
 			}
 		}
+		sortEnemyActionPlan(plan)
+		plan = append(plan, engine.customEnemyActionPlan(enemy)...)
 		if len(plan) > 0 {
-			sortEnemyActionPlan(plan)
 			plans = append(plans, enemyMemberActionPlan{enemyIndex: index, actions: plan})
 		}
 	}

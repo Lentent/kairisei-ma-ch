@@ -974,6 +974,9 @@ func validateRoomSpec(spec RoomSpec) error {
 		if err := gamestate.ValidateTeamBattleEnemyStats(override.Stats); err != nil {
 			return err
 		}
+		if err := gamestate.ValidateTeamBattleEnemyActions(override.Actions); err != nil {
+			return err
+		}
 	}
 	if spec.RoomType < 0 || spec.RoomType > 1 {
 		return errors.New("room type is invalid")

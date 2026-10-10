@@ -192,6 +192,16 @@ func TestCustomCardsValidateCompositionAndIndependentIDs(t *testing.T) {
 	if a.validateCustomCards(&customCardDraft{[]customCard{bad}}, s) == nil {
 		t.Fatal("accepted initial above maximum")
 	}
+	bad = c
+	bad.CardArtworkMode = "stretch"
+	if a.validateCustomCards(&customCardDraft{[]customCard{bad}}, s) == nil {
+		t.Fatal("accepted an invalid portrait composition mode")
+	}
+	bad = c
+	bad.CardArtwork = []byte("invalid portrait image")
+	if a.validateCustomCards(&customCardDraft{[]customCard{bad}}, s) == nil {
+		t.Fatal("accepted a corrupt independent portrait")
+	}
 	s.Cards[c.ID] = row
 	if a.validateCustomCards(&customCardDraft{[]customCard{c}}, s) == nil {
 		t.Fatal("overwrote foreign card")
@@ -301,7 +311,7 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 	oldShard := fmt.Sprintf("/%02d/%03d", oldPict/1000000, oldPict/1000%1000)
 	newShard := fmt.Sprintf("/%02d/%03d", c.ID/1000000, c.ID/1000%1000)
 	sources := map[string]customArtworkTestAsset{}
-	var art, icon image.Image
+	var art, icon, cardArt image.Image
 	var err error
 	if len(c.Artwork) > 0 {
 		art, err = decodeCustomArtwork(c.Artwork)
@@ -314,6 +324,15 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if len(c.CardArtwork) > 0 {
+		cardArt, err = decodeCustomArtwork(c.CardArtwork)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if icon == nil && art == nil {
+		icon = cardArt
 	}
 	for _, originalEntry := range original.Assets {
 		if !strings.HasSuffix(originalEntry.Name, "_"+oldID) {
@@ -364,6 +383,9 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 			if strings.HasPrefix(name, "chr20_") && icon != nil {
 				selected = icon
 			}
+			if strings.HasPrefix(name, "chr10_") && cardArt != nil {
+				selected = cardArt
+			}
 			if selected == nil {
 				root := os.Getenv("CN602_CUSTOM_CARD_RESOURCE_SET")
 				originalTexture := readCustomArtworkTestTexture(t, root, originalEntry)
@@ -384,7 +406,7 @@ func assertCustomArtworkExport(t *testing.T, c customCard, s customCardSources, 
 			}
 			cursor.take(24)
 			pixels := cursor.take(int(cursor.u32()))
-			fitted := fitCustomArtwork(selected, width, height)
+			fitted := fitCustomTextureArtwork(selected, name, width, height, c.CardArtworkMode)
 			if len(pixels) != width*height*4 {
 				t.Fatalf("asset %s has an invalid pixel payload", name)
 			}
@@ -461,6 +483,8 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	c.ID = customCardNextID(s, customCardDraft{})
 	c.Name = "自制卡验收"
+	attackDialogue, supportDialogue := "自制攻击台词！", "自制支援台词！"
+	c.AttackDialogue, c.SupportDialogue = &attackDialogue, &supportDialogue
 	c.Cost = 3
 	c.Maximum.HP += 100
 	c.Roles[0][20] = "999"
@@ -528,6 +552,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	if d.Cards[0].CutinTemplateID != c.CutinTemplateID || !reflect.DeepEqual(d.Cards[0].ActionSources, c.ActionSources) {
 		t.Fatal("presentation selections lost after storage restart")
 	}
+	if !reflect.DeepEqual(d.Cards[0].AttackDialogue, c.AttackDialogue) || !reflect.DeepEqual(d.Cards[0].SupportDialogue, c.SupportDialogue) {
+		t.Fatal("dialogue overrides lost after storage restart")
+	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
@@ -578,6 +605,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	generatedCards := map[int][]string{}
 	for _, row := range cardRows {
 		generatedCards[customRowInt(row, 0)] = row
+	}
+	if row := generatedCards[c.ID]; row[79] != attackDialogue || row[80] != supportDialogue || row[89] != s.Cards[c.TemplateID][89] || row[90] != s.Cards[c.TemplateID][90] {
+		t.Fatal("exported dialogue text or inherited voice IDs mismatch")
 	}
 	sourceAssets, e := os.ReadFile(filepath.Join(root, "asset-map.json"))
 	if e != nil {

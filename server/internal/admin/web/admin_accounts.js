@@ -120,6 +120,7 @@ function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDir
   if(name==='missions')return typeof missionPolicyDirty==='function'&&missionPolicyDirty();
   if(name==='collections')return typeof collectionEditor!=='undefined'&&collectionEditor.dirty;
   if(name==='custom-cards')return typeof customCardEditor!=='undefined'&&customCardEditor.dirty;
+  if(name==='custom-bosses')return typeof customBossEditor!=='undefined'&&(customBossEditor.dirty||customBossEditor.busy);
   if(name==='pool-editor')return poolEditor.dirty;
   if(typeof contentDirty==='function'&&contentDirty(name))return true;
   if(name==='settings')return runtimeSettingsDirty();

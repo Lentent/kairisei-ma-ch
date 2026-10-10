@@ -103,6 +103,9 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 		if err := gamestate.ValidateTeamBattleEnemyStats(*t.Stats); err != nil {
 			return fmt.Errorf("第%d波 %s：%w", t.BattleIndex+1, t.Name, err)
 		}
+		if err := gamestate.ValidateTeamBattleEnemyActions(t.Actions); err != nil {
+			return err
+		}
 		base := original[idx].Stats
 		if t.Stats.Attribute != base.Attribute && strings.Contains(t.Stats.Attribute, "_") {
 			return errors.New("新属性请选择单一属性；模板的复合属性可原样保留")
@@ -136,6 +139,9 @@ func (o *Operations) loadCustomBosses(c *contentStore) error {
 		}
 		seen[b.BossID] = true
 		if err = validateCustomBoss(b, s.Targets); err != nil {
+			return err
+		}
+		if err = c.validateCustomBossActions(b); err != nil {
 			return err
 		}
 		if b.Replay.BossID != b.BossID || b.Reward.BossID != b.BossID || len(b.SourceGroup) == 0 {
@@ -212,7 +218,7 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		}
 	}
 	for _, b := range c.customBosses {
-		raw, _, err := c.customBossGroup(b)
+		raw, meta, err := c.customBossGroup(b)
 		if err != nil {
 			return err
 		}
@@ -220,11 +226,11 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		r := b.Replay
 		r.EnemyOverrides = make([]gamestate.TeamBattleEnemyOverride, 0, len(b.Targets))
 		for _, t := range b.Targets {
-			r.EnemyOverrides = append(r.EnemyOverrides, gamestate.TeamBattleEnemyOverride{BattleIndex: t.BattleIndex, EnemyIndex: t.EnemyIndex, Stats: *t.Stats})
+			r.EnemyOverrides = append(r.EnemyOverrides, gamestate.TeamBattleEnemyOverride{BattleIndex: t.BattleIndex, EnemyIndex: t.EnemyIndex, Stats: *t.Stats, Actions: t.Actions, IncludeOriginalActions: t.IncludeOriginalActions, AnimationModel: meta.Category})
 		}
 		r.EnemyOverrides = gamestate.CloneTeamBattleEnemyOverrides(r.EnemyOverrides)
 		state.TeamBattleReplays = append(state.TeamBattleReplays, r)
-		state.TeamBattleRewards = append(state.TeamBattleRewards, b.Reward)
+		state.TeamBattleRewards = append(state.TeamBattleRewards, standaloneCustomBossReward(b.Reward))
 	}
 	top["9"], _ = json.Marshal(groups)
 	var err error
@@ -334,11 +340,18 @@ func (a *API) createCustomBoss(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, reward := range c.configuration.State.TeamBattleRewards {
 		if reward.BossID == input.Source {
+			if b.Reward.BossID == id && (reward.StageQuestAreaID != 0 || reward.StageQuestStageID != 0 || reward.TowerID != 0) {
+				continue
+			}
 			payload, _ := json.Marshal(reward)
 			_ = json.Unmarshal(payload, &b.Reward)
 			b.Reward.BossID = id
+			if reward.StageQuestAreaID == 0 && reward.StageQuestStageID == 0 && reward.TowerID == 0 {
+				break
+			}
 		}
 	}
+	b.Reward = standaloneCustomBossReward(b.Reward)
 	if b.Reward.BossID != id || len(b.SourceGroup) == 0 {
 		WriteAdminError(w, 400, "模板缺少副本或奖励配置")
 		return
@@ -399,6 +412,10 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 	b.BPUse, b.BPUseHalf, b.Continue, b.Enabled = input.BPUse, input.BPUseHalf, *input.Continue, *input.Enabled
 	b.Targets = input.Targets
 	if err := validateCustomBoss(b, original); err != nil {
+		WriteAdminError(w, 400, err.Error())
+		return
+	}
+	if err := c.validateCustomBossActions(b); err != nil {
 		WriteAdminError(w, 400, err.Error())
 		return
 	}
