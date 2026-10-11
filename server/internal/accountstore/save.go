@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -90,6 +91,7 @@ type saveState struct {
 	StageQuestAreas                []json.RawMessage                         `json:"stage_quest_areas,omitempty"`
 	TeamBattleConfigVersion        int                                       `json:"team_battle_config_version"`
 	TeamBattleSolo                 json.RawMessage                           `json:"team_battle_solo_show"`
+	TeamBattleBossStates           map[int]int                               `json:"team_battle_boss_states,omitempty"`
 	TeamBattleReplays              []gamestate.TeamBattleReplay              `json:"team_battle_replays"`
 	TeamBattleRewards              []gamestate.TeamBattleRewardProfile       `json:"team_battle_rewards"`
 	TeamBattleSchedule             gamestate.TeamBattleScheduleState         `json:"team_battle_schedule,omitempty"`
@@ -401,6 +403,7 @@ func releaseStateFromSave(save saveState) gamestate.State {
 		StageQuestAreas:              cloneRawMessages(save.StageQuestAreas),
 		TeamBattleConfigVersion:      save.TeamBattleConfigVersion,
 		TeamBattleSolo:               save.TeamBattleSolo,
+		TeamBattleBossStates:         maps.Clone(save.TeamBattleBossStates),
 		TeamBattleReplays:            save.TeamBattleReplays,
 		TeamBattleRewards:            save.TeamBattleRewards,
 		TeamBattleSchedule:           cloneTeamBattleScheduleState(save.TeamBattleSchedule),
@@ -1138,6 +1141,7 @@ func SaveFromState(state gamestate.State) saveState {
 		StageQuestAreas:                cloneRawMessages(state.StageQuestAreas),
 		TeamBattleConfigVersion:        state.TeamBattleConfigVersion,
 		TeamBattleSolo:                 state.TeamBattleSolo,
+		TeamBattleBossStates:           maps.Clone(state.TeamBattleBossStates),
 		TeamBattleReplays:              state.TeamBattleReplays,
 		TeamBattleRewards:              state.TeamBattleRewards,
 		TeamBattleSchedule:             cloneTeamBattleScheduleState(state.TeamBattleSchedule),

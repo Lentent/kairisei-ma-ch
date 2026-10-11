@@ -254,6 +254,7 @@ func (s *Account) snapshotLocked(base gamestate.State) gamestate.State {
 		}
 	}
 	state.TeamBattleSolo = append([]byte(nil), s.teamBattleSolo...)
+	state.TeamBattleBossStates = maps.Clone(s.teamBattleBossStates)
 	state.ActiveTeamBattle = snapshotTeamBattleContext(s.activeBattle)
 	state.TeamBattleStartReceipts = append([]gamestate.TeamBattleStartReceipt(nil), s.teamBattleStartReceipts...)
 	state.TeamBattleContinueReceipts = append([]gamestate.TeamBattleContinueReceipt(nil), s.teamBattleContinueReceipts...)

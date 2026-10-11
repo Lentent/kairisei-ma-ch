@@ -87,6 +87,25 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		return nil, nil, nil, gamestate.Card{}, e
 	}
 	row := append([]string(nil), s.Cards[c.TemplateID]...)
+	if e := validateCustomCardRarity(c); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
+	if c.RarityRank != nil {
+		row[7] = customCardRarityCodes[*c.RarityRank]
+	}
+	if e := applyCustomCardFame(c, row); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
+	voices, e := customCardVoices(c, s, nil)
+	if e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
+	for column, voice := range voices {
+		row[column] = voice
+	}
+	if e := applyCustomCardDetails(c, row); e != nil {
+		return nil, nil, nil, gamestate.Card{}, e
+	}
 	if e := applyCustomCardDialogue(c, row); e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
@@ -179,6 +198,13 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	}
 	card.CardID, card.SameCardID, card.SameSupportCardID = c.ID, c.ID, c.ID
 	card.Name = c.Name
+	if c.AllowFameTraining != nil {
+		card.DevelopmentType = customRowInt(row, 95)
+		card.DevelopRadix = customRowInt(row, 97)
+	}
+	if c.RarityRank != nil {
+		card.RarityRank = *c.RarityRank
+	}
 	card.ParameterInitial, card.ParameterMaximum, card.ParameterLoveMaximumBonus = c.Initial, c.Maximum, c.LoveBonus
 	card.FusionAttributes = map[string]uint8{"FIRE": 1, "ICE": 2, "WIND": 4, "LIGHT": 8, "DARK": 16}[c.Attribute]
 	card.AcquisitionText = "自制卡牌／扭蛋／运营赠礼"
@@ -354,6 +380,9 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 	master.CardProgressionPolicy.ConfigVersion = master.CardProgressionConfigVersion
 	var source map[string]any
 	if e = json.Unmarshal(master.Source, &source); e != nil {
+		return nil, e
+	}
+	if e = buildCustomVoiceResources(d, root, manifest, source, files, original); e != nil {
 		return nil, e
 	}
 	source["admin_custom_cards"] = receipts
@@ -818,11 +847,13 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 			}
 			matches++
 			old, ok := original[name]
-			if !ok || row["sha256"] != resourceHash(old) || int(row["bytes"].(float64)) != len(old) {
+			if !ok || !customCardInventoryMatches(name, old, row) {
 				return nil, fmt.Errorf("资源%s与当前清单不一致", name)
 			}
 			before[name] = resourceHash(old)
-			delta += len(b) - len(old)
+			// The inventory may still describe the pre-animation CSV. Account for
+			// that existing size difference as well as the newly generated rows.
+			delta += len(b) - int(row["bytes"].(float64))
 			row["bytes"], row["sha256"] = len(b), resourceHash(b)
 		}
 		if matches > 1 {
@@ -873,6 +904,8 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	for i := range d.Cards {
 		d.Cards[i].Artwork = nil
 		d.Cards[i].IconArtwork = nil
+		d.Cards[i].AttackVoiceAudio = nil
+		d.Cards[i].SupportVoiceAudio = nil
 	}
 	report, e := resourceJSON(map[string]any{"base_sha256": before, "cards": d.Cards})
 	if e != nil {
@@ -889,7 +922,7 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	if e != nil {
 		return nil, e
 	}
-	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；技能条件、成长、稀有度及进化规则沿用模板，新卡不自动加入原进化链。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
+	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；稀有度使用草稿选择，未选择时沿用模板；技能条件、成长及进化规则沿用模板，新卡不自动加入原进化链。名声培养使用草稿开关，不影响同卡合成叠名声；已开始的培养仍可完成或取消。详情及出牌台词、语音分别设置。自制语音须同步resources/cpk/CueSheet_Card_980.cpk及versions.json到CDN，并让客户端下载更新的语音。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
 	if e != nil {
 		return nil, e
 	}

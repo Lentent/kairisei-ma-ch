@@ -193,6 +193,7 @@ type Account struct {
 	stageQuests                  map[int]json.RawMessage
 	defaultStageQuestAreaID      int
 	teamBattleSolo               json.RawMessage
+	teamBattleBossStates         map[int]int
 	disabledTeamBattleBossIDs    map[int]bool
 	teamBattleLimitedGroupIDs    []int
 	teamBattleScheduleSoloPush   map[int]struct{}
@@ -544,6 +545,7 @@ func New(state gamestate.State) (*Account, error) {
 		stageQuests:                 stageQuests,
 		defaultStageQuestAreaID:     defaultStageQuestAreaID,
 		teamBattleSolo:              append(json.RawMessage(nil), state.TeamBattleSolo...),
+		teamBattleBossStates:        maps.Clone(state.TeamBattleBossStates),
 		disabledTeamBattleBossIDs:   state.DisabledTeamBattleBossIDs,
 		teamBattleScheduleSoloPush:  make(map[int]struct{}, len(state.TeamBattleSchedule.SoloPushGroupIDs)),
 		teamBattleScheduleMultiPush: make(map[int]struct{}, len(state.TeamBattleSchedule.MultiPushGroupIDs)),
@@ -965,7 +967,9 @@ func New(state gamestate.State) (*Account, error) {
 			return nil, errors.New("card store card fame training state is invalid")
 		}
 		rule, exists := result.cardDevelopmentRules[result.cards[index].CardID]
-		if !exists || rule.DevelopmentType != 2 || rule.DevelopRadix <= 0 ||
+		// Already-paid training can complete or be cancelled after a master
+		// update disables new training for this card. Keep its saved cost radix.
+		if !exists || rule.DevelopRadix <= 0 ||
 			result.cards[index].Fame+result.cardFameTraining.Fame > rule.FameMax {
 			return nil, errors.New("card store card fame training exceeds the official card rule")
 		}

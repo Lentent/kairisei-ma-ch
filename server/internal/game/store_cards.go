@@ -627,8 +627,8 @@ func (s *Account) EvolveCard(
 	if !sameEvolutionMaterials(selectedMaterials, transition.Materials) {
 		return CardInfo{}, 0, nil, errors.New("evolution materials differ")
 	}
-	// Divergent evolution spends each selected card's fame and keeps the card.
-	// Require one fame to remain: the native client removes zero-fame materials.
+	// Divergent evolution spends each selected card's fame. Keep cards with
+	// remaining fame and consume those whose fame exactly matches the cost.
 	updatedMaterials := make(map[int]CardInfo, len(materialIndexes))
 	updatedContainerMaterials := make(map[int]CardInfo, len(containerMaterialIndexes))
 	if transition.Type == 1 {
@@ -644,8 +644,11 @@ func (s *Account) EvolveCard(
 				if card.CardID != required.CardID {
 					continue
 				}
-				if card.Fame <= required.Fame {
-					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足，扣除后需至少保留1点名声。"}
+				if card.Fame < required.Fame {
+					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足。"}
+				}
+				if card.Fame == required.Fame {
+					continue
 				}
 				card.Fame -= required.Fame
 				card, err = s.normalizeCardLocked(card)
@@ -659,8 +662,11 @@ func (s *Account) EvolveCard(
 				if card.CardID != required.CardID {
 					continue
 				}
-				if card.Fame <= required.Fame {
-					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足，扣除后需至少保留1点名声。"}
+				if card.Fame < required.Fame {
+					return CardInfo{}, 0, nil, &BusinessError{-1, "乖离进化素材名声不足。"}
+				}
+				if card.Fame == required.Fame {
+					continue
 				}
 				card.Fame -= required.Fame
 				card, err = s.normalizeCardLocked(card)

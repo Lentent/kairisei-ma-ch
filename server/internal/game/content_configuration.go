@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"maps"
 
 	"kairisei.local/server/internal/gamestate"
 )
@@ -23,7 +24,7 @@ func ApplyContentState(state gamestate.State, config ContentConfiguration) games
 	state.TeamBattleRewards = config.State.TeamBattleRewards
 	state.TeamBattleReplays = config.State.TeamBattleReplays
 	state.Explore.Events = config.State.Explore.Events
-	state.TeamBattleSolo = teamBattleCatalogWithProgress(config.State.TeamBattleSolo, state.TeamBattleSolo)
+	state.TeamBattleSolo = teamBattleCatalogWithProgress(config.State.TeamBattleSolo, state.TeamBattleSolo, state.TeamBattleBossStates)
 	state.TeamBattlePastBossGroups = config.State.TeamBattlePastBossGroups
 	state.DisabledTeamBattleBossIDs = config.State.DisabledTeamBattleBossIDs
 	state.TeamBattlePastBossGroups = FilterBattlePastBosses(state.TeamBattlePastBossGroups, state.DisabledTeamBattleBossIDs)
@@ -32,7 +33,7 @@ func ApplyContentState(state gamestate.State, config ContentConfiguration) games
 }
 
 // Operations owns definitions; a catalog refresh must not reset account clears.
-func teamBattleCatalogWithProgress(catalog, account json.RawMessage) json.RawMessage {
+func teamBattleCatalogWithProgress(catalog, account json.RawMessage, persisted map[int]int) json.RawMessage {
 	if len(catalog) == 0 {
 		return account
 	}
@@ -59,7 +60,10 @@ func teamBattleCatalogWithProgress(catalog, account json.RawMessage) json.RawMes
 	if !ok {
 		return account
 	}
-	states := make(map[int]int)
+	states := maps.Clone(persisted)
+	if states == nil {
+		states = make(map[int]int)
+	}
 	for _, groups := range source {
 		for _, group := range groups {
 			var bosses []map[string]json.RawMessage
@@ -110,7 +114,7 @@ func (s *Account) ApplyTradeShopConfiguration(shops []gamestate.TradeShopProfile
 func (s *Account) ApplyBattleCatalogConfiguration(state gamestate.State) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.teamBattleSolo = teamBattleCatalogWithProgress(state.TeamBattleSolo, s.teamBattleSolo)
+	s.teamBattleSolo = teamBattleCatalogWithProgress(state.TeamBattleSolo, s.teamBattleSolo, s.teamBattleBossStates)
 	s.disabledTeamBattleBossIDs = state.DisabledTeamBattleBossIDs
 }
 

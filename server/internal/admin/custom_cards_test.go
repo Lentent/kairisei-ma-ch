@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"kairisei.local/server/internal/criaudio"
 	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/multiplayer"
@@ -483,8 +484,16 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	c.ID = customCardNextID(s, customCardDraft{})
 	c.Name = "自制卡验收"
+	rarity := 6
+	c.RarityRank = &rarity
 	attackDialogue, supportDialogue := "自制攻击台词！", "自制支援台词！"
 	c.AttackDialogue, c.SupportDialogue = &attackDialogue, &supportDialogue
+	description, illustrator, voiceActor, height := "自制骑士的角色介绍。", "自制画师", "", "165cm"
+	c.Details = &customCardDetails{Description: &description, Illustrator: &illustrator, VoiceActor: &voiceActor, Height: &height}
+	allowFameTraining := false
+	c.AllowFameTraining = &allowFameTraining
+	c.AttackVoiceAudio = customTestVoiceWAV()
+	c.SupportVoice = &customCardVoiceSource{CardID: 10000020, Kind: "attack"}
 	c.Cost = 3
 	c.Maximum.HP += 100
 	c.Roles[0][20] = "999"
@@ -555,6 +564,15 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	if !reflect.DeepEqual(d.Cards[0].AttackDialogue, c.AttackDialogue) || !reflect.DeepEqual(d.Cards[0].SupportDialogue, c.SupportDialogue) {
 		t.Fatal("dialogue overrides lost after storage restart")
 	}
+	if !reflect.DeepEqual(d.Cards[0].Details, c.Details) {
+		t.Fatal("card details lost after storage restart")
+	}
+	if !bytes.Equal(d.Cards[0].AttackVoiceAudio, c.AttackVoiceAudio) || !reflect.DeepEqual(d.Cards[0].SupportVoice, c.SupportVoice) || d.Cards[0].AllowFameTraining == nil || *d.Cards[0].AllowFameTraining {
+		t.Fatal("voice/fame controls lost after restart")
+	}
+	if d.Cards[0].RarityRank == nil || *d.Cards[0].RarityRank != rarity {
+		t.Fatal("rarity lost after storage restart")
+	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
@@ -606,8 +624,52 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	for _, row := range cardRows {
 		generatedCards[customRowInt(row, 0)] = row
 	}
-	if row := generatedCards[c.ID]; row[79] != attackDialogue || row[80] != supportDialogue || row[89] != s.Cards[c.TemplateID][89] || row[90] != s.Cards[c.TemplateID][90] {
+	if generatedCards[c.ID][7] != "MILLIONRARE" {
+		t.Fatal("selected rarity missing from exported card CSV")
+	}
+	for _, card := range master.CardTemplates {
+		if card.CardID == c.ID && card.RarityRank != rarity {
+			t.Fatal("selected rarity missing from runtime master")
+		}
+	}
+	if row := generatedCards[c.ID]; row[79] != attackDialogue || row[80] != supportDialogue || row[89] != strconv.Itoa(customVoiceID(c, 0)) || row[90] != s.Cards[10000020][89] {
 		t.Fatal("exported dialogue text or inherited voice IDs mismatch")
+	}
+	if row := generatedCards[c.ID]; row[44] != description || row[45] != illustrator || row[46] != "" || row[64] != height || !reflect.DeepEqual(row[47:64], s.Cards[c.TemplateID][47:64]) || !reflect.DeepEqual(row[65:67], s.Cards[c.TemplateID][65:67]) {
+		t.Fatal("exported card details or inherited profile mismatch")
+	}
+	if generatedCards[c.ID][95] != "0" || generatedCards[c.ID][25] != s.Cards[c.TemplateID][25] || generatedCards[c.ID][97] != s.Cards[c.TemplateID][97] {
+		t.Fatal("training disabled but fame cap/cost changed")
+	}
+	for _, card := range master.CardTemplates {
+		if card.CardID == c.ID && (card.DevelopmentType != 0 || card.FameMax != customRowInt(s.Cards[c.TemplateID], 25)) {
+			t.Fatal("runtime training/fame rules mismatch")
+		}
+	}
+	voiceCPK := files["resource-set/resources/cpk/"+customVoiceCPK]
+	if _, err := criaudio.ReadCPKEntry(voiceCPK, strconv.Itoa(customVoiceID(c, 0))+".acb"); err != nil {
+		t.Fatal(err)
+	}
+	var voiceVersions struct {
+		Versions []struct {
+			Name    string `json:"name"`
+			Version int    `json:"version"`
+		}
+	}
+	if err := json.Unmarshal(files["resource-set/resources/cpk/versions.json"], &voiceVersions); err != nil {
+		t.Fatal(err)
+	}
+	versionFound := false
+	for _, item := range voiceVersions.Versions {
+		if item.Name == customVoiceCPK && item.Version > 0 {
+			versionFound = true
+		}
+	}
+	if !versionFound {
+		t.Fatal("custom voice missing download version")
+	}
+	if bytes.Contains(files["configuration.json"], []byte("attack_voice_audio")) {
+		t.Fatal("voice upload duplicated in deployment report")
 	}
 	sourceAssets, e := os.ReadFile(filepath.Join(root, "asset-map.json"))
 	if e != nil {

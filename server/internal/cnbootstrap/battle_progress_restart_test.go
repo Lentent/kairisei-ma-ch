@@ -112,3 +112,61 @@ func TestCollectionUnlocksSurviveAccountReload(t *testing.T) {
 		t.Fatal("expanded navigator ownership lost in existing SQLite format")
 	}
 }
+
+// Operator-created bosses are absent from the seed catalog used to decode
+// SQLite accounts. Their progress must survive until operations projects them.
+func TestCustomBossFirstClearSurvivesAccountReload(t *testing.T) {
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	accounts.Database().SetCatalog(testfixture.RuntimeState(t))
+	other := testfixture.CreateNamedFriendCapacityAccount(t, accounts, 0x492)
+	const bossID = 890000001
+	catalog := gamestate.State{TeamBattleSolo: json.RawMessage(`{"9":[{"0":790000001,"9":0,"10":[{"0":890000001,"10":0}]}],"10":[],"11":[],"12":[]}`)}
+	config := game.ContentConfiguration{Revision: 1, State: catalog}
+	profile := gamestate.TeamBattleRewardProfile{BossID: bossID, FirstClearRewards: []gamestate.Reward{{Type: 10, Num: 50, CardSkillLevels: []int16{}}}}
+	config.State.TeamBattleRewards = []gamestate.TeamBattleRewardProfile{profile}
+	config.State.TeamBattleRewards[0].ResultRewards = []gamestate.Reward{{Type: 4, Num: 1, CardSkillLevels: []int16{}}}
+	config.State.TeamBattleReplays = testfixture.RuntimeState(t).TeamBattleReplays
+	for _, userID := range []int{accountstore.PrimaryUserID, other} {
+		state := testfixture.RuntimeState(t)
+		state.User.UserID = userID
+		balance := state.User.CoinFree
+		for run := 0; run < 3; run++ {
+			state = game.ApplyContentState(state, config)
+			helper := &state.PlayerProgressionPolicy.Friends.HelperReward
+			helper.OtherPerPartner, helper.FriendPerPartner, helper.MaximumPartners = 5, 10, 3
+			state.ActiveTeamBattle = &gamestate.TeamBattleActiveState{BossID: bossID, BattleEnemyTypes: []int8{0}, FameSeed: "custom-boss-reload", FameSources: []gamestate.TeamBattleFameSourceState{{ArthurType: 1, LeaderFame: 1}}}
+			account, err := game.New(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := account.CompleteTeamBattle(bossID, true, []gamestate.TeamBattleRewardProfile{profile})
+			if err != nil {
+				t.Fatal(err)
+			}
+			state = account.Snapshot(state)
+			if result.WasFirstClear != (run == 0) || state.User.CoinFree != balance+50 {
+				t.Fatalf("user %d run %d: first=%v coins=%d, want first=%v coins=%d", userID, run, result.WasFirstClear, state.User.CoinFree, run == 0, balance+50)
+			}
+			if err := accounts.PersistState(userID, state); err != nil {
+				t.Fatal(err)
+			}
+			fresh := testfixture.TestAccountRepository(t, accounts.Database())
+			state, err = fresh.LoadPersistentState(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.TeamBattleBossStates[bossID] != 2 {
+				t.Fatal("seed decoding lost the custom boss's durable first clear")
+			}
+			// Saving before operations has projected the boss must retain its
+			// progress too, so unrelated account changes cannot erase clears.
+			if err := fresh.PersistState(userID, state); err != nil {
+				t.Fatal(err)
+			}
+			state, err = fresh.LoadPersistentState(userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}

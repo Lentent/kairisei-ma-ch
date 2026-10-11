@@ -1510,6 +1510,7 @@ type State struct {
 	StageQuestAreas              []json.RawMessage             `json:"stage_quest_areas,omitempty"`
 	TeamBattleConfigVersion      int                           `json:"team_battle_config_version"`
 	TeamBattleSolo               json.RawMessage               `json:"team_battle_solo_show"`
+	TeamBattleBossStates         map[int]int                   `json:"team_battle_boss_states,omitempty"` // Progress awaiting operator-created definitions.
 	TeamBattleReplays            []TeamBattleReplay            `json:"team_battle_replays"`
 	TeamBattleRewards            []TeamBattleRewardProfile     `json:"team_battle_rewards"`
 	TeamBattleFameBonusPolicy    TeamBattleFameBonusPolicy     `json:"-"`

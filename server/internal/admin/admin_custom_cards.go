@@ -31,27 +31,34 @@ const customClientSkillGroupLimit = 5
 // every referenced function its own ID, including branch functions shared by
 // several variants. Only names, descriptions and VALUE parameters are editable.
 type customCard struct {
-	ID              int                      `json:"card_id"`
-	TemplateID      int                      `json:"template_card_id"`
-	Name            string                   `json:"name"`
-	Prefix          string                   `json:"prefix"`
-	Cost            int                      `json:"cost"`
-	ArthurType      int8                     `json:"arthur_type"`
-	Attribute       string                   `json:"attribute"`
-	Initial         gamestate.CardParameter  `json:"initial"`
-	Maximum         gamestate.CardParameter  `json:"maximum"`
-	LoveBonus       gamestate.CardParameter  `json:"love_bonus"`
-	Skills          [][]string               `json:"skills"`
-	Roles           [][]string               `json:"roles"`
-	RoleSources     []customRoleSource       `json:"role_sources"`
-	Artwork         []byte                   `json:"artwork,omitempty"`
-	IconArtwork     []byte                   `json:"icon_artwork,omitempty"`
-	CardArtwork     []byte                   `json:"card_artwork,omitempty"`
-	CardArtworkMode string                   `json:"card_artwork_mode,omitempty"`
-	AttackDialogue  *string                  `json:"attack_dialogue,omitempty"`
-	SupportDialogue *string                  `json:"support_dialogue,omitempty"`
-	CutinTemplateID int                      `json:"cutin_template_card_id,omitempty"`
-	ActionSources   []customCardActionSource `json:"action_sources,omitempty"`
+	ID                int                      `json:"card_id"`
+	TemplateID        int                      `json:"template_card_id"`
+	Name              string                   `json:"name"`
+	Prefix            string                   `json:"prefix"`
+	RarityRank        *int                     `json:"rarity_rank,omitempty"`
+	AllowFameTraining *bool                    `json:"allow_fame_training,omitempty"`
+	Details           *customCardDetails       `json:"details,omitempty"`
+	Cost              int                      `json:"cost"`
+	ArthurType        int8                     `json:"arthur_type"`
+	Attribute         string                   `json:"attribute"`
+	Initial           gamestate.CardParameter  `json:"initial"`
+	Maximum           gamestate.CardParameter  `json:"maximum"`
+	LoveBonus         gamestate.CardParameter  `json:"love_bonus"`
+	Skills            [][]string               `json:"skills"`
+	Roles             [][]string               `json:"roles"`
+	RoleSources       []customRoleSource       `json:"role_sources"`
+	Artwork           []byte                   `json:"artwork,omitempty"`
+	IconArtwork       []byte                   `json:"icon_artwork,omitempty"`
+	CardArtwork       []byte                   `json:"card_artwork,omitempty"`
+	CardArtworkMode   string                   `json:"card_artwork_mode,omitempty"`
+	AttackDialogue    *string                  `json:"attack_dialogue,omitempty"`
+	SupportDialogue   *string                  `json:"support_dialogue,omitempty"`
+	AttackVoice       *customCardVoiceSource   `json:"attack_voice_source,omitempty"`
+	SupportVoice      *customCardVoiceSource   `json:"support_voice_source,omitempty"`
+	AttackVoiceAudio  []byte                   `json:"attack_voice_audio,omitempty"`
+	SupportVoiceAudio []byte                   `json:"support_voice_audio,omitempty"`
+	CutinTemplateID   int                      `json:"cutin_template_card_id,omitempty"`
+	ActionSources     []customCardActionSource `json:"action_sources,omitempty"`
 }
 type customCardActionSource struct {
 	FunctionID       int `json:"function_id"`
@@ -318,13 +325,13 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 	}
 	names := map[int]string{}
 	for _, c := range d.Cards {
-		for _, id := range append([]int{c.CutinTemplateID}, customActionSourceCardIDs(c)...) {
+		for _, id := range append(append([]int{c.CutinTemplateID}, customActionSourceCardIDs(c)...), customCardVoiceSourceIDs(c)...) {
 			if row := s.Cards[id]; len(row) > 5 {
 				names[id] = row[5]
 			}
 		}
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names, "template_dialogues": customCardTemplateDialogues(s, d.Cards)})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names, "template_dialogues": customCardTemplateDialogues(s, customCardVoiceReferences(d.Cards)), "template_fame_training": customCardTemplateFameTraining(s, d.Cards), "template_voices": customCardTemplateVoices(s, d.Cards), "template_details": customCardTemplateDetails(s, d.Cards), "template_rarities": customCardTemplateRarities(s, d.Cards)})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -346,7 +353,7 @@ func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, "模板客户端资源不完整")
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "template_dialogues": customCardTemplateDialogues(s, []customCard{c})})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "card": c, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "template_dialogues": customCardTemplateDialogues(s, []customCard{c}), "template_fame_training": customCardTemplateFameTraining(s, []customCard{c}), "template_voices": customCardTemplateVoices(s, []customCard{c}), "template_details": customCardTemplateDetails(s, []customCard{c}), "template_rarities": customCardTemplateRarities(s, []customCard{c})})
 }
 func customParameterValues(p gamestate.CardParameter) [4]int {
 	return [4]int{p.HP, p.Attack, p.Magic, p.Mind}
@@ -389,7 +396,22 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		if e != nil {
 			return e
 		}
+		if e := validateCustomCardFame(*c, s.Cards[c.TemplateID]); e != nil {
+			return e
+		}
+		if e := validateCustomCardRarity(*c); e != nil {
+			return e
+		}
 		if e := validateCustomCardDialogue(*c, s.Cards[c.TemplateID]); e != nil {
+			return e
+		}
+		if e := validateCustomCardDetails(*c, s.Cards[c.TemplateID]); e != nil {
+			return e
+		}
+		if _, e := customCardVoices(*c, s, func(id int) bool {
+			entry, ok := a.catalogByKey[adminCatalogKey(6, id)]
+			return ok && entry.ResourceState != "unavailable"
+		}); e != nil {
 			return e
 		}
 		if entry, ok := a.catalogByKey[adminCatalogKey(6, c.TemplateID)]; !ok || entry.ResourceState == "unavailable" {
@@ -523,6 +545,10 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 					return errors.New("全部小图、普通卡面和立绘总大小须小于16MB，请压缩图片或分批制作")
 				}
 			}
+		}
+		artworkBytes += len(c.AttackVoiceAudio) + len(c.SupportVoiceAudio)
+		if artworkBytes > 16<<20 {
+			return errors.New("全部卡面和自制语音总大小须小于16MB，请压缩或分批制作")
 		}
 		ids := customSkillIDs(*c)
 		if len(ids) > 64 {

@@ -266,10 +266,10 @@ func TestCardEvolutionRecipes(t *testing.T) {
 		{"knights accepts 800 materials", 2, 800, 0, false, false, false},
 		{"god keeps level", 1, 1, 4, true, false, false},
 		{"god low fame", 1, 1, 2, true, false, true},
-		{"god exact fame preserves card", 1, 1, 3, true, false, true},
+		{"god exact fame consumes card", 1, 1, 3, true, false, false},
 		{"god warehouse material", 1, 1, 4, true, true, false},
 		{"god warehouse low fame", 1, 1, 2, true, true, true},
-		{"god warehouse exact fame preserves card", 1, 1, 3, true, true, true},
+		{"god warehouse exact fame consumes card", 1, 1, 3, true, true, false},
 	} {
 		t.Run(input.name, func(t *testing.T) {
 			base := CardInfo{UniqueID: 1, CardID: 10, Level: 2, LevelMax: 2, Experience: 10, Fame: 3, Love: 5, IsLock: 1}
@@ -355,7 +355,7 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				wantLevel, wantExp = 2, 20
 			}
 			wantCards, wantContainer := 1, 0
-			if input.kind == 1 {
+			if input.kind == 1 && input.fame > 3 {
 				if input.container {
 					wantContainer = 1
 				} else {
@@ -365,7 +365,7 @@ func TestCardEvolutionRecipes(t *testing.T) {
 			if result.CardID != 11 || result.UniqueID != base.UniqueID || result.Level != wantLevel || result.Experience != wantExp || result.Love != base.Love || result.Fame != base.Fame || result.IsLock != base.IsLock || s.gold != 400 || len(s.cards) != wantCards || len(s.containerCards) != wantContainer {
 				t.Fatalf("evolution result or consumption differs: %+v", result)
 			}
-			if input.kind == 1 {
+			if input.kind == 1 && input.fame > 3 {
 				material := s.cards[len(s.cards)-1]
 				if input.container {
 					material = s.containerCards[0]
@@ -373,7 +373,7 @@ func TestCardEvolutionRecipes(t *testing.T) {
 				if material.UniqueID != 2 || material.CardID != 20 || material.Fame != input.fame-3 {
 					t.Fatalf("divergent evolution did not preserve material and deduct fame: %+v", material)
 				}
-			} else {
+			} else if input.kind != 1 {
 				remaining := 1
 				if input.name == "limit consumes last mixed materials" {
 					remaining = 0

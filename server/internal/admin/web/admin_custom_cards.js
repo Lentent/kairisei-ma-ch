@@ -1,6 +1,6 @@
 'use strict';
 const customCardEditor={config:{cards:[]},revision:0,nextID:98000001,selected:0,dirty:false,rules:{},help:{},targetLabels:{},valueLabels:{},applied:{},occupied:[],presentationNames:{},effect:null};
-function loadCustomCardHelp(d){customCardEditor.rules=d.parameter_rules||{};customCardEditor.help=d.effect_help||{};customCardEditor.targetLabels=d.target_labels||{};customCardEditor.valueLabels=d.value_labels||{};if(d.presentation_names)customCardEditor.presentationNames=d.presentation_names;customCardEditor.templateDialogues={...customCardEditor.templateDialogues,...d.template_dialogues}}
+function loadCustomCardHelp(d){customCardEditor.rules=d.parameter_rules||{};customCardEditor.help=d.effect_help||{};customCardEditor.targetLabels=d.target_labels||{};customCardEditor.valueLabels=d.value_labels||{};if(d.presentation_names)customCardEditor.presentationNames=d.presentation_names;customCardEditor.templateDialogues={...customCardEditor.templateDialogues,...d.template_dialogues};customCardEditor.templateDetails={...customCardEditor.templateDetails,...d.template_details};customCardEditor.templateRarities={...customCardEditor.templateRarities,...d.template_rarities};customCardEditor.templateFameTraining={...customCardEditor.templateFameTraining,...d.template_fame_training};customCardEditor.templateVoices={...customCardEditor.templateVoices,...d.template_voices}}
 function customEffectHelp(code){return customCardEditor.help[code]||{name:code,description:'此效果尚未配置中文说明，请结合来源卡技能说明。',parameters:[]}}
 function customTargetLabel(target){return customCardEditor.targetLabels[target]||{SELECT:'沿用技能目标',SELF:'自身',USER_ONE:'己方单体',USER_ALL:'己方全体',FRIEND_ALL:'己方全体',ENEMY_ONE:'敌方单体',ENEMY_ALL:'敌方全体'}[target]||target||'沿用模板目标'}
 function customTargetOptionsHTML(target,role=false,attack=false){
@@ -71,10 +71,22 @@ async function loadCustomCards(){
 }
 function renderCustomCardList(){
   const e=customCardEditor,q=$('#custom-card-search').value.trim();$('#custom-card-count').textContent=`${e.config.cards.length} 张`;
-  $('#custom-card-list').innerHTML=e.config.cards.filter(c=>matchesWords(`${c.name} ${c.prefix} ${c.card_id}`,q)).map(c=>`<button type="button" class="custom-card-choice ${c.card_id===e.selected?'selected':''}" data-custom-card="${c.card_id}" aria-pressed="${c.card_id===e.selected}"><b>${esc(c.prefix?`【${c.prefix}】${c.name}`:c.name)}</b><span>${c.card_id} · ${cardJobName(c.arthur_type)} · ${c.cost} COST${e.applied[c.card_id]?' · 已应用资源':''}</span></button>`).join('')||'<p class="empty">暂无卡牌，点击“从现有卡复制”开始。</p>';
+  $('#custom-card-list').innerHTML=e.config.cards.filter(c=>matchesWords(`${c.name} ${c.prefix} ${c.card_id}`,q)).map(c=>`<button type="button" class="custom-card-choice ${c.card_id===e.selected?'selected':''}" data-custom-card="${c.card_id}" aria-pressed="${c.card_id===e.selected}"><b>${esc(c.prefix?`【${c.prefix}】${c.name}`:c.name)}</b><span>${c.card_id} · ${cardJobName(c.arthur_type)} · ${c.cost} COST${c.rarity_rank!=null?` · ${esc(customCardRarityNames[c.rarity_rank])}`:''}${e.applied[c.card_id]?' · 已应用资源':''}</span></button>`).join('')||'<p class="empty">暂无卡牌，点击“从现有卡复制”开始。</p>';
   $$('[data-custom-card]').forEach(el=>el.onclick=()=>{e.selected=Number(el.dataset.customCard);renderCustomCards()});
 }
 function customArtworkURL(c,key='artwork'){const raw=c?.[key];if(!raw)return '';return `data:image/${raw.startsWith('/9j/')?'jpeg':'png'};base64,${raw}`}
+const customCardRarityNames=['','1星 N','2星 HN','3星 R','4星 SR','5星 UR','6星 MR','7星 EX／MMR','8星 LEGEND'];
+function renderCustomCardRarity(){
+  const c=currentCustomCard(),rank=customCardEditor.templateRarities?.[c?.template_card_id],select=$('#custom-card-rarity');
+  select.innerHTML=`<option value="">沿用模板${rank?`（${esc(customCardRarityNames[rank])}）`:''}</option>`+customCardRarityNames.slice(1).map((label,i)=>`<option value="${i+1}">${esc(label)}</option>`).join('');
+  select.value=c?.rarity_rank??'';
+}
+$('#custom-card-rarity').onchange=()=>{
+  const c=currentCustomCard();if(!c)return;
+  const value=$('#custom-card-rarity').value;
+  if(value==='')delete c.rarity_rank;else c.rarity_rank=Number(value);
+  customCardChanged();renderCustomCardList();
+};
 function renderCustomCardPreview(){
   const c=currentCustomCard();$('#custom-card-preview').innerHTML=c?image(customArtworkURL(c)||`/assets/card/${c.template_card_id}.webp`,c.name):'<span>卡面预览</span>';
   $('#custom-card-frame-preview').innerHTML=c?image(customArtworkURL(c,'card_artwork')||customArtworkURL(c)||`/assets/card/${c.template_card_id}.webp`,`${c.name}普通卡面`):'<span>普通卡面预览</span>';
@@ -88,9 +100,9 @@ function renderCustomCardPreview(){
 function renderCustomCards(){
   const c=currentCustomCard(),e=customCardEditor;renderCustomCardList();$('#custom-card-version').textContent=`草稿 v${e.revision}`;
   $('#custom-card-fields').disabled=!c;$('#custom-card-remove').disabled=!c||!!e.applied[c.card_id];$('#custom-card-remove').title=c&&e.applied[c.card_id]?'已应用的卡牌须保留，避免影响玩家库存':'';
-  $('#custom-card-title').textContent=c?`${c.name} · ${c.card_id}`:'选择或新增一张卡';$('#custom-card-template-info').textContent=c?`模板卡 ${c.template_card_id} · 等级、稀有度、语音和条件分支沿用模板`:'';
+  $('#custom-card-title').textContent=c?`${c.name} · ${c.card_id}`:'选择或新增一张卡';$('#custom-card-template-info').textContent=c?`模板卡 ${c.template_card_id} · 等级上限、成长和条件分支沿用模板；稀有度可独立修改`:'';
   for(const [id,key] of [['name','name'],['prefix','prefix'],['job','arthur_type'],['attr','attribute'],['cost','cost']])$('#custom-card-'+id).value=c?.[key]??'';
-  renderCustomCardPreview();renderCustomCardDialogue();
+  renderCustomCardFame();renderCustomCardRarity();renderCustomCardPreview();renderCustomCardDetails();renderCustomCardDialogue();renderCustomCardVoices();
   $('#custom-card-cutin-info').textContent=c?.cutin_template_card_id?`出牌特写：${customPresentationName(c.cutin_template_card_id)}`:'出牌特写：沿用模板';
   $('#custom-card-cutin-reset').disabled=!c?.cutin_template_card_id;
   $('#custom-card-stats').innerHTML=c?['hp','attack','magic','mind'].map((key,i)=>`<tr><th>${['HP','物理攻击','魔法攻击','回复量'][i]}</th>${['initial','maximum','love_bonus'].map(group=>`<td><input type="number" min="0" max="10000000" data-custom-stat="${group}:${key}" value="${c[group][key]}" aria-label="${['HP','物理攻击','魔法攻击','回复量'][i]} ${group==='initial'?'初始':group==='maximum'?'满级':'忠诚加成'}"></td>`).join('')}</tr>`).join(''):'';
@@ -122,6 +134,25 @@ function renderCustomSkills(){
   $$('[data-custom-action]').forEach(el=>el.onclick=()=>chooseCustomAction(Number(el.dataset.customAction)));
   $$('[data-custom-action-reset]').forEach(el=>el.onclick=()=>{c.action_sources=(c.action_sources||[]).filter(s=>Number(s.function_id)!==Number(el.dataset.customActionReset));customCardChanged();renderCustomSkills()});
 }
+const customCardDetailFields=[['description','角色介绍',2000],['illustrator','画师',100],['voice_actor','声优',100],['gender','性别',100],['measurements','三围',100],['height','身高',100],['weight','体重',100],['hand','惯用手',100]];
+function renderCustomCardDetails(){
+  const c=currentCustomCard(),defaults=customCardEditor.templateDetails?.[c?.template_card_id]||{};
+  if(!c){$('#custom-card-details').innerHTML='';return}
+  const field=([key,label,max])=>{
+    const value=c.details?.[key]??defaults[key]??'',id=`custom-card-detail-${key}`,inherited=c.details?.[key]==null;
+    return `<div class="field"><label for="${id}">${label}</label>${key==='description'?`<textarea id="${id}" rows="5" maxlength="${max}" data-custom-detail="${key}" aria-describedby="${id}-state">${esc(value)}</textarea>`:`<input id="${id}" maxlength="${max}" value="${esc(value)}" data-custom-detail="${key}" aria-describedby="${id}-state">`}<div class="toolbar"><span id="${id}-state" class="hint">${inherited?'沿用模板':value===''?'已清除':'使用自定义内容'}</span><button type="button" class="secondary sm" data-custom-detail-reset="${key}" ${inherited?'disabled':''}>恢复模板</button></div></div>`;
+  };
+  $('#custom-card-details').innerHTML=field(customCardDetailFields[0])+`<div class="grid2">${customCardDetailFields.slice(1).map(field).join('')}</div>`;
+  $$('[data-custom-detail]').forEach(el=>el.oninput=()=>{
+    const key=el.dataset.customDetail;c.details??={};c.details[key]=el.value;customCardChanged();
+    $(`#custom-card-detail-${key}-state`).textContent=el.value===''?'已清除':'使用自定义内容';
+    $(`[data-custom-detail-reset="${key}"]`).disabled=false;
+  });
+  $$('[data-custom-detail-reset]').forEach(el=>el.onclick=()=>{
+    delete c.details[el.dataset.customDetailReset];if(!Object.keys(c.details).length)delete c.details;
+    customCardChanged();renderCustomCardDetails();
+  });
+}
 function renderCustomCardDialogue(){
   const c=currentCustomCard(),defaults=customCardEditor.templateDialogues?.[c?.template_card_id];
   for(const kind of ['attack','support']){
@@ -136,6 +167,61 @@ for(const kind of ['attack','support']){
   const key=`${kind}_dialogue`;
   $(`#custom-card-${kind}-dialogue`).oninput=()=>{const c=currentCustomCard();if(c){c[key]=$(`#custom-card-${kind}-dialogue`).value;customCardChanged();$(`#custom-card-${kind}-dialogue-reset`).disabled=false;$(`#custom-card-${kind}-dialogue-state`).textContent=c[key]===''?'已清除台词':'使用自定义台词'}};
   $(`#custom-card-${kind}-dialogue-reset`).onclick=()=>{const c=currentCustomCard();if(c){delete c[key];customCardChanged();renderCustomCardDialogue()}};
+}
+function customVoiceKindLabel(kind){return kind==='attack'?'攻击／妨害／特殊技能':'回复／支援／防御技能'}
+function renderCustomCardVoices(){
+  const c=currentCustomCard();
+  for(const kind of ['attack','support']){
+    const audio=c?.[`${kind}_voice_audio`],source=c?.[`${kind}_voice_source`],id=source?.card_id||c?.template_card_id,voiceKind=source?.kind||kind;
+    const dialogue=customCardEditor.templateDialogues?.[id]?.[voiceKind],voice=customCardEditor.templateVoices?.[id]?.[voiceKind];
+    $(`#custom-card-${kind}-voice-info`).textContent=!c?'':audio?`已上传自制语音 ${(audio.length*.75/1024).toFixed(0)} KB；保存草稿时一并保存。`:`${source?`${customPresentationName(id)} · ${customVoiceKindLabel(voiceKind)}`:'沿用模板语音'}${voice===0?'（模板未配置这类语音）':''}${dialogue?` · 原台词：${dialogue}`:''}`;
+    $(`#custom-card-${kind}-voice-reset`).disabled=!source&&!audio;
+    const preview=$(`#custom-card-${kind}-voice-preview`);preview.hidden=!audio;
+    const url=audio?`data:audio/wav;base64,${audio}`:'';if(preview.getAttribute('src')!==url){preview.pause();if(url)preview.src=url;else preview.removeAttribute('src');preview.load()}
+  }
+}
+for(const kind of ['attack','support']){
+  $(`#custom-card-${kind}-voice-pick`).onclick=()=>{
+    const c=currentCustomCard();if(!c)return;
+    openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张语音来源卡');customCardAction(async()=>{
+      const d=await api(`/api/custom-cards/template/${rows[0].reward_type_id}`),id=d.card.template_card_id;
+      loadCustomCardHelp(d);customCardEditor.presentationNames[id]=d.card.name;
+      const voices=customCardEditor.templateVoices?.[id]||{},dialogues=customCardEditor.templateDialogues?.[id]||{};
+      $('#custom-effect-title').textContent=`选择${customVoiceKindLabel(kind)}语音`;
+      $('#custom-effect-source').textContent=`来源：${d.card.name}。选择要播放的语音；当前自定义出牌台词继续保留。`;
+      $('#custom-effect-options').innerHTML=['attack','support'].filter(k=>Number(voices[k])>0).map(k=>`<button class="custom-card-choice" type="button" data-custom-voice-option="${k}"><b>${esc(customVoiceKindLabel(k))}</b><span>${esc(dialogues[k]||'这类语音没有配套文字台词')}</span></button>`).join('')||'<p class="empty">这张卡没有可用的出牌语音，请关闭后选择其他来源卡。</p>';
+      $$('[data-custom-voice-option]').forEach(el=>el.onclick=()=>{c[`${kind}_voice_source`]={card_id:id,kind:el.dataset.customVoiceOption};delete c[`${kind}_voice_audio`];customCardChanged();renderCustomCardVoices();$('#custom-effect-modal').classList.remove('open')});
+      $('#custom-effect-modal').classList.add('open');
+    })},['card']);
+  };
+  $(`#custom-card-${kind}-voice-reset`).onclick=()=>{const c=currentCustomCard();if(c){delete c[`${kind}_voice_source`];delete c[`${kind}_voice_audio`];customCardChanged();renderCustomCardVoices()}};
+}
+function renderCustomCardFame(){
+  const c=currentCustomCard(),inherited=customCardEditor.templateFameTraining?.[c?.template_card_id]===true;
+  $('#custom-card-fame-training').checked=c?.allow_fame_training??inherited;
+  $('#custom-card-fame-state').textContent=!c?'':c.allow_fame_training==null?'沿用模板设置':c.allow_fame_training?'已允许名声培养':'已关闭名声培养';
+  $('#custom-card-fame-reset').disabled=c?.allow_fame_training==null;
+}
+$('#custom-card-fame-training').onchange=()=>{const c=currentCustomCard();if(c){c.allow_fame_training=$('#custom-card-fame-training').checked;customCardChanged();renderCustomCardFame()}};
+$('#custom-card-fame-reset').onclick=()=>{const c=currentCustomCard();if(c){delete c.allow_fame_training;customCardChanged();renderCustomCardFame()}};
+async function normalizeCustomVoice(file){
+  if(!/\.(mp3|wav)$/i.test(file.name)||file.size>8*1024*1024||file.size===0)throw new Error('请选择8MB以内、30秒以内的MP3或WAV语音');
+  const Offline=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+  if(!Offline)throw new Error('当前浏览器不支持音频导入，请使用新版Chrome或Edge');
+  let decoded;
+  try{decoded=await new Offline(1,1,22050).decodeAudioData(await file.arrayBuffer())}catch(e){throw new Error('无法读取音频，请使用有效的MP3或WAV文件')}
+  if(!decoded.length||decoded.duration>30||decoded.numberOfChannels>2)throw new Error('语音须为30秒以内的单声道或双声道音频');
+  const n=decoded.length,raw=new Uint8Array(44+n*2),v=new DataView(raw.buffer),write=(p,s)=>{for(let i=0;i<s.length;i++)raw[p+i]=s.charCodeAt(i)};
+  write(0,'RIFF');v.setUint32(4,raw.length-8,true);write(8,'WAVE');write(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,decoded.sampleRate,true);v.setUint32(28,decoded.sampleRate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);write(36,'data');v.setUint32(40,n*2,true);
+  const channels=Array.from({length:decoded.numberOfChannels},(_,i)=>decoded.getChannelData(i));
+  for(let i=0;i<n;i++){const value=Math.max(-1,Math.min(1,channels.reduce((sum,ch)=>sum+ch[i],0)/channels.length));v.setInt16(44+i*2,Math.round(value*(value<0?32768:32767)),true)}
+  let binary='';for(let i=0;i<raw.length;i+=8192)binary+=String.fromCharCode(...raw.subarray(i,i+8192));return btoa(binary);
+}
+for(const kind of ['attack','support']){
+  $(`#custom-card-${kind}-voice-upload`).onchange=()=>customCardAction(async()=>{
+    const c=currentCustomCard(),input=$(`#custom-card-${kind}-voice-upload`),file=input.files[0];if(!c||!file)return;
+    try{const audio=await normalizeCustomVoice(file);c[`${kind}_voice_audio`]=audio;delete c[`${kind}_voice_source`];customCardChanged();renderCustomCardVoices();toast('自制语音已导入，可试听后保存草稿')}finally{input.value=''}
+  });
 }
 function customPresentationName(id){return customCardEditor.presentationNames[id]||`卡牌 ${id}`}
 $('#custom-card-cutin-pick').onclick=()=>{
@@ -169,7 +255,16 @@ function validateCustomCardDesign(d){
   if(!object(d)||!Array.isArray(d.cards)||d.cards.length>200)throw new Error('设计文件须包含有效cards数组，最多200张');
   const ids=new Set(),e=customCardEditor,occupied=new Set(e.occupied);
   for(const c of d.cards){
+    if(c?.allow_fame_training!=null&&typeof c.allow_fame_training!=='boolean')throw new Error('允许名声强化须为开关值');
+    for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置')}
+    if(c?.rarity_rank!=null&&!integer(c.rarity_rank,1,8))throw new Error('稀有度须为1–8星，或留空沿用模板');
     if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!['FIRE','ICE','WIND','LIGHT','DARK'].includes(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some(s=>!object(s)||!integer(s.card_id,1,2147483647)||!integer(s.index,0,119))||['artwork','icon_artwork','card_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
+    if(c.details!=null){
+      if(!object(c.details))throw new Error('卡牌详情须为有效对象');
+      const defaults=e.templateDetails?.[c.template_card_id]||{};
+      for(const [key,label,max] of customCardDetailFields){const text=c.details[key];if(text!=null&&(typeof text!=='string'||text!==defaults[key]&&(Array.from(text).length>max||/[\r\n\x00,"]/.test(text)||text!==''&&!text.trim())))throw new Error(`${label}最多${max}字，可留空，不能包含英文逗号、双引号或换行`)}
+    }
+    for(const key of ['attack_voice_source','support_voice_source']){const source=c[key];if(source!=null&&(!object(source)||!integer(source.card_id,1,2147483647)||!['attack','support'].includes(source.kind)))throw new Error('出牌语音来源须包含有效卡牌ID及攻击类／支援类语音类型')}
     if(c.card_artwork_mode!==undefined&&!['','cover','contain'].includes(c.card_artwork_mode))throw new Error('普通卡面构图须为铺满卡框或完整显示');
     for(const key of ['attack_dialogue','support_dialogue'])if(c[key]!=null&&(typeof c[key]!=='string'||Array.from(c[key]).length>100||/[\r\n\x00,"]/.test(c[key])||c[key]!==''&&!c[key].trim()))throw new Error('出牌台词最多100字，可留空，不能包含英文逗号、双引号或换行');
     if(ids.has(c.card_id))throw new Error('设计文件包含重复的卡牌ID');

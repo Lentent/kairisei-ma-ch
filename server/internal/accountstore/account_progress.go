@@ -33,6 +33,9 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 		GachaPlays: map[int]int{}, ShopPurchases: map[int]int{}, BossStates: map[int]int{},
 		MainStory: map[int]int{}, CNMainStory: map[int]int{}, SubStory: map[int]int{}, EventStory: map[int]int{},
 	}
+	for id, state := range state.TeamBattleBossStates {
+		p.BossStates[id] = state
+	}
 	listed := make(map[int]bool, len(state.Gachas))
 	for _, gacha := range state.Gachas {
 		listed[gacha.GachaID] = true
@@ -125,6 +128,9 @@ func collectCatalogProgress(state gamestate.State) (catalogProgress, error) {
 }
 
 func (p catalogProgress) apply(state *gamestate.State) error {
+	// The seed has no operator-created bosses. Keep unresolved progress until
+	// the operations catalog adds their definitions after account decoding.
+	state.TeamBattleBossStates = maps.Clone(p.BossStates)
 	if err := gamestate.ValidateGachaBoxes(p.GachaBoxes); err != nil {
 		return err
 	}
@@ -177,6 +183,7 @@ func (p catalogProgress) apply(state *gamestate.State) error {
 						return err
 					}
 					boss["10"] = json.RawMessage(fmt.Sprint(p.BossStates[id]))
+					delete(state.TeamBattleBossStates, id)
 				}
 				encoded, err := json.Marshal(bosses)
 				if err != nil {
