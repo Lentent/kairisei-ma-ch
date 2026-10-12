@@ -104,13 +104,18 @@ func TestCustomCardAnimationBaselinePackageKeepsCurrentFileAndUpdatesInventory(t
 	root := t.TempDir()
 	versionPath := "resources/patch/version.dat"
 	containerPath := "resources/patch/main_c/container.dat"
-	version := []byte("<bundle_ver>,main_c/container.dat,0,00000000\n")
+	version := []byte("<bundle_ver>,main_c/container.dat,0,00000000\n<bundle_ver>,version.dat,0,00000000\n")
 	key := []byte{1, 0xcd, 0x45, 0x89, 0x67, 0xab, 0x23, 0xef}
 	for i := range version {
 		version[i] += key[i%8]
 	}
 	assets := map[string]any{
-		"source":  map[string]any{},
+		"source": map[string]any{
+			"version_dat_sha256": resourceHash([]byte("stale previously generated version")),
+			"version_manifests": []any{map[string]any{
+				"patch_root": "resources/patch", "sha256": resourceHash([]byte("stale previously generated version")),
+			}},
+		},
 		"bundles": []any{map[string]any{"bundle": "main_c/container.dat", "scrambled": false}},
 	}
 	assetBytes, err := resourceJSON(assets)
@@ -153,7 +158,7 @@ func TestCustomCardAnimationBaselinePackageKeepsCurrentFileAndUpdatesInventory(t
 		}
 	}
 	generated := append(bytes.Clone(current), []byte("#new custom card effect\r\n")...)
-	files := map[string][]byte{customRoleCSVPath: generated, containerPath: container}
+	files := map[string][]byte{customRoleCSVPath: generated, containerPath: container, versionPath: bytes.Clone(version)}
 	archive, err := packageCustomCardResources(customCardDraft{}, root, files, original, manifest, assets)
 	if err != nil {
 		t.Fatal(err)
@@ -178,6 +183,23 @@ func TestCustomCardAnimationBaselinePackageKeepsCurrentFileAndUpdatesInventory(t
 		t.Fatal("export reverted the current animation playlists")
 	}
 	var output, config map[string]any
+	var generatedAssets map[string]any
+	if err := json.Unmarshal(contents["resource-set/asset-map.json"], &generatedAssets); err != nil {
+		t.Fatal(err)
+	}
+	generatedSource := generatedAssets["source"].(map[string]any)
+	versionHash := resourceHash(contents["resource-set/"+versionPath])
+	generatedVersion := bytes.Clone(contents["resource-set/"+versionPath])
+	for i := range generatedVersion {
+		generatedVersion[i] -= key[i%8]
+	}
+	if bytes.Contains(generatedVersion, []byte("<bundle_ver>,version.dat,")) {
+		t.Fatal("generated catalog registered version.dat as a Unity bundle and cannot start")
+	}
+	if generatedSource["version_dat_sha256"] != versionHash ||
+		generatedSource["version_manifests"].([]any)[0].(map[string]any)["sha256"] != versionHash {
+		t.Fatal("generated asset map retained a stale version.dat digest and cannot start")
+	}
 	if err := json.Unmarshal(contents["resource-set/resource-set.json"], &output); err != nil {
 		t.Fatal(err)
 	}

@@ -272,6 +272,9 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		if e != nil {
 			return nil, e
 		}
+		if e = resolveCustomCardPlaylists(roleRows, assets); e != nil {
+			return nil, fmt.Errorf("卡牌%d演出校验失败：%w", c.ID, e)
+		}
 		cards[row[0]] = [][]string{row}
 		for _, r := range skillRows {
 			skills[r[0]] = append(skills[r[0]], r)
@@ -499,6 +502,36 @@ func validateGeneratedCustomCombat(root string, files map[string][]byte) error {
 	return catalog.ValidatePlayerFunctionCoverage()
 }
 
+func replaceCustomCardArtworkCatalogRow(catalog []any, update map[string]any, cardID int) []any {
+	name, _ := update["name"].(string)
+	directory, _ := update["directory"].(string)
+	owner := fmt.Sprintf("main_c/image/custom_card_%d_", cardID)
+	next := make([]any, 0, len(catalog)+1)
+	found := false
+	for _, value := range catalog {
+		row := value.(map[string]any)
+		oldName, _ := row["name"].(string)
+		oldDirectory, _ := row["directory"].(string)
+		oldBundle, _ := row["bundle"].(string)
+		// A different template changes the physical bundle, but the client
+		// still requests the same logical name. Also repair stale owned buckets.
+		replace := strings.EqualFold(oldName, name) &&
+			(row["bundle"] == update["bundle"] || strings.HasPrefix(oldBundle, owner) || strings.EqualFold(oldDirectory, directory))
+		if replace {
+			if !found {
+				next = append(next, update)
+			}
+			found = true
+		} else {
+			next = append(next, value)
+		}
+	}
+	if !found {
+		next = append(next, update)
+	}
+	return next
+}
+
 func buildCustomCardImages(c customCard, row []string, s customCardSources, assets, manifest map[string]any, files, original map[string][]byte, root string) error {
 	var im, icon, cardArtwork image.Image
 	var e error
@@ -625,25 +658,7 @@ func buildCustomCardImages(c customCard, row []string, s customCardSources, asse
 					copy[field] = customArtworkResourcePath(value, oldPict, c.ID)
 				}
 			}
-			found := false
-			nextCatalog := catalog[:0]
-			for _, v := range catalog {
-				r := v.(map[string]any)
-				// Replace older exports by their owned bundle/name as well, so
-				// regenerating an applied card repairs its stale template bucket.
-				if r["bundle"] == name && r["name"] == copy["name"] {
-					if !found {
-						nextCatalog = append(nextCatalog, copy)
-					}
-					found = true
-				} else {
-					nextCatalog = append(nextCatalog, v)
-				}
-			}
-			if !found {
-				nextCatalog = append(nextCatalog, copy)
-			}
-			catalog = nextCatalog
+			catalog = replaceCustomCardArtworkCatalogRow(catalog, copy, c.ID)
 		}
 		assets["catalog_assets"] = catalog
 	}
@@ -756,9 +771,19 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	if e != nil {
 		return nil, e
 	}
+	// version.dat is the catalog authority, never a Unity bundle. A nested
+	// repack must not register its already-generated version table as an asset.
+	filteredRows := rows[:0]
+	for _, row := range rows {
+		if len(row) == 4 && row[0] == "<bundle_ver>" && row[1] == "version.dat" {
+			continue
+		}
+		filteredRows = append(filteredRows, row)
+	}
+	rows = filteredRows
 	changed := map[string]string{}
 	for path, b := range files {
-		if strings.HasPrefix(path, "resources/patch/") && strings.HasSuffix(path, ".dat") {
+		if path != versionPath && strings.HasPrefix(path, "resources/patch/") && strings.HasSuffix(path, ".dat") {
 			changed[strings.TrimPrefix(path, "resources/patch/")] = fmt.Sprintf("%08X", crc32.ChecksumIEEE(b))
 		}
 	}
@@ -818,8 +843,22 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	}
 	changeResourceHash(assets, resourceHash(encoded), resourceHash(version))
 	source := assets["source"].(map[string]any)
+	// A previously generated/repacked map may still describe an older
+	// version.dat than the file on disk. Synchronize the authoritative fields
+	// from the bytes we actually deliver, rather than relying on an old digest
+	// being present for recursive replacement.
+	source["version_dat_sha256"] = resourceHash(version)
+	versionManifests, _ := source["version_manifests"].([]any)
+	for _, value := range versionManifests {
+		if row, ok := value.(map[string]any); ok && row["patch_root"] == "resources/patch" {
+			row["sha256"] = resourceHash(version)
+		}
+	}
 	source["plain_bundle_count"], source["scrambled_bundle_count"], source["bundle_dependency_edge_count"] = plain, scrambled, edges
 	source["parsed_unity_bundle_count"] = plain + scrambled
+	if catalog, ok := assets["catalog_assets"].([]any); ok {
+		source["catalog_asset_count"] = len(catalog)
+	}
 	files["asset-map.json"], e = resourceJSON(assets)
 	if e != nil {
 		return nil, e

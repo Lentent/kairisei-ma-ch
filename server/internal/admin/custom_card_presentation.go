@@ -3,7 +3,56 @@ package admin
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
+
+// Legacy server-only colour patches introduced playlist aliases without
+// shipping the corresponding avatar TextAssets. Exporting those names into
+// container.dat makes the client skip the action and its result callbacks.
+// Keep an alias only when it is registered for every avatar that supports the
+// original playlist; otherwise use that existing original action.
+func resolveCustomCardPlaylists(roles [][]string, assets map[string]any) error {
+	playlists := map[string]map[string]bool{}
+	entries, _ := assets["assets"].([]any)
+	for _, value := range entries {
+		entry, ok := value.(map[string]any)
+		if !ok || entry["object_type"] != "TextAsset" {
+			continue
+		}
+		directory, _ := entry["directory"].(string)
+		name, _ := entry["name"].(string)
+		if !strings.HasPrefix(directory, "text/action/") || !strings.HasSuffix(directory, "/playlist") {
+			continue
+		}
+		if playlists[directory] == nil {
+			playlists[directory] = map[string]bool{}
+		}
+		playlists[directory][name] = true
+	}
+	for _, role := range roles {
+		if len(role) < 4 {
+			return errors.New("技能演出行不完整")
+		}
+		original, legacy := customOriginal3DPlaylist(role[3])
+		if !legacy {
+			continue
+		}
+		found, complete := false, true
+		for _, names := range playlists {
+			if names[original] {
+				found = true
+				complete = complete && names[role[3]]
+			}
+		}
+		if !found {
+			return fmt.Errorf("技能动作%s及原动作%s缺少已登记的角色资源", role[3], original)
+		}
+		if !complete {
+			role[3] = original
+		}
+	}
+	return nil
+}
 
 func customActionSourceCardIDs(c customCard) []int {
 	ids := make([]int, 0, len(c.ActionSources))
