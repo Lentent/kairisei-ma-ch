@@ -366,7 +366,11 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		}
 		receipts = append(receipts, customCardReceipt{ID: c.ID, TemplateID: c.TemplateID, Artwork: c.hasCustomArtwork()})
 	}
-	for path, updates := range map[string]map[string][][]string{customCardCSVPath: cards, customSkillCSVPath: skills, customRoleCSVPath: roles} {
+	evolutions, e := materializeCustomEvolutions(d, s, &master, cards)
+	if e != nil {
+		return nil, e
+	}
+	for path, updates := range map[string]map[string][][]string{customCardCSVPath: cards, customSkillCSVPath: skills, customRoleCSVPath: roles, customEvolutionCSVPath: evolutions} {
 		raw, e := read(path)
 		if e != nil {
 			return nil, e
@@ -417,7 +421,7 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		return nil, errors.New("客户端container布局不支持")
 	}
 	updates := map[string]func(string) (string, error){}
-	for name, rows := range map[string]map[string][][]string{"card.csv": cards, "skill_player.csv": skills, "skill_role_player.csv": roles} {
+	for name, rows := range map[string]map[string][][]string{"card.csv": cards, "skill_player.csv": skills, "skill_role_player.csv": roles, "card_evolution.csv": evolutions} {
 		updates[name] = func(text string) (string, error) { return rewriteCustomCSV(text, rows) }
 	}
 	bundle.nodes[0].data, e = replaceResourceTexts(bundle.nodes[0].data, updates)
@@ -961,7 +965,7 @@ func packageCustomCardResources(d customCardDraft, root string, files, original 
 	if e != nil {
 		return nil, e
 	}
-	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；稀有度使用草稿选择，未选择时沿用模板；技能条件、成长及进化规则沿用模板，新卡不自动加入原进化链。名声培养使用草稿开关，不影响同卡合成叠名声；已开始的培养仍可完成或取消。详情及出牌台词、语音分别设置。自制语音须同步resources/cpk/CueSheet_Card_980.cpk及versions.json到CDN，并让客户端下载更新的语音。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
+	_, e = io.WriteString(entry, "自制卡牌资源更新包\n停服并备份资源与数据库，核对configuration.json原文件SHA-256，将resource-set按原路径合并覆盖后重启。使用CDN时同步更新的资源；客户端重新下载后生效。\n保存草稿、下载ZIP不会自动发布，也不会发卡。应用后从礼物发放、卡池或兑换所提供新卡。\n卡面沿用模板尺寸并保持比例；稀有度使用草稿选择，未选择时沿用模板；技能条件和成长沿用模板；进化链使用草稿选择的自制卡目标与现有普通进化配方，未设置时保持独立。进化前后形态共享同卡系列。名声培养使用草稿开关，不影响同卡合成叠名声；已开始的培养仍可完成或取消。详情及出牌台词、语音分别设置。自制语音须同步resources/cpk/CueSheet_Card_980.cpk及versions.json到CDN，并让客户端下载更新的语音。出牌特写样式及各效果组的动作可选择现有卡牌来源，未选择时沿用模板；2D整段技能演出随动作来源切换。组合效果后须核对各分支技能说明。\n保留玩家存档和部署配置，不需要修改APK。请在Android验证卡面、编组、出牌和多人战斗。\n")
 	if e != nil {
 		return nil, e
 	}

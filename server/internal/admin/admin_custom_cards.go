@@ -35,6 +35,7 @@ type customCard struct {
 	TemplateID        int                      `json:"template_card_id"`
 	Name              string                   `json:"name"`
 	Prefix            string                   `json:"prefix"`
+	Evolution         *customCardEvolution     `json:"evolution,omitempty"`
 	RarityRank        *int                     `json:"rarity_rank,omitempty"`
 	AllowFameTraining *bool                    `json:"allow_fame_training,omitempty"`
 	Details           *customCardDetails       `json:"details,omitempty"`
@@ -86,6 +87,7 @@ type customCardSources struct {
 	Master        masterdata.CardRuntimeMaster
 	Cards         map[int][]string
 	Skills, Roles [][]string
+	EvolutionRows [][]string
 	Rules         map[string][]string
 	Applied       map[int]int
 }
@@ -158,6 +160,9 @@ func (a *API) customCardSources() (customCardSources, error) {
 		return s, err
 	}
 	if s.Roles, err = read(customRoleCSVPath); err != nil {
+		return s, err
+	}
+	if s.EvolutionRows, err = read(customEvolutionCSVPath); err != nil {
 		return s, err
 	}
 	rules, err := read("_local/control/server/cn602-battle-master/skill_role_param_rule.csv")
@@ -331,7 +336,7 @@ func (a *API) customCards(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names, "template_dialogues": customCardTemplateDialogues(s, customCardVoiceReferences(d.Cards)), "template_fame_training": customCardTemplateFameTraining(s, d.Cards), "template_voices": customCardTemplateVoices(s, d.Cards), "template_details": customCardTemplateDetails(s, d.Cards), "template_rarities": customCardTemplateRarities(s, d.Cards)})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "config": d, "revision": revision, "next_card_id": customCardNextID(s, d), "occupied_card_ids": customCardOccupiedIDs(s), "applied": s.Applied, "parameter_rules": s.Rules, "effect_help": customCardEffectHelp(s.Rules), "target_labels": customCardTargetLabels(), "value_labels": customCardValueLabels(), "presentation_names": names, "evolution_recipes": customEvolutionRecipes(s), "template_dialogues": customCardTemplateDialogues(s, customCardVoiceReferences(d.Cards)), "template_fame_training": customCardTemplateFameTraining(s, d.Cards), "template_voices": customCardTemplateVoices(s, d.Cards), "template_details": customCardTemplateDetails(s, d.Cards), "template_rarities": customCardTemplateRarities(s, d.Cards)})
 }
 func (a *API) customCardTemplate(w http.ResponseWriter, r *http.Request) {
 	id, e := strconv.Atoi(chi.URLParam(r, "id"))
@@ -565,7 +570,7 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 			return fmt.Errorf("已发布的卡牌%d须保留在草稿中，避免影响玩家库存", id)
 		}
 	}
-	return nil
+	return validateCustomCardEvolutions(*d, s)
 }
 func customSkillIDs(c customCard) map[int]int {
 	ids := map[int]bool{}

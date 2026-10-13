@@ -41,6 +41,17 @@ func (o *Operations) loadEvolutionRestrictions() error {
 			return err
 		}
 	}
+	// A resource update can clear or retarget a custom route. Its old closure
+	// no longer applies; do not let that retired edge prevent server startup.
+	closed := make([]game.EvolutionPath, 0, len(policy.Closed))
+	for _, path := range policy.Closed {
+		_, exists := o.evolutionEdges[path]
+		if !exists && path.FromCardID >= customCardFirstID && path.FromCardID <= customCardLastID && path.ToCardID >= customCardFirstID && path.ToCardID <= customCardLastID {
+			continue
+		}
+		closed = append(closed, path)
+	}
+	policy.Closed = closed
 	if err = o.validateEvolutionPaths(policy.Closed); err != nil {
 		return err
 	}
