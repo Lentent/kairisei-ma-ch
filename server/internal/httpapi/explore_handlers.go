@@ -65,23 +65,31 @@ func (a *API) exploreEnd(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
-	rewards, err := decodeExploreRewards(a.initialState.Explore.Events)
+	a.clientResultMu.Lock()
+	defer a.clientResultMu.Unlock()
+	response, err := a.settleExplore()
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.clientResultMu.Lock()
-	defer a.clientResultMu.Unlock()
+	a.writeProtocol(writer, response)
+}
+
+// Caller holds clientResultMu. Login recovery and the native result request
+// share the same settlement and durable receipt, so either can finish first.
+func (a *API) settleExplore() (json.RawMessage, error) {
 	if !a.account.ExploreIsActive() {
 		if cached, exists := a.account.ExploreResultReceipt(); exists {
-			a.writeProtocol(writer, cached)
-			return
+			return cached, nil
 		}
+	}
+	rewards, err := decodeExploreRewards(a.initialState.Explore.Events)
+	if err != nil {
+		return nil, err
 	}
 	result, deckCards, completed, startedAtUnix, err := a.account.EndExplore(rewards)
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
-		return
+		return nil, err
 	}
 	resultRewards := make([]any, 0, len(result.Rewards))
 	if completed {
@@ -110,19 +118,30 @@ func (a *API) exploreEnd(writer http.ResponseWriter, request *http.Request) {
 	}
 	encodedResponse, err := json.Marshal(response)
 	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "encode Explore settlement")
-		return
+		return nil, fmt.Errorf("encode Explore settlement: %w", err)
 	}
 	if completed {
 		if err := a.account.RecordExploreResultReceipt(startedAtUnix, encodedResponse, time.Now()); err != nil {
-			writeError(writer, http.StatusInternalServerError, err.Error())
-			return
+			return nil, err
+		}
+		if err := a.persist(); err != nil {
+			a.logger.Error("persist Explore settlement", "error", err)
+			return nil, errors.New("persist Explore settlement")
 		}
 	}
-	if completed && !a.persistOrError(writer) {
-		return
+	return encodedResponse, nil
+}
+
+func (a *API) recoverExploreOnConnect() error {
+	a.clientResultMu.Lock()
+	defer a.clientResultMu.Unlock()
+	if !a.account.ExploreIsActive() {
+		return nil
 	}
-	a.writeProtocol(writer, json.RawMessage(encodedResponse))
+	// A different device has no local recovery file to send ExploreEnd. Finish
+	// the paid-for run at login, preserving its frozen rewards and replay receipt.
+	_, err := a.settleExplore()
+	return err
 }
 
 func decodeExploreRewards(events []json.RawMessage) ([]gamestate.Reward, error) {

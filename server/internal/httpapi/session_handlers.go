@@ -15,6 +15,10 @@ func (a *API) connect(writer http.ResponseWriter, request *http.Request) {
 		writeError(writer, http.StatusBadRequest, "session body is empty")
 		return
 	}
+	if err := a.recoverExploreOnConnect(); err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
 	gameOptionFlag, pushOptionFlag := a.account.OptionState()
 	naviUnlockFlag, naviUnlockIDs := a.account.NaviUnlockState()
 	isUser := 0
