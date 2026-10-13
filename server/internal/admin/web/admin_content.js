@@ -290,7 +290,15 @@ for(const [id,restore] of [['#exchange-delete',false],['#exchange-restore',true]
   exchangeEditor.dirty=false;await loadExchangeEditor();clearViewAlert('exchanges');state.loaded.delete('audit');toast(restore?'已恢复，当前关闭':'已删除，历史兑换记录保留');
 },restore?'恢复':'删除');
 function exchangeDefaults(){const price=Number($('#exchange-price').value),stock=Number($('#exchange-stock').value),currency=Number($('#exchange-currency').value);clearInvalid($('#exchanges .batch-box'));const bad=[];if(!Number.isInteger(price)||price<1||price>10000000)bad.push('#exchange-price');if(!Number.isInteger(stock)||stock===0||stock< -1||stock>999999)bad.push('#exchange-stock');if(!currency)bad.push('#exchange-currency');if(bad.length){bad.forEach(id=>markInvalid($(id)));throw new Error('请检查货币、单价（1–10000000）和限兑数量（-1 表示不限量，不能为 0）')}return {price,stock,currency}}
-function addExchangeOffers(rows){const d=exchangeDefaults(),s=exchangeEditor.shop;if(s.lineups.length+rows.length>500)throw new Error('每个兑换所最多500项');let added=0,skipped=0;for(const row of rows){const reward=contentReward(row);if(s.lineups.some(l=>contentKey(l.rewards[0])===contentKey(reward)&&!l.disabled)){skipped++;continue}const id=exchangeEditor.nextLineup++;s.lineups.push({lineupid:id,lineup_name:row.name,stock_num:d.stock,is_lineup_new:0,is_lineup_old:0,pictid:0,prices:[{type:4,id:d.currency,num:d.price,point_card_condition:[]}],rewards:[reward],evidence:'LOCAL_POLICY_ADMIN'});exchangeEditor.selected.add(id);added++}changedContent('exchanges');renderExchangeForm();toast(`已加入 ${added} 项商品草稿${skipped?`，跳过 ${skipped} 项本店已上架的奖励`:''}`)}
+function addExchangeOffers(rows){
+  const d=exchangeDefaults(),s=exchangeEditor.shop;
+  const existing=new Set(s.lineups.filter(l=>!l.disabled&&l.prices.length===1&&l.prices[0].type===4&&l.prices[0].id===d.currency).map(l=>contentKey(l.rewards[0])));
+  const pending=[];let skipped=0;
+  for(const row of rows){const reward=contentReward(row),key=contentKey(reward);if(existing.has(key)){skipped++;continue}existing.add(key);pending.push({row,reward})}
+  if(s.lineups.length+pending.length>500)throw new Error('每个兑换所最多500项');
+  for(const {row,reward} of pending){const id=exchangeEditor.nextLineup++;s.lineups.push({lineupid:id,lineup_name:row.name,stock_num:d.stock,is_lineup_new:0,is_lineup_old:0,pictid:0,prices:[{type:4,id:d.currency,num:d.price,point_card_condition:[]}],rewards:[reward],evidence:'LOCAL_POLICY_ADMIN'});exchangeEditor.selected.add(id)}
+  if(pending.length)changedContent('exchanges');renderExchangeForm();toast(`已加入 ${pending.length} 项商品草稿${skipped?`，跳过 ${skipped} 项使用相同兑换货币的已上架奖励`:''}`);
+}
 $('#exchange-add').onclick=()=>{try{exchangeDefaults()}catch(e){return toast(e.message,true)}openContentPicker(addExchangeOffers,['material','card','item','sphere','buddy','costume','stamp','honor'])};
 $('#exchange-currency').onchange=()=>$('#exchange-currency').classList.remove('invalid');
 for(const kind of ['fusion','evolution'])$('#exchange-'+kind).onclick=()=>{try{const rows=exchangeEditor.templates[kind]||[];for(const c of rows)contentPicker.labels.set(contentKey(c),c.name);addExchangeOffers(rows)}catch(e){toast(e.message,true)}};
