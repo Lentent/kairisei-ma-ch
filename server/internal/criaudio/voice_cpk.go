@@ -79,6 +79,7 @@ func voiceACB(template []byte, id int, w WAV) ([]byte, error) {
 		return nil, errors.New("语音ACB模板布局不支持")
 	}
 	row := root.rows[0]
+	adx := encodeCN602ADX(w)
 	for key, values := range map[string]map[string]uint64{
 		"CueTable":      {"CueId": uint64(id), "Length": uint64(w.Frames * 1000 / w.Rate)},
 		"WaveformTable": {"EncodeType": 0, "Streaming": 0, "NumChannels": uint64(w.Channels), "LoopFlag": 0, "SamplingRate": uint64(w.Rate), "NumSamples": uint64(w.Frames)},
@@ -107,7 +108,7 @@ func voiceACB(template []byte, id int, w WAV) ([]byte, error) {
 	p := strStart + int(binary.BigEndian.Uint32(root.raw[f.position:]))
 	copy(root.raw[p:p+len(name)], name)
 	if guid, ok := row["AcbGuid"].value.([]byte); ok && len(guid) == 16 {
-		hash := sha256.Sum256(append([]byte(name), EncodeADX(w)...))
+		hash := sha256.Sum256(append([]byte(name), adx...))
 		copy(guid, hash[:16])
 	}
 	f = row["AwbFile"]
@@ -129,7 +130,7 @@ func voiceACB(template []byte, id int, w WAV) ([]byte, error) {
 	if start%32 != 0 || (end-start)%32 != 0 || end < start+len(awbOld) {
 		return nil, errors.New("语音ACB波形对齐不支持")
 	}
-	awb := voiceAWB(EncodeADX(w))
+	awb := voiceAWB(adx)
 	slot := align(len(awb), 32)
 	delta := slot - (end - start)
 	for key, other := range row {

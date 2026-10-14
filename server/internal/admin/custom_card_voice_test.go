@@ -32,6 +32,40 @@ func customTestVoiceWAV() []byte {
 	return raw
 }
 
+func TestCustomVoiceVolumePreservesSourceAndScalesExport(t *testing.T) {
+	raw := customTestVoiceWAV()
+	for i, sample := range []int16{-32768, -1234, 0, 1234, 32767} {
+		binary.LittleEndian.PutUint16(raw[44+i*2:], uint16(sample))
+	}
+	original := bytes.Clone(raw)
+	c := customCard{AttackVoiceAudio: raw, SupportVoiceAudio: raw}
+	for _, percent := range []int{0, 25, 50, 100} {
+		c.SupportVoiceVolume = &percent
+		got, err := customVoiceAudioForExport(c, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 44; i < len(got); i += 2 {
+			want := int(int16(binary.LittleEndian.Uint16(raw[i:]))) * percent / 100
+			if int(int16(binary.LittleEndian.Uint16(got[i:]))) != want {
+				t.Fatalf("volume %d not applied", percent)
+			}
+		}
+		if again, err := customVoiceAudioForExport(c, 1); err != nil || !bytes.Equal(again, got) || !bytes.Equal(raw, original) {
+			t.Fatal("re-export compounded gain or changed original", err)
+		}
+	}
+	if unchanged, err := customVoiceAudioForExport(c, 0); err != nil || !bytes.Equal(unchanged, original) {
+		t.Fatal("legacy default changed", err)
+	}
+	for _, percent := range []int{-1, 101} {
+		c.SupportVoiceVolume = &percent
+		if _, err := customVoiceAudioForExport(c, 1); err == nil {
+			t.Fatal("invalid volume accepted")
+		}
+	}
+}
+
 func TestCustomCardVoiceSourcesAndUpload(t *testing.T) {
 	s := customUnitSources()
 	row := append([]string(nil), s.Cards[101]...)

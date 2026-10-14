@@ -177,10 +177,15 @@ function renderCustomCardVoices(){
     $(`#custom-card-${kind}-voice-info`).textContent=!c?'':audio?`已上传自制语音 ${(audio.length*.75/1024).toFixed(0)} KB；保存草稿时一并保存。`:`${source?`${customPresentationName(id)} · ${customVoiceKindLabel(voiceKind)}`:'沿用模板语音'}${voice===0?'（模板未配置这类语音）':''}${dialogue?` · 原台词：${dialogue}`:''}`;
     $(`#custom-card-${kind}-voice-reset`).disabled=!source&&!audio;
     const preview=$(`#custom-card-${kind}-voice-preview`);preview.hidden=!audio;
+    const volume=c?.[`${kind}_voice_volume`]??100;preview.volume=volume/100;
+    $(`#custom-card-${kind}-voice-volume`).value=volume;
+    $(`#custom-card-${kind}-voice-volume`).disabled=!audio;
+    $(`#custom-card-${kind}-voice-volume-value`).textContent=`${volume}%`;
     const url=audio?`data:audio/wav;base64,${audio}`:'';if(preview.getAttribute('src')!==url){preview.pause();if(url)preview.src=url;else preview.removeAttribute('src');preview.load()}
   }
 }
 for(const kind of ['attack','support']){
+  $(`#custom-card-${kind}-voice-volume`).oninput=()=>{const c=currentCustomCard();if(!c?.[`${kind}_voice_audio`])return;c[`${kind}_voice_volume`]=Number($(`#custom-card-${kind}-voice-volume`).value);customCardChanged();renderCustomCardVoices()};
   $(`#custom-card-${kind}-voice-pick`).onclick=()=>{
     const c=currentCustomCard();if(!c)return;
     openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张语音来源卡');customCardAction(async()=>{
@@ -190,11 +195,11 @@ for(const kind of ['attack','support']){
       $('#custom-effect-title').textContent=`选择${customVoiceKindLabel(kind)}语音`;
       $('#custom-effect-source').textContent=`来源：${d.card.name}。选择要播放的语音；当前自定义出牌台词继续保留。`;
       $('#custom-effect-options').innerHTML=['attack','support'].filter(k=>Number(voices[k])>0).map(k=>`<button class="custom-card-choice" type="button" data-custom-voice-option="${k}"><b>${esc(customVoiceKindLabel(k))}</b><span>${esc(dialogues[k]||'这类语音没有配套文字台词')}</span></button>`).join('')||'<p class="empty">这张卡没有可用的出牌语音，请关闭后选择其他来源卡。</p>';
-      $$('[data-custom-voice-option]').forEach(el=>el.onclick=()=>{c[`${kind}_voice_source`]={card_id:id,kind:el.dataset.customVoiceOption};delete c[`${kind}_voice_audio`];customCardChanged();renderCustomCardVoices();$('#custom-effect-modal').classList.remove('open')});
+      $$('[data-custom-voice-option]').forEach(el=>el.onclick=()=>{c[`${kind}_voice_source`]={card_id:id,kind:el.dataset.customVoiceOption};delete c[`${kind}_voice_audio`];delete c[`${kind}_voice_volume`];customCardChanged();renderCustomCardVoices();$('#custom-effect-modal').classList.remove('open')});
       $('#custom-effect-modal').classList.add('open');
     })},['card']);
   };
-  $(`#custom-card-${kind}-voice-reset`).onclick=()=>{const c=currentCustomCard();if(c){delete c[`${kind}_voice_source`];delete c[`${kind}_voice_audio`];customCardChanged();renderCustomCardVoices()}};
+  $(`#custom-card-${kind}-voice-reset`).onclick=()=>{const c=currentCustomCard();if(c){delete c[`${kind}_voice_source`];delete c[`${kind}_voice_audio`];delete c[`${kind}_voice_volume`];customCardChanged();renderCustomCardVoices()}};
 }
 function renderCustomCardFame(){
   const c=currentCustomCard(),inherited=customCardEditor.templateFameTraining?.[c?.template_card_id]===true;
@@ -256,7 +261,7 @@ function validateCustomCardDesign(d){
   const ids=new Set(),e=customCardEditor,occupied=new Set(e.occupied);
   for(const c of d.cards){
     if(c?.allow_fame_training!=null&&typeof c.allow_fame_training!=='boolean')throw new Error('允许名声强化须为开关值');
-    for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置')}
+    for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置');const volume=c?.[`${kind}_voice_volume`];if(volume!=null&&!integer(volume,0,100))throw new Error('自制语音音量须为0–100的整数百分比')}
     if(c?.evolution!=null&&(!object(c.evolution)||!integer(c.evolution.target_card_id,98000001,98999999)||!integer(c.evolution.recipe_from_card_id,1,2147483647)||!integer(c.evolution.recipe_to_card_id,1,2147483647)))throw new Error('进化配置须包含目标自制卡及配方来源');
     if(c?.rarity_rank!=null&&!integer(c.rarity_rank,1,8))throw new Error('稀有度须为1–8星，或留空沿用模板');
     if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!['FIRE','ICE','WIND','LIGHT','DARK'].includes(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some(s=>!object(s)||!integer(s.card_id,1,2147483647)||!integer(s.index,0,119))||['artwork','icon_artwork','card_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
@@ -270,10 +275,10 @@ function validateCustomCardDesign(d){
     for(const key of ['attack_dialogue','support_dialogue'])if(c[key]!=null&&(typeof c[key]!=='string'||Array.from(c[key]).length>100||/[\r\n\x00,"]/.test(c[key])||c[key]!==''&&!c[key].trim()))throw new Error('出牌台词最多100字，可留空，不能包含英文逗号、双引号或换行');
     if(ids.has(c.card_id))throw new Error('设计文件包含重复的卡牌ID');
     if(c.cutin_template_card_id!==undefined&&!integer(c.cutin_template_card_id,0,2147483647)||c.action_sources!=null&&(!Array.isArray(c.action_sources)||c.action_sources.some(s=>!object(s)||!integer(s.function_id,1,2147483647)||!integer(s.card_id,1,2147483647)||!integer(s.source_function_id,1,2147483647))))throw new Error('设计文件的演出来源结构无效');
-    if(occupied.has(c.card_id)&&e.applied[c.card_id]!==c.template_card_id)throw new Error('设计文件不能覆盖当前资源中的其他卡牌');
+    if(occupied.has(c.card_id)&&!e.applied[c.card_id])throw new Error('设计文件不能覆盖当前资源中的其他卡牌');
     ids.add(c.card_id);
   }
-  for(const [id,template] of Object.entries(e.applied))if(!d.cards.some(c=>c.card_id===Number(id)&&c.template_card_id===template))throw new Error(`已发布的卡牌${id}须保留原模板，不能从设计文件中移除`);
+
 }
 $('#custom-card-new').onclick=()=>openContentPicker(rows=>{if(customCardEditor.config.cards.length+rows.length>200)throw new Error('最多制作200张卡');customCardAction(async()=>{const cards=[],used=customCardUsedIDs();for(const row of rows){const d=await api(`/api/custom-cards/template/${row.reward_type_id}`),c=d.card;loadCustomCardHelp(d);c.card_id=nextCustomCardID(used);used.add(c.card_id);c.name=`${c.name}（自制）`.slice(0,40);cards.push(c)}customCardEditor.config.cards.push(...cards);if(cards.length)customCardEditor.selected=cards[cards.length-1].card_id;customCardChanged();renderCustomCards()})},['card']);
 function chooseCustomEffect(fn){const c=currentCustomCard();openContentPicker(rows=>{if(rows.length!==1)throw new Error('一次选择一张效果来源卡');customCardAction(async()=>{const d=await api(`/api/custom-cards/template/${rows[0].reward_type_id}`);loadCustomCardHelp(d);customCardEditor.effect={cardID:c.card_id,fn,source:d.card};$('#custom-effect-source').textContent=`来源：${d.card.name}。选择一项效果加入当前效果组。`;
@@ -292,7 +297,7 @@ $('#custom-card-remove').onclick=()=>{const c=currentCustomCard();if(!c||customC
 $('#custom-card-save').onclick=()=>customCardAction(async()=>{const e=customCardEditor,d=await api('/api/custom-cards',{method:'PUT',body:JSON.stringify({expected_revision:e.revision,config:e.config})});e.config=d.config;e.revision=d.revision;e.nextID=d.next_card_id;e.applied=d.applied||{};e.occupied=d.occupied_card_ids||[];loadCustomCardHelp(d);e.dirty=false;clearViewAlert('custom-cards');renderCustomCards();$('#custom-card-status').textContent='草稿已保存；可生成资源更新包，应用后在游戏中生效。';toast('自制卡牌草稿已保存')});
 $('#custom-card-package').onclick=()=>customCardAction(async()=>{const e=customCardEditor;if(e.dirty)throw new Error('请先保存草稿');const r=await fetch('/api/custom-cards/export',{method:'POST',headers:{'Content-Type':'application/json','X-Kairisei-Admin-Action':'apply'},body:JSON.stringify({expected_revision:e.revision})});if(!r.ok){const d=await r.json();const error=new Error(d.error||'生成失败');error.status=r.status;throw error}const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`自制卡牌资源-v${e.revision}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);$('#custom-card-status').textContent='更新包已生成。按包内说明停服备份、覆盖资源、重启；使用CDN时同步资源。应用后再发卡。';toast('资源更新包已生成')});
 $('#custom-card-json').onclick=()=>downloadContent(customCardEditor.config,'自制卡牌设计.json');
-$('#custom-card-import').onchange=()=>customCardAction(async()=>{const d=await importContent($('#custom-card-import'),32*1024*1024);if(d===null)return;validateCustomCardDesign(d);if(!confirm('导入将替换当前页面草稿，继续？'))return;customCardEditor.config=d;customCardEditor.selected=d.cards[0]?.card_id||0;customCardChanged();renderCustomCards()});
+$('#custom-card-import').onchange=()=>customCardAction(async()=>{const d=await importContent($('#custom-card-import'),32*1024*1024);if(d===null)return;mergePublishedCustomCardDrafts(d);validateCustomCardDesign(d);if(!confirm('导入将更新同 ID 卡牌和未发布草稿；文件中未包含的已发布卡牌会保留。继续？'))return;customCardEditor.config=d;customCardEditor.selected=d.cards[0]?.card_id||0;customCardChanged();renderCustomCards()});
 
 function customCardRank(c){return c?.rarity_rank??customCardEditor.templateRarities?.[c?.template_card_id]??0}
 const customRecipeKey=r=>`${r.from_card_id}:${r.to_card_id}`;
@@ -338,3 +343,15 @@ $('#custom-card-evolution-create').onclick=()=>customCardAction(async()=>{
   e.config.cards.push(target);c.evolution={target_card_id:target.card_id,recipe_from_card_id:r.from_card_id,recipe_to_card_id:r.to_card_id};
   e.selected=target.card_id;customCardChanged();renderCustomCards();toast(`已连接 ${c.card_id} → ${target.card_id}；请编辑进化后形态的卡面、数值和技能`);
 });
+
+// Import old or partial designs without dropping any already-published card.
+function mergePublishedCustomCardDrafts(d){
+  if(!d||!Array.isArray(d.cards))throw new Error('设计文件须包含有效cards数组');
+  const e=customCardEditor,ids=new Set(d.cards.map(c=>c?.card_id)),preserved=[];
+  for(const id of Object.keys(e.applied).map(Number))if(!ids.has(id)){
+    const existing=e.config.cards.find(c=>c.card_id===id);
+    if(!existing)throw new Error(`已发布卡牌 ${id} 的草稿尚未载入，请先刷新后台再导入；卡牌资源不会被删除`);
+    preserved.push(JSON.parse(JSON.stringify(existing)));
+  }
+  d.cards.push(...preserved);
+}

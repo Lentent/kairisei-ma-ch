@@ -142,14 +142,48 @@ func TestCustomCardEvolutionValidationAndReplacement(t *testing.T) {
 	if cards[strconv.Itoa(customCardFirstID+1)][0][2] != strconv.Itoa(customCardFirstID) || master.CardTemplates[3].SameCardID != customCardFirstID {
 		t.Fatal("evolution forms do not share family")
 	}
+	ranks := map[int]int{customCardFirstID: 5, customCardFirstID + 1: 6}
+	assertCustomEvolutionStars(t, append(updates[strconv.Itoa(customCardFirstID)], updates[strconv.Itoa(customCardFirstID+1)]...), ranks, customCardFirstID, 6)
+	// Reproduce the old export: a missing terminal entry hides the sixth star.
+	assertCustomEvolutionStars(t, updates[strconv.Itoa(customCardFirstID)], ranks, customCardFirstID, 5)
 	// Re-export is idempotent and clearing restores independent families.
 	if _, err = materializeCustomEvolutions(d, s, &master, cards); err != nil || len(master.EvolutionTransitions) != 2 {
 		t.Fatal("duplicate transition", err)
 	}
 	d.Cards[0].Evolution = nil
 	updates, err = materializeCustomEvolutions(d, s, &master, cards)
-	if err != nil || len(updates[strconv.Itoa(customCardFirstID)]) != 0 || len(master.EvolutionTransitions) != 1 || master.CardTemplates[3].SameCardID != customCardFirstID+1 {
+	if err != nil || !reflect.DeepEqual(updates[strconv.Itoa(customCardFirstID)], [][]string{{strconv.Itoa(customCardFirstID), ""}}) || len(master.EvolutionTransitions) != 1 || master.CardTemplates[3].SameCardID != customCardFirstID+1 {
 		t.Fatal("cleared route remains", err)
+	}
+	assertCustomEvolutionStars(t, append(updates[strconv.Itoa(customCardFirstID)], updates[strconv.Itoa(customCardFirstID+1)]...), ranks, customCardFirstID, 5)
+}
+
+// Model the original CardUtility.IsEvolutionState/getEvolutionMaxRarity
+// contract for ordinary, non-branching custom chains. An absent target record
+// differs from a parsed terminal record with an empty EvoInfo.
+func assertCustomEvolutionStars(t *testing.T, rows [][]string, ranks map[int]int, id, want int) {
+	t.Helper()
+	records := map[int][]string{}
+	for _, row := range rows {
+		if _, ok := ranks[customRowInt(row, 0)]; ok {
+			records[customRowInt(row, 0)] = row
+		}
+	}
+	var maximum func(int, map[int]bool) int
+	maximum = func(id int, visited map[int]bool) int {
+		if visited[id] {
+			t.Fatal("cyclic client evolution chain")
+		}
+		visited[id] = true
+		row := records[id]
+		target := customRowInt(row, 4)
+		if len(row) < 5 || row[1] != "NORMAL" || target == 0 || records[target] == nil {
+			return ranks[id]
+		}
+		return max(ranks[target], maximum(target, visited))
+	}
+	if got := maximum(id, map[int]bool{}); got != want {
+		t.Fatalf("card %d: client shows %d total stars, want %d", id, got, want)
 	}
 }
 
@@ -180,6 +214,8 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	if recipe.FromID == 0 {
 		t.Fatal("no 5 -> 6 native recipe")
 	}
+	// Compare with a native ordinary chain (other templates may also have GOD branches).
+	assertCustomEvolutionStars(t, s.EvolutionRows, map[int]int{10108001: 5, 10108002: 6}, 10108001, 6)
 	from, _ := s.template(recipe.FromID)
 	to, _ := s.template(recipe.ToID)
 	from.ID = customCardNextID(s, customCardDraft{})
@@ -241,6 +277,10 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("client routes = %d", count)
 	}
+	// The original client's star renderer traverses NORMAL routes only when
+	// their target has an evolution-table entry, including terminal "ID," rows.
+	assertCustomEvolutionStars(t, rows, map[int]int{from.ID: 5, to.ID: 6}, from.ID, 6)
+	assertCustomEvolutionStars(t, rows, map[int]int{from.ID: 5, to.ID: 6}, to.ID, 6)
 	bundle, err := readResourceBundle(files["resource-set/resources/patch/main_c/container.dat"])
 	if err != nil {
 		t.Fatal(err)
@@ -252,6 +292,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(client, rows) {
 			t.Fatal("client/server evolution CSV differ", err)
 		}
+		assertCustomEvolutionStars(t, client, map[int]int{from.ID: 5, to.ID: 6}, from.ID, 6)
 		return text, nil
 	}})
 	if err != nil || !seen {

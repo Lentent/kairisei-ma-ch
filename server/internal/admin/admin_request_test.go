@@ -26,6 +26,18 @@ func TestAdminJSONRejectsBodyBeyondLimit(t *testing.T) {
 	}
 }
 
+func TestAdminAllowsEmbeddedVoicePreview(t *testing.T) {
+	handler := adminSecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/", nil))
+	policy := response.Header().Get("Content-Security-Policy")
+	if !strings.Contains(policy, "media-src 'self' data:;") || !strings.Contains(policy, "default-src 'self';") || !strings.Contains(policy, "connect-src 'self';") {
+		t.Fatalf("embedded WAV preview is blocked or unrelated sources widened: %s", policy)
+	}
+}
+
 func TestAdminRejectsReboundHostBeforeServingAccounts(t *testing.T) {
 	for _, test := range []struct {
 		host    string

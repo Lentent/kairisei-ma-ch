@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -78,19 +79,20 @@ func TestADXRoundTrip(t *testing.T) {
 		}
 		adx := EncodeADX(w)
 		be := binary.BigEndian
-		if be.Uint16(adx) != 0x8000 || int(be.Uint32(adx[12:])) != w.Frames || string(adx[30:36]) != "(c)CRI" || adx[7] != byte(channels) {
+		headerSize := int(be.Uint16(adx[2:])) + 4
+		if be.Uint16(adx) != 0x8000 || int(be.Uint32(adx[12:])) != w.Frames || headerSize != 64 || adx[18] != 4 || string(adx[headerSize-6:headerSize]) != "(c)CRI" || adx[7] != byte(channels) {
 			t.Fatal("invalid ADX header")
 		}
 		a := math.Sqrt2 - math.Cos(2*math.Pi*float64(be.Uint16(adx[16:]))/float64(be.Uint32(adx[8:])))
 		b := math.Sqrt2 - 1
 		c := (a - math.Sqrt(a*a-b*b)) / b
-		coef1, coef2 := int(math.Round(c*8192)), int(math.Round(-c*c*4096))
+		coef1, coef2 := int(c*8192), int(-c*c*4096)
 		history := make([][2]int, channels)
 		energy, errorEnergy := 0.0, 0.0
 		for block := 0; block < (w.Frames+31)/32; block++ {
 			for ch := 0; ch < channels; ch++ {
-				p := 36 + (block*channels+ch)*18
-				scale := int(be.Uint16(adx[p:]))
+				p := headerSize + (block*channels+ch)*18
+				scale := int(be.Uint16(adx[p:])) + 1
 				h1, h2 := history[ch][0], history[ch][1]
 				for i := 0; i < 32; i++ {
 					q := int(adx[p+2+i/2])
@@ -119,6 +121,63 @@ func TestADXRoundTrip(t *testing.T) {
 	}
 }
 
+// Optional external validation: vgmstream follows CRI's stored-scale + 1,
+// truncated coefficients and v4 history convention, unlike FFmpeg's decoder.
+func TestADXExternalDecoder(t *testing.T) {
+	decoder := os.Getenv("CN602_VGMSTREAM")
+	if decoder == "" {
+		t.Skip("requires vgmstream-cli")
+	}
+	inputs := map[string][]byte{"mono": testWAV(1, 22053), "stereo": testWAV(2, 22053), "quiet": testWAV(1, 22053)}
+	for i := 44; i < len(inputs["quiet"]); i += 2 {
+		sample := int16(binary.LittleEndian.Uint16(inputs["quiet"][i:])) / 256
+		binary.LittleEndian.PutUint16(inputs["quiet"][i:], uint16(sample))
+	}
+	if path := os.Getenv("CN602_VOICE_SAMPLE"); path != "" {
+		var err error
+		inputs["uploaded"], err = os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, raw := range inputs {
+		t.Run(name, func(t *testing.T) {
+			w, err := ParseWAV(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			input, output := filepath.Join(dir, "voice.adx"), filepath.Join(dir, "decoded.wav")
+			if err := os.WriteFile(input, EncodeADX(w), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if log, err := exec.Command(decoder, "-o", output, input).CombinedOutput(); err != nil {
+				t.Fatalf("external decoder: %v\n%s", err, log)
+			}
+			decoded, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := ParseWAV(decoded)
+			if err != nil || got.Frames != w.Frames || got.Channels != w.Channels || got.Rate != w.Rate {
+				t.Fatal("external waveform layout mismatch", err)
+			}
+			energy, loss, decodedEnergy := 0.0, 0.0, 0.0
+			for i, sample := range w.Samples {
+				x, y := float64(sample), float64(got.Samples[i])
+				energy += x * x
+				decodedEnergy += y * y
+				loss += (x - y) * (x - y)
+			}
+			snr, gain := 10*math.Log10(energy/loss), 10*math.Log10(decodedEnergy/energy)
+			t.Logf("external decode SNR %.2f dB, gain %.3f dB", snr, gain)
+			if snr < 24 || math.Abs(gain) > 0.2 {
+				t.Fatal("external decode distorted or amplified audio")
+			}
+		})
+	}
+}
+
 func TestVoiceCPKWithOriginalTemplate(t *testing.T) {
 	root := os.Getenv("CN602_CUSTOM_CARD_RESOURCE_SET")
 	if root == "" {
@@ -129,6 +188,12 @@ func TestVoiceCPKWithOriginalTemplate(t *testing.T) {
 		t.Fatal(e)
 	}
 	input := map[int][]byte{900000000: testWAV(1, 22050), 900000001: testWAV(2, 22053)}
+	if path := os.Getenv("CN602_VOICE_SAMPLE"); path != "" {
+		input[900000002], e = os.ReadFile(path)
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
 	cpk, e := BuildVoiceCPK(raw, input)
 	if e != nil {
 		t.Fatal(e)
@@ -157,7 +222,7 @@ func TestVoiceCPKWithOriginalTemplate(t *testing.T) {
 		awb := table.rows[0]["AwbFile"].value.([]byte)
 		start := binary.LittleEndian.Uint32(awb[18:])
 		end := binary.LittleEndian.Uint32(awb[22:])
-		if end != uint32(len(awb)) || !bytes.Equal(awb[start:end], EncodeADX(w)) {
+		if end != uint32(len(awb)) || !bytes.Equal(awb[start:end], encodeCN602ADX(w)) {
 			t.Fatal("CPK/ACB/AWB audio mismatch")
 		}
 		if dir := os.Getenv("CN602_CUSTOM_VOICE_VERIFY_DIR"); dir != "" {

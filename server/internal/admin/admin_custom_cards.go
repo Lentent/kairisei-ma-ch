@@ -31,35 +31,37 @@ const customClientSkillGroupLimit = 5
 // every referenced function its own ID, including branch functions shared by
 // several variants. Only names, descriptions and VALUE parameters are editable.
 type customCard struct {
-	ID                int                      `json:"card_id"`
-	TemplateID        int                      `json:"template_card_id"`
-	Name              string                   `json:"name"`
-	Prefix            string                   `json:"prefix"`
-	Evolution         *customCardEvolution     `json:"evolution,omitempty"`
-	RarityRank        *int                     `json:"rarity_rank,omitempty"`
-	AllowFameTraining *bool                    `json:"allow_fame_training,omitempty"`
-	Details           *customCardDetails       `json:"details,omitempty"`
-	Cost              int                      `json:"cost"`
-	ArthurType        int8                     `json:"arthur_type"`
-	Attribute         string                   `json:"attribute"`
-	Initial           gamestate.CardParameter  `json:"initial"`
-	Maximum           gamestate.CardParameter  `json:"maximum"`
-	LoveBonus         gamestate.CardParameter  `json:"love_bonus"`
-	Skills            [][]string               `json:"skills"`
-	Roles             [][]string               `json:"roles"`
-	RoleSources       []customRoleSource       `json:"role_sources"`
-	Artwork           []byte                   `json:"artwork,omitempty"`
-	IconArtwork       []byte                   `json:"icon_artwork,omitempty"`
-	CardArtwork       []byte                   `json:"card_artwork,omitempty"`
-	CardArtworkMode   string                   `json:"card_artwork_mode,omitempty"`
-	AttackDialogue    *string                  `json:"attack_dialogue,omitempty"`
-	SupportDialogue   *string                  `json:"support_dialogue,omitempty"`
-	AttackVoice       *customCardVoiceSource   `json:"attack_voice_source,omitempty"`
-	SupportVoice      *customCardVoiceSource   `json:"support_voice_source,omitempty"`
-	AttackVoiceAudio  []byte                   `json:"attack_voice_audio,omitempty"`
-	SupportVoiceAudio []byte                   `json:"support_voice_audio,omitempty"`
-	CutinTemplateID   int                      `json:"cutin_template_card_id,omitempty"`
-	ActionSources     []customCardActionSource `json:"action_sources,omitempty"`
+	ID                 int                      `json:"card_id"`
+	TemplateID         int                      `json:"template_card_id"`
+	Name               string                   `json:"name"`
+	Prefix             string                   `json:"prefix"`
+	Evolution          *customCardEvolution     `json:"evolution,omitempty"`
+	RarityRank         *int                     `json:"rarity_rank,omitempty"`
+	AllowFameTraining  *bool                    `json:"allow_fame_training,omitempty"`
+	Details            *customCardDetails       `json:"details,omitempty"`
+	Cost               int                      `json:"cost"`
+	ArthurType         int8                     `json:"arthur_type"`
+	Attribute          string                   `json:"attribute"`
+	Initial            gamestate.CardParameter  `json:"initial"`
+	Maximum            gamestate.CardParameter  `json:"maximum"`
+	LoveBonus          gamestate.CardParameter  `json:"love_bonus"`
+	Skills             [][]string               `json:"skills"`
+	Roles              [][]string               `json:"roles"`
+	RoleSources        []customRoleSource       `json:"role_sources"`
+	Artwork            []byte                   `json:"artwork,omitempty"`
+	IconArtwork        []byte                   `json:"icon_artwork,omitempty"`
+	CardArtwork        []byte                   `json:"card_artwork,omitempty"`
+	CardArtworkMode    string                   `json:"card_artwork_mode,omitempty"`
+	AttackDialogue     *string                  `json:"attack_dialogue,omitempty"`
+	SupportDialogue    *string                  `json:"support_dialogue,omitempty"`
+	AttackVoice        *customCardVoiceSource   `json:"attack_voice_source,omitempty"`
+	SupportVoice       *customCardVoiceSource   `json:"support_voice_source,omitempty"`
+	AttackVoiceAudio   []byte                   `json:"attack_voice_audio,omitempty"`
+	SupportVoiceAudio  []byte                   `json:"support_voice_audio,omitempty"`
+	AttackVoiceVolume  *int                     `json:"attack_voice_volume,omitempty"`
+	SupportVoiceVolume *int                     `json:"support_voice_volume,omitempty"`
+	CutinTemplateID    int                      `json:"cutin_template_card_id,omitempty"`
+	ActionSources      []customCardActionSource `json:"action_sources,omitempty"`
 }
 type customCardActionSource struct {
 	FunctionID       int `json:"function_id"`
@@ -394,7 +396,7 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 			return errors.New("自制卡牌ID须在98000001–98999999内且不能重复")
 		}
 		seen[c.ID] = true
-		if _, exists := s.Cards[c.ID]; exists && s.Applied[c.ID] != c.TemplateID {
+		if _, exists := s.Cards[c.ID]; exists && s.Applied[c.ID] == 0 {
 			return errors.New("不能覆盖未由本编辑器生成的卡牌")
 		}
 		base, e := template(c.TemplateID)

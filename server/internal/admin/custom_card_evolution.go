@@ -138,7 +138,12 @@ func materializeCustomEvolutions(d customCardDraft, s customCardSources, master 
 	updates := map[string][][]string{}
 	parents := map[int]int{}
 	for _, c := range d.Cards {
-		updates[strconv.Itoa(c.ID)] = nil
+		id := strconv.Itoa(c.ID)
+		// Native terminal forms have an "ID," row, not an absent row. The
+		// client's IsEvolutionState inspects the target's table entry before
+		// getEvolutionMaxRarity follows a NORMAL route. Without that entry it
+		// treats the source as terminal and hides its unfilled evolution stars.
+		updates[id] = [][]string{{id, ""}}
 		if c.Evolution != nil {
 			parents[c.Evolution.TargetID] = c.ID
 		}

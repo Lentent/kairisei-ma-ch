@@ -62,6 +62,9 @@ func customCardTemplateVoices(s customCardSources, cards []customCard) map[int]c
 func customCardVoices(c customCard, s customCardSources, ready func(int) bool) (map[int]string, error) {
 	voices := map[int]string{}
 	for i, source := range []*customCardVoiceSource{c.AttackVoice, c.SupportVoice} {
+		if _, err := customVoiceVolume(c, i); err != nil {
+			return nil, err
+		}
 		raw := [][]byte{c.AttackVoiceAudio, c.SupportVoiceAudio}[i]
 		if len(raw) > 0 {
 			if source != nil {

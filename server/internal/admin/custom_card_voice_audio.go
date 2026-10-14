@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +18,43 @@ func customVoiceID(c customCard, slot int) int {
 	return 900000000 + (c.ID-customCardFirstID)*2 + slot
 }
 
+func customVoiceVolume(c customCard, slot int) (int, error) {
+	v := []*int{c.AttackVoiceVolume, c.SupportVoiceVolume}[slot]
+	if v == nil {
+		return 100, nil
+	}
+	if *v < 0 || *v > 100 {
+		return 0, fmt.Errorf("自制语音音量须为0–100的整数百分比")
+	}
+	return *v, nil
+}
+
+// Keep the saved WAV intact; only attenuate the exported copy. This also lets
+// old designs adjust volume without re-uploading or repeatedly scaling PCM.
+func customVoiceAudioForExport(c customCard, slot int) ([]byte, error) {
+	raw := [][]byte{c.AttackVoiceAudio, c.SupportVoiceAudio}[slot]
+	volume, err := customVoiceVolume(c, slot)
+	if err != nil {
+		return nil, err
+	}
+	w, err := criaudio.ParseWAV(raw)
+	if err != nil || volume == 100 {
+		return raw, err
+	}
+	out := bytes.Clone(raw)
+	for p := 12; p+8 <= len(out); {
+		n := int(binary.LittleEndian.Uint32(out[p+4:]))
+		if string(out[p:p+4]) == "data" {
+			for i, sample := range w.Samples {
+				binary.LittleEndian.PutUint16(out[p+8+i*2:], uint16(int(sample)*volume/100))
+			}
+			return out, nil
+		}
+		p += 8 + n + n%2
+	}
+	return nil, fmt.Errorf("自制语音缺少PCM数据")
+}
+
 // Only normalized PCM WAV reaches the server. The editor decodes MP3/WAV
 // locally; no system encoder, shell command or uploaded executable is used.
 func buildCustomVoiceResources(d customCardDraft, root string, manifest map[string]any, source map[string]any, files, original map[string][]byte) error {
@@ -24,7 +62,11 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 	for _, c := range d.Cards {
 		for slot, raw := range [][]byte{c.AttackVoiceAudio, c.SupportVoiceAudio} {
 			if len(raw) > 0 {
-				voices[customVoiceID(c, slot)] = raw
+				adjusted, err := customVoiceAudioForExport(c, slot)
+				if err != nil {
+					return err
+				}
+				voices[customVoiceID(c, slot)] = adjusted
 			}
 		}
 	}

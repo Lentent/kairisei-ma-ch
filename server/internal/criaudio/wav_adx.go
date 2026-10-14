@@ -64,24 +64,28 @@ func ParseWAV(raw []byte) (WAV, error) {
 }
 
 // Standard ADX: 32 samples per 18-byte block, signed 4-bit residuals,
-// a 500 Hz predictor and a version-3 non-looping header. Quantization is
+// a 500 Hz predictor and a version-4 non-looping header. Quantization is
 // performed against reconstructed history so errors do not accumulate.
 func EncodeADX(w WAV) []byte {
+	const headerSize = 64 // v4 history and disabled loop fields precede (c)CRI.
 	blocks := (w.Frames + 31) / 32
-	out := make([]byte, 36+blocks*w.Channels*18+18)
+	out := make([]byte, headerSize+blocks*w.Channels*18+18)
 	be := binary.BigEndian
 	be.PutUint16(out, 0x8000)
-	be.PutUint16(out[2:], 32)
+	be.PutUint16(out[2:], headerSize-4)
 	out[4], out[5], out[6], out[7] = 3, 18, 4, byte(w.Channels)
 	be.PutUint32(out[8:], uint32(w.Rate))
 	be.PutUint32(out[12:], uint32(w.Frames))
 	be.PutUint16(out[16:], 500)
-	out[18] = 3
-	copy(out[30:], "(c)CRI")
+	out[18] = 4
+	copy(out[headerSize-6:], "(c)CRI")
 	a := math.Sqrt2 - math.Cos(2*math.Pi*500/float64(w.Rate))
 	b := math.Sqrt2 - 1
 	c := (a - math.Sqrt(a*a-b*b)) / b
-	c1, c2 := int(math.Round(c*2*4096)), int(math.Round(-c*c*4096))
+	// CRI truncates these coefficients and adds one to the stored block scale.
+	// FFmpeg's ADX decoder uses a different convention; matching it here makes
+	// a self-round-trip pass while introducing errors in the game's decoder.
+	c1, c2 := int(c*2*4096), int(-c*c*4096)
 	history := make([][2]int, w.Channels)
 	for block := 0; block < blocks; block++ {
 		for channel := 0; channel < w.Channels; channel++ {
@@ -101,8 +105,8 @@ func EncodeADX(w WAV) []byte {
 				h2, h1 = h1, sample
 			}
 			scale := max(1, (hi+6)/7, (-lo+7)/8)
-			p := 36 + (block*w.Channels+channel)*18
-			be.PutUint16(out[p:], uint16(scale))
+			p := headerSize + (block*w.Channels+channel)*18
+			be.PutUint16(out[p:], uint16(scale-1))
 			h1, h2 = history[channel][0], history[channel][1]
 			for i, sample := range samples {
 				prediction := (c1*h1 + c2*h2) >> 12

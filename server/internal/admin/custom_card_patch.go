@@ -264,6 +264,16 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		return nil, e
 	}
 	master := s.Master
+	// Work on detached collections: export must not change the loaded source.
+	master.CardTemplates = append([]gamestate.Card(nil), s.Master.CardTemplates...)
+	master.CardCollectionPages = make([][]int, len(s.Master.CardCollectionPages))
+	for i, page := range s.Master.CardCollectionPages {
+		master.CardCollectionPages[i] = append([]int(nil), page...)
+	}
+	master.DeckRankPolicy.Cards = make(map[int]gamestate.CardRankRule, len(s.Master.DeckRankPolicy.Cards))
+	for id, rule := range s.Master.DeckRankPolicy.Cards {
+		master.DeckRankPolicy.Cards[id] = rule
+	}
 	cards, skills, roles := map[string][][]string{}, map[string][][]string{}, map[string][][]string{}
 	receipts := []customCardReceipt{}
 	added, resolved, gaps := 0, 0, []any{}
@@ -390,6 +400,10 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		return nil, e
 	}
 	if e = buildCustomVoiceResources(d, root, manifest, source, files, original); e != nil {
+		return nil, e
+	}
+	receipts, e = mergeCustomCardReceipts(s.Master.Source, receipts)
+	if e != nil {
 		return nil, e
 	}
 	source["admin_custom_cards"] = receipts
