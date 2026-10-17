@@ -176,7 +176,7 @@ func (o *Operations) dungeonScheduleEntries(config dungeonScheduleConfig, now ti
 		for _, schedule := range policy.GroupSchedules {
 			groupSchedules[schedule.GroupID] = schedule
 		}
-		groups := slices.Clone(o.dungeonScheduleGroups[catalog])
+		groups := o.namedBossGroups(o.dungeonScheduleGroups[catalog])
 		if catalog == "activity" {
 			groups = append(groups, o.customBossGroups()...)
 		}

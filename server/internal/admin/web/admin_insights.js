@@ -102,6 +102,43 @@ setInterval(async()=>{
 },15000);
 
 // Boss difficulty rules dialog.
+const bossNameEditor={group:null,revision:0,original:'',saved:'',busy:false,request:0};
+function bossNameControls(){
+  const e=bossNameEditor,ready=!!e.group&&!e.busy;
+  $('#boss-name-input').disabled=!ready;$('#boss-name-reset').disabled=!ready;
+  $('#boss-name-save').disabled=!ready;$('#boss-name-cancel').disabled=e.busy;
+}
+function bossNameError(message=''){$('#boss-name-error').textContent=message;$('#boss-name-error').hidden=!message}
+async function openBossName(id){
+  const group=state.groups.find(g=>g.group_id===id);if(!group||group.custom||bossNameEditor.busy)return;
+  const e=bossNameEditor,serial=++e.request;e.group=null;e.saved='';bossNameError();
+  $('#boss-name-input').value='';$('#boss-name-original').textContent='正在读取名称…';bossNameControls();$('#boss-name-modal').classList.add('open');
+  try{const data=await api('/api/boss-names?group_id='+id);if(serial!==e.request)return;e.group=group;e.revision=data.revision;e.original=data.default_name;e.saved=data.name;$('#boss-name-original').textContent=`原名：${data.default_name} · 组 ID ${id}`;$('#boss-name-input').value=data.name;bossNameControls();$('#boss-name-input').focus()}catch(error){if(serial===e.request){$('#boss-name-original').textContent='';bossNameError(errorText(error))}}
+}
+$('#boss-rows').addEventListener('click',event=>{const button=event.target.closest('[data-boss-rename]');if(button)openBossName(Number(button.dataset.bossRename))});
+$('#boss-name-reset').onclick=()=>{$('#boss-name-input').value=bossNameEditor.original;bossNameError();$('#boss-name-input').focus()};
+$('#boss-name-input').oninput=()=>bossNameError();
+$('#boss-name-cancel').onclick=()=>{
+  const e=bossNameEditor;if(e.busy)return;
+  if(e.group&&($('#boss-name-input').value.trim()||e.original)!==e.saved&&!confirm('放弃未保存的 BOSS 名称修改？'))return;
+  e.request++;e.group=null;$('#boss-name-modal').classList.remove('open');
+};
+$('#boss-name-save').onclick=async()=>{
+  const e=bossNameEditor;if(e.busy||!e.group)return;
+  const name=$('#boss-name-input').value.trim();
+  if([...name].length>80||/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name)){bossNameError('BOSS名称最多80字，不能包含换行或控制字符');return}
+  if((name||e.original)===e.saved)return toast('没有需要保存的修改');
+  e.busy=true;bossNameControls();bossNameError();
+  try{
+    const data=await api('/api/boss-names',{method:'PUT',body:JSON.stringify({expected_revision:e.revision,group_id:e.group.group_id,name})});
+    e.revision=data.revision;e.saved=data.name;e.group.name=data.name;
+    for(const boss of e.group.bosses||[])boss.name=data.name;
+    state.loaded.delete('audit');if(!dropEditor.dirty)state.loaded.delete('drops');if(!customBossEditor.dirty)state.loaded.delete('custom-bosses');
+    renderBosses();if(typeof dungeonSchedulePublicationChanged==='function')dungeonSchedulePublicationChanged();
+    e.request++;e.group=null;$('#boss-name-modal').classList.remove('open');toast('BOSS 名称已保存，游戏刷新副本列表后生效');
+  }catch(error){bossNameError(error?.status===409?'BOSS 名称已被其他页面修改，请取消后重新打开再编辑；当前输入已保留。':errorText(error))}
+  finally{e.busy=false;bossNameControls()}
+};
 const bossRuleEditor={rules:new Map(),revision:0,group:null,dirty:false,busy:false,request:0};
 $('#boss-attribute').innerHTML=attributeOptions;
 $('#drop-attribute').innerHTML=attributeOptions;

@@ -74,6 +74,9 @@ type contentStore struct {
 	activityRevision   int
 	base               gamestate.State
 	bosses             map[int]DropBoss
+	bossNames          map[int]string
+	bossNameBases      map[int]string
+	bossNameRevision   int
 	drops              map[int]BossDrops
 	shops              map[int]exchangeShop
 	dropRevision       int
@@ -90,7 +93,7 @@ type exchangeShop struct {
 }
 
 func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath string) error {
-	c := &contentStore{base: base, bosses: map[int]DropBoss{}, drops: map[int]BossDrops{}, shops: map[int]exchangeShop{}}
+	c := &contentStore{base: base, bosses: map[int]DropBoss{}, bossNameBases: map[int]string{}, drops: map[int]BossDrops{}, shops: map[int]exchangeShop{}}
 	c.ruleBases = map[int]bossRuleEntry{}
 	// The runtime master and its CSV directory are packaged together.
 	root := filepath.Join(filepath.Dir(battleMasterPath), "cn602-battle-master")
@@ -165,6 +168,7 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 			if err := json.Unmarshal(raw, &group); err != nil {
 				return err
 			}
+			c.bossNameBases[group.ID] = group.Name
 			for _, b := range group.Bosses {
 				if !standalone[b.ID] {
 					continue
@@ -243,6 +247,9 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 		if err = json.Unmarshal(doc.Payload, &c.shops); err != nil {
 			return err
 		}
+	}
+	if err := o.loadBossNames(c); err != nil {
+		return err
 	}
 	if err := o.loadCustomBosses(c); err != nil {
 		return err
@@ -377,6 +384,9 @@ func (c *contentStore) project(drops map[int]BossDrops, shops map[int]exchangeSh
 	}
 	err := c.projectBossRules(&state, rules)
 	if err == nil {
+		err = c.projectBossNames(&state)
+	}
+	if err == nil {
 		err = c.projectActivityRewards(&state)
 	}
 	if err == nil {
@@ -496,7 +506,7 @@ func (a *API) dropEditor(w http.ResponseWriter, r *http.Request) {
 			if c.rewardBossID(row.BossID) != row.BossID {
 				continue
 			}
-			rows = append(rows, row)
+			rows = append(rows, c.bossWithName(row))
 		}
 		sort.Slice(rows, func(i, j int) bool { return rows[i].BossID < rows[j].BossID })
 		WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "bosses": rows})
@@ -508,6 +518,7 @@ func (a *API) dropEditor(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 404, "BOSS不存在")
 		return
 	}
+	row = c.bossWithName(row)
 	base := BossDrops{BossID: id, Drops: []gamestate.TeamBattleEnemyDrop{}}
 	profiles := slices.Clone(c.base.TeamBattleRewards)
 	for _, b := range c.customBosses {
