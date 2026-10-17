@@ -410,6 +410,8 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/activity-rewards", admin.activityRewardEditor)
 	router.Put("/api/activity-rewards", admin.saveActivityRewards)
 	router.Get("/api/boss-rules", admin.bossRules)
+	router.Get("/api/boss-names", admin.bossName)
+	router.Put("/api/boss-names", admin.saveBossName)
 	router.Get("/api/custom-bosses", admin.customBossCatalog)
 	router.Get("/api/custom-boss-skills", admin.customBossSkills)
 	router.Get("/api/custom-boss-buffs", admin.customBossBuffs)

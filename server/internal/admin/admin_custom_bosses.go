@@ -38,6 +38,7 @@ type customBoss struct {
 
 func (c *contentStore) customBossSource(id int) (DropBoss, error) {
 	s, ok := c.bosses[id]
+	s = c.bossWithName(s)
 	if !ok || s.SourceBossID != 0 || len(s.Targets) == 0 {
 		return s, errors.New("请选择有完整部位资料的现有 Boss 难度")
 	}
