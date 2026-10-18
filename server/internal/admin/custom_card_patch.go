@@ -157,6 +157,15 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 	}
 	sourceTemplates := map[int]customCard{c.TemplateID: base}
 	for j, r := range roles {
+		if isCustomSpecialRole(r) {
+			if e := validateCustomSpecialRole(c.Roles[j], c.RoleSources[j]); e != nil {
+				return nil, nil, nil, gamestate.Card{}, e
+			}
+			fn := customRowInt(r, 0)
+			copy(r[1:8], directions[fn])
+			r[0] = strconv.Itoa(ids[fn])
+			continue
+		}
 		// A borrowed effect follows its own source branch's attribute. Comparing
 		// against the card template silently leaves ICE/WIND effects on a LIGHT card.
 		source := c.RoleSources[j]
@@ -187,6 +196,18 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 			if kind == "ATTR" && r[20+i] == attribute {
 				r[20+i] = c.Attribute
 			}
+		}
+	}
+	// A skill with only custom markers has no attack/heal/buff number to show.
+	for _, skill := range skills {
+		pure := true
+		for _, role := range roles {
+			if role[0] == skill[49] && !isCustomSpecialRole(role) {
+				pure = false
+			}
+		}
+		if pure {
+			skill[4], skill[5], skill[6], skill[18] = "0", "0", "0", "0"
 		}
 	}
 	var card gamestate.Card
@@ -436,13 +457,25 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 	}
 	updates := map[string]func(string) (string, error){}
 	for name, rows := range map[string]map[string][][]string{"card.csv": cards, "skill_player.csv": skills, "skill_role_player.csv": roles, "card_evolution.csv": evolutions} {
-		updates[name] = func(text string) (string, error) { return rewriteCustomCSV(text, rows) }
+		updates[name] = func(text string) (string, error) {
+			if name == "skill_role_player.csv" {
+				client := make(map[string][][]string, len(rows))
+				for id, group := range rows {
+					client[id] = customClientRoleRows(group)
+				}
+				return rewriteCustomCSV(text, client)
+			}
+			return rewriteCustomCSV(text, rows)
+		}
 	}
 	bundle.nodes[0].data, e = replaceResourceTexts(bundle.nodes[0].data, updates)
 	if e != nil {
 		return nil, e
 	}
 	files[containerPath] = bundle.save()
+	if e = buildCustomCardCombatEffects(d, root, files, original); e != nil {
+		return nil, e
+	}
 	if e = validateGeneratedCustomCardMaster(files[customCardMasterPath]); e != nil {
 		return nil, e
 	}
@@ -507,6 +540,11 @@ func validateGeneratedCustomCombat(root string, files map[string][]byte) error {
 		}
 	}
 	cardPath := filepath.Join(dir, "card.csv")
+	if raw, ok := files[customCardEffectsPath]; ok {
+		if e = os.WriteFile(filepath.Join(dir, multiplayer.CustomCardEffectsFile), raw, 0600); e != nil {
+			return e
+		}
+	}
 	if e = os.WriteFile(cardPath, files[customCardCSVPath], 0600); e != nil {
 		return e
 	}

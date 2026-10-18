@@ -92,6 +92,7 @@ type CombatRoleParameterRule struct {
 }
 
 type CombatCardDefinition struct {
+	TurnSingleToAll bool // Custom server effect; never encoded as a native role enum.
 	// CardCsvData.profile.group_ids, not SkillData's target-hand groups.
 	ProfileTags     [8]int
 	LoveMax         int
@@ -286,6 +287,9 @@ func LoadCombatCatalog(cardMasterPath string, battleMasterRoot string) (*CombatC
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("load card master: %w", err)
+	}
+	if err := catalog.loadCustomCardEffects(battleRoot); err != nil {
+		return nil, err
 	}
 
 	load := func(name string, consume func([]string) error) error {

@@ -62,6 +62,7 @@ type customCard struct {
 	SupportVoiceVolume *int                     `json:"support_voice_volume,omitempty"`
 	CutinTemplateID    int                      `json:"cutin_template_card_id,omitempty"`
 	ActionSources      []customCardActionSource `json:"action_sources,omitempty"`
+	TurnSingleToAll    bool                     `json:"turn_single_to_all,omitempty"`
 }
 type customCardActionSource struct {
 	FunctionID       int `json:"function_id"`
@@ -474,6 +475,17 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		}
 		for j, row := range c.Roles {
 			source := c.RoleSources[j]
+			if isCustomSpecialRole(row) {
+				fn := customRowInt(row, 0)
+				if _, ok := functions[fn]; !ok {
+					return errors.New("特殊效果须分配到模板已有的技能分支")
+				}
+				if e := validateCustomSpecialRole(row, source); e != nil {
+					return e
+				}
+				functions[fn] = true
+				continue
+			}
 			effectBase := base
 			if source.CardID != c.TemplateID {
 				var e error

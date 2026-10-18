@@ -34,6 +34,7 @@ func (engine *BattleEngine) NextBattle(partyID int, drops []BattleDrop) (*Battle
 	}
 	next.elapsedWaveTurns += next.turn
 	next.turn, next.endType = 0, 0
+	next.singleToAllActive = false
 	next.resumeSide, next.turnDrawn = 0, [4][5]bool{}
 	next.phase = battlePhaseCreated
 	next.selectedPlays = make(map[int]cardPlaySubmission)

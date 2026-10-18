@@ -203,6 +203,7 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 		}
 		return sphereResults, nil
 	}
+	action = engine.applySingleToAll(action)
 	chainCount := maxCombatChain(action.skill.Attribute, chainCounts)
 	cardSkillResult, err := engine.playerCardSkillResult(action, chainCount)
 	if err != nil {
@@ -217,6 +218,10 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 		return nil, err
 	}
 	results = append(results, skillResults...)
+	// Activate only after this card finishes, so its own effects keep their scope.
+	if action.cardType >= 1 && action.cardType <= 10 && (engine.catalog.Cards[action.cardID].TurnSingleToAll || hasTurnSingleToAllRole(action.roles)) {
+		engine.singleToAllActive = true
+	}
 	engine.nativeSkillSerial++
 	displayResults, err := engine.refreshBattleDisplayPowers()
 	if err != nil {
@@ -351,6 +356,10 @@ func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSk
 	// ResultCmd presence is not evidence that a good-status registration won.
 	role.Target = resolvedPlayerRoleTarget(action, role.Target)
 	switch role.Function {
+	case CombatFunctionTurnSingleToAll:
+		// Registered after the complete card finishes; later roles in this card
+		// retain their original scope even if this marker is first in the list.
+		return nil, nil
 	case "ATTACK_AA":
 		return engine.executePlayerAttack(action, role, chainCount)
 	case "TRANCE_GAUGE_STATE_CHANGE", "TRANCE_GAUGE_VALUE_UP", "TRANCE_GAUGE_VALUE_DOWN", "TRANCE_GAUGE_OVER_HEAT_TURN_ADD":
@@ -442,6 +451,8 @@ func resolvedPlayerRoleTarget(action battleAction, roleTarget string) string {
 
 func playerCombatFunctionRegistered(function string) bool {
 	switch function {
+	case CombatFunctionTurnSingleToAll:
+		return true
 	case "ATTACK_AA", "DEF_UP_FIXED", "ATK_UP_FIXED", "ATK_UP_BY_SELF_PARAM", "DEF_UP_BY_SELF_PARAM",
 		"ATK_BREAK_FIXED", "GUARD_BREAK_FIXED", "ATK_BREAK_BY_SELF_PARAM", "HEAL_FIXED", "HEAL_BY_SELF_PARAM",
 		"DEBUFF_RELEASE_ONE", "DEBUFF_RELEASE_ONE_NUM", "DEBUFF_RELEASE", "DEBUFF_RELEASE_RANDOM", "DEBUFF_RELEASE_OLD",
