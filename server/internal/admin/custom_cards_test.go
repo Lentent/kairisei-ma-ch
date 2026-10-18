@@ -484,6 +484,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	c.ID = customCardNextID(s, customCardDraft{})
 	c.Name = "自制卡验收"
+	c.TurnSingleToAll = true
 	rarity := 6
 	c.RarityRank = &rarity
 	attackDialogue, supportDialogue := "自制攻击台词！", "自制支援台词！"
@@ -572,6 +573,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	if d.Cards[0].RarityRank == nil || *d.Cards[0].RarityRank != rarity {
 		t.Fatal("rarity lost after storage restart")
+	}
+	if !d.Cards[0].TurnSingleToAll {
+		t.Fatal("single-to-all effect lost after storage restart")
 	}
 	w = customGachaRequest(t, router, "/export", map[string]any{"expected_revision": rev})
 	if w.Code != 200 {
@@ -748,6 +752,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	if combat.Cards[c.TemplateID].NormalSkillID == combat.Cards[c.ID].NormalSkillID {
 		t.Fatal("template skill overwritten")
+	}
+	if !combat.Cards[c.ID].TurnSingleToAll || combat.Cards[c.TemplateID].TurnSingleToAll {
+		t.Fatal("export lost custom single-to-all metadata or changed the template")
 	}
 	generatedRoleRows, err := customCSVRows(files["resource-set/"+customRoleCSVPath])
 	if err != nil {

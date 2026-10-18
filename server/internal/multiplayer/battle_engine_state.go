@@ -45,6 +45,8 @@ type BattleEngine struct {
 	resumeSide         int                 // Native 5d0a5; retained after a terminal action.
 	skillTargets       *battleSkillTargets // Scoped to one 7adb0 invocation; nested death/CALL skills restore it.
 	openingDraw        *[4][10]bool        // Pending first-battle shuffle, after Start applies all passives.
+
+	singleToAllActive bool // Applies to subsequent ordinary cards until the next turn/wave.
 }
 
 type battlePhase uint8

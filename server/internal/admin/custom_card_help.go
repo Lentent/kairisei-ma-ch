@@ -20,6 +20,7 @@ type customEffectHelp struct {
 	Formula          string                        `json:"formula,omitempty"`
 	Parameters       []customEffectParameterHelp   `json:"parameters"`
 	DescriptionSlots map[int]customDescriptionSlot `json:"description_slots,omitempty"`
+	TemplateRole     []string                      `json:"template_role,omitempty"`
 }
 
 func customCardEffectHelp(rules map[string][]string) map[string]customEffectHelp {
@@ -151,6 +152,13 @@ func customCardEffectHelp(rules map[string][]string) map[string]customEffectHelp
 		if _, ok := rules[code]; !ok {
 			delete(help, code)
 		}
+	}
+	role := customSingleToAllRole(0)
+	help[role[8]] = customEffectHelp{
+		Name:         "本回合单体全体化",
+		Description:  "本卡结算后，本回合全队后续手牌的己方单体效果变为己方全体，敌方单体效果变为敌方全体。各目标按原公式结算；自身专用效果保留，下一回合失效。可作为唯一效果，也可与其他效果组合。",
+		TemplateRole: role,
+		Parameters:   []customEffectParameterHelp{},
 	}
 	return help
 }
