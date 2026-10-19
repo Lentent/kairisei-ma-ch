@@ -1,4 +1,8 @@
-# 清空设置页 GitHub 地址文字
+# 资源维护工具
+
+金闪闪龙的目录、编队关联和模型兼容补丁见 [接入说明](../../docs/GOLDEN-DRAGON.md)，使用 `restore-golden-dragon.py`。该工具与下面的设置页修改工具共用 `requirements.txt` 和索引维护代码。
+
+## 清空设置页 GitHub 地址文字
 
 `hide-settings-github.py` 修改服务端下发的 `main_c/ui/ui_option.dat`，只清空设置页地址标签的 `mText`。无需修改 APK，也无需编译 Go。
 
