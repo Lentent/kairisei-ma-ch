@@ -10,7 +10,7 @@ import (
 
 // LOCAL_POLICY: installation versions are separate from catalog/CPK revisions.
 // Keep the release name in sync with CNLocalClientRecipe.psd1 when publishing.
-const cnMinimumClientVersion = "6.0.8"
+const cnMinimumClientVersion = "6.0.9"
 
 const cnClientReleaseURL = "https://github.com/kuuhaku1314/kairisei-ma-ch/releases"
 
