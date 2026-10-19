@@ -223,8 +223,12 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		card.DevelopmentType = customRowInt(row, 95)
 		card.DevelopRadix = customRowInt(row, 97)
 	}
+	applyCustomRarityProgression(c, row, &card)
 	if c.RarityRank != nil {
-		card.RarityRank = *c.RarityRank
+		card.NowLevelExperience, card.NextLevelExperience = 0, 0
+		if table := s.Master.CardExperienceTables[card.ExperienceTableID]; card.LevelMax > 1 && len(table) > 0 {
+			card.NextLevelExperience = table[0]
+		}
 	}
 	card.ParameterInitial, card.ParameterMaximum, card.ParameterLoveMaximumBonus = c.Initial, c.Maximum, c.LoveBonus
 	card.FusionAttributes = map[string]uint8{"FIRE": 1, "ICE": 2, "WIND": 4, "LIGHT": 8, "DARK": 16}[c.Attribute]

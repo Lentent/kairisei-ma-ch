@@ -642,11 +642,11 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	if row := generatedCards[c.ID]; row[44] != description || row[45] != illustrator || row[46] != "" || row[64] != height || !reflect.DeepEqual(row[47:64], s.Cards[c.TemplateID][47:64]) || !reflect.DeepEqual(row[65:67], s.Cards[c.TemplateID][65:67]) {
 		t.Fatal("exported card details or inherited profile mismatch")
 	}
-	if generatedCards[c.ID][95] != "0" || generatedCards[c.ID][25] != s.Cards[c.TemplateID][25] || generatedCards[c.ID][97] != s.Cards[c.TemplateID][97] {
-		t.Fatal("training disabled but fame cap/cost changed")
+	if generatedCards[c.ID][95] != "0" || generatedCards[c.ID][25] != "100" || generatedCards[c.ID][97] != s.Cards[c.TemplateID][97] {
+		t.Fatal("six-star fame cap or inherited training cost mismatch")
 	}
 	for _, card := range master.CardTemplates {
-		if card.CardID == c.ID && (card.DevelopmentType != 0 || card.FameMax != customRowInt(s.Cards[c.TemplateID], 25)) {
+		if card.CardID == c.ID && (card.DevelopmentType != 0 || card.FameMax != 100 || card.LevelMax != 60 || card.ExperienceTableID != 106) {
 			t.Fatal("runtime training/fame rules mismatch")
 		}
 	}
