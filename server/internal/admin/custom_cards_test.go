@@ -484,6 +484,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	c.ID = customCardNextID(s, customCardDraft{})
 	c.Name = "自制卡验收"
+	c.Attribute = "FIRE_ICE"
 	c.TurnSingleToAll = true
 	rarity := 6
 	c.RarityRank = &rarity
@@ -556,7 +557,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	}
 	a.operations = ops
 	d, rev, e := a.customCardsDraft(s)
-	if e != nil || len(d.Cards) != len(testCards) || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) || !bytes.Equal(d.Cards[0].IconArtwork, c.IconArtwork) {
+	if e != nil || len(d.Cards) != len(testCards) || d.Cards[0].Attribute != c.Attribute || !bytes.Equal(d.Cards[0].Artwork, c.Artwork) || !bytes.Equal(d.Cards[0].IconArtwork, c.IconArtwork) {
 		t.Fatalf("restart: %v", e)
 	}
 	if d.Cards[0].CutinTemplateID != c.CutinTemplateID || !reflect.DeepEqual(d.Cards[0].ActionSources, c.ActionSources) {
@@ -634,6 +635,9 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	for _, card := range master.CardTemplates {
 		if card.CardID == c.ID && card.RarityRank != rarity {
 			t.Fatal("selected rarity missing from runtime master")
+		}
+		if card.CardID == c.ID && card.FusionAttributes != 3 {
+			t.Fatal("dual attribute fusion mask missing from runtime master")
 		}
 	}
 	if row := generatedCards[c.ID]; row[79] != attackDialogue || row[80] != supportDialogue || row[89] != strconv.Itoa(customVoiceID(c, 0)) || row[90] != s.Cards[10000020][89] {
@@ -746,9 +750,12 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	_, effects, e := combat.CardSkill(c.ID, 2)
+	dualSkill, effects, e := combat.CardSkill(c.ID, 2)
 	if e != nil || len(effects) != len(c.Roles)-1 {
 		t.Fatalf("combat effects: %d %v", len(effects), e)
+	}
+	if dualSkill.Attribute != c.Attribute {
+		t.Fatalf("dual attribute missing from exported combat catalog: %s", dualSkill.Attribute)
 	}
 	if combat.Cards[c.TemplateID].NormalSkillID == combat.Cards[c.ID].NormalSkillID {
 		t.Fatal("template skill overwritten")

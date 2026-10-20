@@ -76,6 +76,25 @@ function renderCustomDescriptionHelp(){
   $$('[data-custom-placeholder-jump]').forEach(el=>el.onclick=()=>{$(`#custom-effect-row-${Number(el.dataset.customPlaceholderJump)}`).scrollIntoView({behavior:'smooth',block:'center'})});
 }
 const currentCustomCard=()=>customCardEditor.config.cards.find(c=>c.card_id===customCardEditor.selected);
+const customCardAttributes=['FIRE','ICE','WIND','LIGHT','DARK'];
+function validCustomCardAttribute(value){
+  if(typeof value!=='string')return false;
+  const parts=value.split('_');
+  return parts.length>=1&&parts.length<=2&&new Set(parts).size===parts.length&&parts.every(part=>customCardAttributes.includes(part));
+}
+function renderCustomCardAttributes(primary,secondary=''){
+  $('#custom-card-attr').value=primary;
+  const select=$('#custom-card-attr-secondary');
+  select.innerHTML='<option value="">无（单属性）</option>'+customCardAttributes.filter(value=>value!==primary).map(value=>`<option value="${value}">${esc(customValueLabel(value))}</option>`).join('');
+  select.value=secondary===primary?'':secondary;
+  $('#custom-card-attribute-info').hidden=!select.value;
+}
+function changeCustomCardAttribute(){
+  const c=currentCustomCard();if(!c)return;
+  const primary=$('#custom-card-attr').value,selected=$('#custom-card-attr-secondary').value,secondary=selected===primary?'':selected;
+  c.attribute=customCardAttributes.filter(value=>value===primary||value===secondary).join('_');
+  renderCustomCardAttributes(primary,secondary);customCardChanged();
+}
 function customCardChanged(){customCardEditor.dirty=true;$('#custom-card-status').textContent='有未保存的修改。保存草稿后可生成资源更新包。';updateDraftIndicators()}
 async function loadCustomCards(){
   const d=await api('/api/custom-cards'),e=customCardEditor;
@@ -115,7 +134,8 @@ function renderCustomCards(){
   const c=currentCustomCard(),e=customCardEditor;renderCustomCardList();$('#custom-card-version').textContent=`草稿 v${e.revision}`;
   $('#custom-card-fields').disabled=!c;$('#custom-card-remove').disabled=!c||!!e.applied[c.card_id];$('#custom-card-remove').title=c&&e.applied[c.card_id]?'已应用的卡牌须保留，避免影响玩家库存':'';
   $('#custom-card-title').textContent=c?`${c.name} · ${c.card_id}`:'选择或新增一张卡';$('#custom-card-template-info').textContent=c?`模板卡 ${c.template_card_id} · 所选星级同步等级、名声上限和经验表；技能条件沿用模板`:'';
-  for(const [id,key] of [['name','name'],['prefix','prefix'],['job','arthur_type'],['attr','attribute'],['cost','cost']])$('#custom-card-'+id).value=c?.[key]??'';
+  for(const [id,key] of [['name','name'],['prefix','prefix'],['job','arthur_type'],['cost','cost']])$('#custom-card-'+id).value=c?.[key]??'';
+  renderCustomCardAttributes(...(c?.attribute||'').split('_'));
   renderCustomCardFame();renderCustomCardRarity();renderCustomCardEvolution();renderCustomCardPreview();renderCustomCardDetails();renderCustomCardDialogue();renderCustomCardVoices();
   $('#custom-card-cutin-info').textContent=c?.cutin_template_card_id?`出牌特写：${customPresentationName(c.cutin_template_card_id)}`:'出牌特写：沿用模板';
   $('#custom-card-cutin-reset').disabled=!c?.cutin_template_card_id;
@@ -301,7 +321,7 @@ function validateCustomCardDesign(d){
     for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置');const volume=c?.[`${kind}_voice_volume`];if(volume!=null&&!integer(volume,0,100))throw new Error('自制语音音量须为0–100的整数百分比')}
     if(c?.evolution!=null&&(!object(c.evolution)||!integer(c.evolution.target_card_id,98000001,98999999)||!integer(c.evolution.recipe_from_card_id,1,2147483647)||!integer(c.evolution.recipe_to_card_id,1,2147483647)))throw new Error('进化配置须包含目标自制卡及配方来源');
     if(c?.rarity_rank!=null&&!integer(c.rarity_rank,1,8))throw new Error('稀有度须为1–8星，或留空沿用模板');
-    if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!['FIRE','ICE','WIND','LIGHT','DARK'].includes(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some((s,i)=>!object(s)||!integer(s.index,0,119)||!(integer(s.card_id,1,2147483647)||s.card_id===0&&s.index===0&&customEffectHelp(c.roles[i][8]).template_role))||['artwork','icon_artwork','card_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
+    if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!validCustomCardAttribute(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some((s,i)=>!object(s)||!integer(s.index,0,119)||!(integer(s.card_id,1,2147483647)||s.card_id===0&&s.index===0&&customEffectHelp(c.roles[i][8]).template_role))||['artwork','icon_artwork','card_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
     if(c.details!=null){
       if(!object(c.details))throw new Error('卡牌详情须为有效对象');
       const defaults=e.templateDetails?.[c.template_card_id]||{};
@@ -324,7 +344,9 @@ function chooseCustomEffect(fn){const c=currentCustomCard();openContentPicker(ro
   $$('[data-custom-effect-option]').forEach(el=>el.onclick=()=>{const e=customCardEditor.effect,target=customCardEditor.config.cards.find(c=>c.card_id===e.cardID);if(!target)return;if(target.roles.filter(r=>Number(r[0])===Number(e.fn)).length>=5)return toast('每个效果组最多5项效果，请先移除该组的效果',true);const index=Number(el.dataset.customEffectOption),r=[...e.source.roles[index]];r[0]=String(e.fn);target.roles.push(r);target.role_sources.push({card_id:e.source.template_card_id,index});customCardChanged();renderCustomSkills();$('#custom-effect-modal').classList.remove('open')});$('#custom-effect-modal').classList.add('open')})},['card'])}
 $('#custom-effect-close').onclick=()=>$('#custom-effect-modal').classList.remove('open');
 $('#custom-card-search').oninput=renderCustomCardList;
-for(const [id,key,numeric] of [['name','name',false],['prefix','prefix',false],['job','arthur_type',true],['attr','attribute',false],['cost','cost',true]])$('#custom-card-'+id).oninput=()=>{const c=currentCustomCard();if(!c)return;c[key]=numeric?Number($('#custom-card-'+id).value):$('#custom-card-'+id).value;customCardChanged();renderCustomCardList();if(key==='arthur_type')renderCustomCardEvolution();$('#custom-card-title').textContent=`${c.name} · ${c.card_id}`};
+for(const [id,key,numeric] of [['name','name',false],['prefix','prefix',false],['job','arthur_type',true],['cost','cost',true]])$('#custom-card-'+id).oninput=()=>{const c=currentCustomCard();if(!c)return;c[key]=numeric?Number($('#custom-card-'+id).value):$('#custom-card-'+id).value;customCardChanged();renderCustomCardList();if(key==='arthur_type')renderCustomCardEvolution();$('#custom-card-title').textContent=`${c.name} · ${c.card_id}`};
+$('#custom-card-attr').onchange=changeCustomCardAttribute;
+$('#custom-card-attr-secondary').onchange=changeCustomCardAttribute;
 for(const [id,key] of [['art','artwork'],['icon','icon_artwork'],['frame-art','card_artwork']])$('#custom-card-'+id).onchange=()=>customCardAction(async()=>{const c=currentCustomCard(),input=$('#custom-card-'+id),file=input.files[0];if(!c||!file)return;try{if(!['image/png','image/jpeg'].includes(file.type)||file.size>4*1024*1024)throw new Error('请选择4MB以内的PNG/JPEG');const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('读取图片失败'));reader.readAsDataURL(file)});c[key]=data.split(',')[1];customCardChanged();renderCustomCardPreview()}finally{input.value=''}});
 $('#custom-card-frame-reset').onclick=()=>{const c=currentCustomCard();if(c){delete c.card_artwork;customCardChanged();renderCustomCardPreview()}};
 $('#custom-card-frame-fit').onchange=()=>{const c=currentCustomCard();if(c){c.card_artwork_mode=$('#custom-card-frame-fit').value;customCardChanged();renderCustomCardPreview()}};
