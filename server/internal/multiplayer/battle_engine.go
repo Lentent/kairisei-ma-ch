@@ -119,7 +119,7 @@ func (engine *BattleEngine) TurnPhase() ([]BattleResult, error) {
 		return nil, errors.New("combat turn phase is unavailable")
 	}
 	engine.turn++
-	engine.singleToAllActive = false
+	engine.singleToAllMembers = 0
 	engine.resumeSide = 0
 	copy(engine.damageHistory[1:], engine.damageHistory[:28])
 	engine.damageHistory[0] = engine.turnStats.DamageEvents

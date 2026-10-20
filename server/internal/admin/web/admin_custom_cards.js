@@ -18,7 +18,7 @@ function changeCustomSkillTarget(index,target){
   customCardChanged();renderCustomSkills();
 }
 function customEffectTargetLabel(card,role,functionID=Number(role[0])){
-  if(customEffectHelp(role[8]).template_role)return '本回合全队后续手牌';
+  if(customEffectHelp(role[8]).template_role)return ({SELF:'仅自身',USER_ONE:'选中的己方一人',USER_ALL:'全队'}[customSingleToAllScope(role)]||'待确认')+'的本回合后续手牌';
   let label=customTargetLabel(role[9]);
   if(role[9]==='SELECT'){
     const branches=card.skills.map((skill,index)=>({skill,index})).filter(({skill})=>(Number(skill[49])||Number(skill[0]))===functionID);
@@ -26,6 +26,19 @@ function customEffectTargetLabel(card,role,functionID=Number(role[0])){
     label=targets.length===1&&targets[0]&&targets[0]!=='SELECT'?`${customTargetLabel(targets[0])}（沿用技能目标）`:branches.length?`${branches.map(({skill,index})=>`分支 ${index+1}：${customTargetLabel(skill[19])}`).join('；')}（沿用技能目标）`:'沿用技能目标（待确认）';
   }
   return label+(Number(role[10])===1?' · 排除自身':'');
+}
+function customSingleToAllScope(role){return role[20]==='1'?role[9]:'USER_ALL'}
+function customSingleToAllOptionsHTML(role){return ['SELF','USER_ONE','USER_ALL'].map(value=>`<option value="${value}" ${value===customSingleToAllScope(role)?'selected':''}>${{SELF:'自身有用',USER_ONE:'己方一人有用',USER_ALL:'全队有用'}[value]}</option>`).join('')}
+function changeCustomSingleToAllScope(index,target){
+  const c=currentCustomCard(),role=c.roles[index],fn=Number(role[0]);
+  if(target==='USER_ONE'){
+    const linked=c.skills.map((skill,i)=>({skill,i})).filter(({skill})=>(Number(skill[49])||Number(skill[0]))===fn);
+    const roots=new Set(linked.map(({skill})=>skill[0]));
+    if(c.skills.some(skill=>roots.has(skill[0])&&skill[10]==='ATTACK')){toast('己方一人需要选择队友，请使用回复、支援等可设置己方单体目标的技能模板',true);renderCustomSkills();return}
+    role[9]=target;role[20]='1';
+    for(const root of roots){const i=c.skills.findIndex(skill=>skill[0]===root);if(c.skills[i][19]!=='USER_ONE')changeCustomSkillTarget(i,'USER_ONE')}
+  }else{role[9]=target;role[20]='1'}
+  customCardChanged();renderCustomSkills();
 }
 function customValueLabel(value){return customCardEditor.valueLabels[value]||value||'空'}
 function customParameterHelp(role,p){return customEffectHelp(role[8]).parameters[p]||{name:`参数${p+1}（待确认）`,description:'尚未确认用途与单位，建议保留模板值。'}}
@@ -116,7 +129,7 @@ function migrateLegacyCustomSingleToAll(c){
   const functions=[...new Set(c.skills.map(r=>Number(r[49])||Number(r[0])))];
   const missing=functions.filter(fn=>!c.roles.some(r=>Number(r[0])===fn&&r[8]==='TURN_SINGLE_TO_ALL'));
   if(missing.some(fn=>c.roles.filter(r=>Number(r[0])===fn).length>=5))return false;
-  for(const fn of missing){const role=[...template];role[0]=String(fn);c.roles.push(role);c.role_sources.push({card_id:0,index:0})}
+  for(const fn of missing){const role=[...template];role[0]=String(fn);role[9]='USER_ALL';c.roles.push(role);c.role_sources.push({card_id:0,index:0})}
   delete c.turn_single_to_all;return true;
 }
 function chooseCustomSpecialEffect(fn){
@@ -140,13 +153,14 @@ function renderCustomSkills(){
     const action=(c.action_sources||[]).find(s=>Number(s.function_id)===fn);
     return `<div class="custom-effect-group"><div class="toolbar"><h3>效果组 ${k+1}</h3><span class="hint">关联技能分支 ${branches} · ${indices.length}/5 项效果</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-add-special-effect="${fn}" ${indices.length>=5?'disabled':''}>添加特殊效果</button><button type="button" class="secondary sm" data-custom-add-effect="${fn}" ${indices.length>=5?'disabled':''}>从现有卡添加效果</button></div><div class="toolbar"><span class="hint">攻击／技能动作：${action?esc(customPresentationName(action.card_id)):'沿用模板'}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-action="${fn}">选择动作来源</button><button type="button" class="secondary sm" data-custom-action-reset="${fn}" ${action?'':'disabled'}>恢复模板动作</button></div>${indices.map((i,j)=>{
       const r=c.roles[i],source=c.role_sources[i],rules=customCardEditor.rules[r[8]]||[],h=customEffectHelp(r[8]);
-      return `<div class="custom-effect-row" id="custom-effect-row-${i}"><div class="toolbar"><b>${j+1}. ${esc(h.name)}</b><span class="hint">${h.template_role?'特殊效果':`来源卡 ${source.card_id}`}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-move="${i}:-1" ${j===0?'disabled':''} aria-label="上移效果">↑</button><button type="button" class="secondary sm" data-custom-move="${i}:1" ${j===indices.length-1?'disabled':''} aria-label="下移效果">↓</button><button type="button" class="danger sm" data-custom-remove-effect="${i}" ${indices.length<2?'disabled':''}>移除</button></div>${h.template_role?'':`<div class="field"><label for="custom-effect-target-${i}">效果目标</label><select id="custom-effect-target-${i}" data-custom-effect-target="${i}">${customTargetOptionsHTML(r[9],true,r[8]==='ATTACK_AA')}</select></div>`}<p class="custom-effect-target"><b>目标范围：</b>${esc(customEffectTargetLabel(c,r))}</p><p class="custom-effect-explanation">${esc(h.description)}</p>${h.formula?`<p class="hint custom-effect-formula">${esc(h.formula)}</p>`:''}<div class="custom-effect-params">${rules.map((type,p)=>customEffectParameterHTML(r,type,p,i)).join('')}</div><details class="custom-effect-code"><summary>查看效果编号</summary><span class="hint">${esc(r[8])}${h.template_role?'':' · 参数顺序与来源模板一致'}</span></details></div>`;
+      return `<div class="custom-effect-row" id="custom-effect-row-${i}"><div class="toolbar"><b>${j+1}. ${esc(h.name)}</b><span class="hint">${h.template_role?'特殊效果':`来源卡 ${source.card_id}`}</span><span class="spacer"></span><button type="button" class="secondary sm" data-custom-move="${i}:-1" ${j===0?'disabled':''} aria-label="上移效果">↑</button><button type="button" class="secondary sm" data-custom-move="${i}:1" ${j===indices.length-1?'disabled':''} aria-label="下移效果">↓</button><button type="button" class="danger sm" data-custom-remove-effect="${i}" ${indices.length<2?'disabled':''}>移除</button></div>${h.template_role?`<div class="field"><label for="custom-effect-scope-${i}">全体化生效对象</label><select id="custom-effect-scope-${i}" data-custom-effect-scope="${i}">${customSingleToAllOptionsHTML(r)}</select><p class="hint">只影响这些角色后续打出的手牌。选择己方一人会将关联技能目标设为己方单体，出牌时选择角色。</p></div>`:`<div class="field"><label for="custom-effect-target-${i}">效果目标</label><select id="custom-effect-target-${i}" data-custom-effect-target="${i}">${customTargetOptionsHTML(r[9],true,r[8]==='ATTACK_AA')}</select></div>`}<p class="custom-effect-target"><b>目标范围：</b>${esc(customEffectTargetLabel(c,r))}</p><p class="custom-effect-explanation">${esc(h.description)}</p>${h.formula?`<p class="hint custom-effect-formula">${esc(h.formula)}</p>`:''}<div class="custom-effect-params">${rules.map((type,p)=>customEffectParameterHTML(r,type,p,i)).join('')}</div><details class="custom-effect-code"><summary>查看效果编号</summary><span class="hint">${esc(r[8])}${h.template_role?'':' · 参数顺序与来源模板一致'}</span></details></div>`;
     }).join('')}</div>`;
   }).join('');
   $('#custom-card-skills').innerHTML=(c.turn_single_to_all?'<p class="hint">旧版全体化效果已保留。每个效果组腾出一个位置后，会自动转为可编辑效果。<button type="button" class="secondary sm" id="custom-legacy-effect-remove">移除旧版效果</button></p>':'')+skillFields+groups;
   if(c.turn_single_to_all)$('#custom-legacy-effect-remove').onclick=()=>{delete c.turn_single_to_all;customCardChanged();renderCustomSkills()};
   renderCustomDescriptionHelp();
   $$('[data-custom-skill-target]').forEach(el=>el.onchange=()=>changeCustomSkillTarget(Number(el.dataset.customSkillTarget),el.value));
+  $$('[data-custom-effect-scope]').forEach(el=>el.onchange=()=>changeCustomSingleToAllScope(Number(el.dataset.customEffectScope),el.value));
   $$('[data-custom-effect-target]').forEach(el=>el.onchange=()=>{c.roles[Number(el.dataset.customEffectTarget)][9]=el.value;customCardChanged();renderCustomSkills()});
   $$('[data-custom-skill]').forEach(el=>el.oninput=()=>{const [i,p]=el.dataset.customSkill.split(':').map(Number);c.skills[i][p]=el.value;customCardChanged();if(p===3)renderCustomDescriptionHelp()});
   $$('[data-custom-param]').forEach(el=>el.oninput=()=>{const [i,p]=el.dataset.customParam.split(':').map(Number);c.roles[i][p]=el.value;const h=customParameterHelp(c.roles[i],p-20);$(`#custom-effect-${i}-${p-20}-value`).textContent=`当前：${customParameterValueText(el.value,h.unit)}`;customCardChanged();renderCustomDescriptionHelp()});

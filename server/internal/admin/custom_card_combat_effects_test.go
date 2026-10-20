@@ -246,3 +246,60 @@ func TestCustomSpecialEffectCanBeTheOnlyRole(t *testing.T) {
 		t.Fatalf("combined skill lost its ordinary power display: %v", err)
 	}
 }
+
+func TestCustomSingleToAllScopesValidationAndExport(t *testing.T) {
+	for _, scope := range []string{"SELF", "USER_ONE", "USER_ALL", "legacy"} {
+		t.Run(scope, func(t *testing.T) {
+			s := customUnitSources()
+			// An ally-selectable support template, with independent normal/awake skills.
+			for _, skill := range s.Skills {
+				skill[10], skill[19] = "SUPPORT", "USER_ONE"
+			}
+			c, err := s.template(101)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.ID = customCardFirstID
+			for i, role := range c.Roles {
+				c.Roles[i] = customSingleToAllRole(customRowInt(role, 0))
+				c.RoleSources[i] = customRoleSource{}
+				if scope == "legacy" {
+					c.Roles[i][20] = ""
+				} else {
+					c.Roles[i][9] = scope
+				}
+			}
+			a := &API{catalogByKey: map[string]AdminCatalogEntry{"6:101": {ResourceState: "ready"}}}
+			if err := a.validateCustomCards(&customCardDraft{Cards: []customCard{c}}, s); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(c)
+			var restored customCard
+			if err := json.Unmarshal(raw, &restored); err != nil {
+				t.Fatal(err)
+			}
+			_, _, roles, _, err := materializeCustomCard(restored, s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, role := range roles {
+				if role[9] != c.Roles[i][9] || role[20] != c.Roles[i][20] {
+					t.Fatal("scope lost during draft roundtrip/export")
+				}
+				client := customClientRoleRows([][]string{role})[0]
+				if client[8] != "ATK_OP_PIERCING" || client[20] != "0" || client[21] != "0" {
+					t.Fatal("scope leaked into active client parameters")
+				}
+			}
+			if scope == "USER_ONE" {
+				c.Skills[0][19] = "SELF"
+				if err := a.validateCustomCards(&customCardDraft{Cards: []customCard{c}}, s); err == nil {
+					t.Fatal("accepted single recipient without ally selection")
+				}
+				if _, _, _, _, err := materializeCustomCard(c, s); err == nil {
+					t.Fatal("export accepted single recipient without ally selection")
+				}
+			}
+		})
+	}
+}

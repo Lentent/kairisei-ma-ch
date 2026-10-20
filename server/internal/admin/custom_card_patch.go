@@ -161,6 +161,9 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 			if e := validateCustomSpecialRole(c.Roles[j], c.RoleSources[j]); e != nil {
 				return nil, nil, nil, gamestate.Card{}, e
 			}
+			if e := validateCustomSpecialRoleTarget(c.Roles[j], c.Skills); e != nil {
+				return nil, nil, nil, gamestate.Card{}, e
+			}
 			fn := customRowInt(r, 0)
 			copy(r[1:8], directions[fn])
 			r[0] = strconv.Itoa(ids[fn])
