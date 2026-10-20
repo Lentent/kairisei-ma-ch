@@ -156,7 +156,7 @@ func customCardEffectHelp(rules map[string][]string) map[string]customEffectHelp
 	role := customSingleToAllRole(0)
 	help[role[8]] = customEffectHelp{
 		Name:         "本回合单体全体化",
-		Description:  "本卡结算后，本回合全队后续手牌的己方单体效果变为己方全体，敌方单体效果变为敌方全体。各目标按原公式结算；自身专用效果保留，下一回合失效。可作为唯一效果，也可与其他效果组合。",
+		Description:  "本卡结算后，所选生效对象本回合后续手牌的己方单体及自身目标效果变为己方全体，敌方单体效果变为敌方全体。可选择仅自身、己方一人或全队；选择己方一人时，技能目标须为己方单体，出牌时选择角色。自身增益、回复、自伤及自身吸血回复也可全体化；各目标按原公式结算，下一回合失效。可作为唯一效果，也可与其他效果组合。",
 		TemplateRole: role,
 		Parameters:   []customEffectParameterHelp{},
 	}

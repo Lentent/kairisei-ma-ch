@@ -483,6 +483,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 				if e := validateCustomSpecialRole(row, source); e != nil {
 					return e
 				}
+				if e := validateCustomSpecialRoleTarget(row, c.Skills); e != nil {
+					return e
+				}
 				functions[fn] = true
 				continue
 			}

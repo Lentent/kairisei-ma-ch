@@ -203,6 +203,7 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 		}
 		return sphereResults, nil
 	}
+	singleToAllRecipients := engine.singleToAllRecipients(action)
 	action = engine.applySingleToAll(action)
 	chainCount := maxCombatChain(action.skill.Attribute, chainCounts)
 	cardSkillResult, err := engine.playerCardSkillResult(action, chainCount)
@@ -219,9 +220,7 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 	}
 	results = append(results, skillResults...)
 	// Activate only after this card finishes, so its own effects keep their scope.
-	if action.cardType >= 1 && action.cardType <= 10 && (engine.catalog.Cards[action.cardID].TurnSingleToAll || hasTurnSingleToAllRole(action.roles)) {
-		engine.singleToAllActive = true
-	}
+	engine.singleToAllMembers |= singleToAllRecipients
 	engine.nativeSkillSerial++
 	displayResults, err := engine.refreshBattleDisplayPowers()
 	if err != nil {
@@ -685,6 +684,20 @@ func (engine *BattleEngine) playerAttackDrainResults(actor *battlePlayer, roleIn
 		if heal <= 0 {
 			continue
 		}
+		if i == 0 && modifiers.drainSelfToAll {
+			// A converted SELF drain keeps its original heal formula for each
+			// recipient, including their own HP cap and recovery restrictions.
+			for index := range engine.players {
+				player := &engine.players[index]
+				if player.HP <= 0 || player.GameOver {
+					continue
+				}
+				delta, hp := nativeHealCommit(player.HP, player.MaxHP, heal, player.Effects, false)
+				player.HP = hp
+				results = append(results, battleHealResult(player.MemberType, roleIndex, delta, hp))
+			}
+			continue
+		}
 		delta, hp := nativeHealCommit(actor.HP, actor.MaxHP, heal, actor.Effects, false)
 		if i == 0 {
 			actor.HP = hp
@@ -706,6 +719,7 @@ func (engine *BattleEngine) playerAttackDrainResults(actor *battlePlayer, roleIn
 type attackModifiers struct {
 	piercingRate            int
 	drainRate               int
+	drainSelfToAll          bool
 	drainCap                int
 	drainRoleIndex          int
 	drainAllRate            int
@@ -751,6 +765,7 @@ func collectAttackModifiersByRoleLevel(roles []CombatSkillRole, actor *battlePla
 		case "ATK_OP_PIERCING":
 			result.piercingRate += attackOperatorLevelValue(role, level, chainCount)
 		case "ATK_OP_DRAIN":
+			result.drainSelfToAll = result.drainSelfToAll || role.Target == "USER_ALL"
 			if !seenDrain {
 				seenDrain, lastDrainAll = true, false
 			}
