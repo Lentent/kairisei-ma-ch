@@ -22,6 +22,9 @@ func (c *clientConn) handleComeback(payload string) error {
 	if err != nil {
 		return c.writeComebackRejected()
 	}
+	if err := c.server.hub.checkAccountAccess(userID); err != nil {
+		return c.writeComebackRejected()
+	}
 	roomID, err := strconv.ParseInt(fields[1], 10, 64)
 	if err != nil || roomID <= 0 || fields[2] == "" {
 		return c.writeComebackRejected()

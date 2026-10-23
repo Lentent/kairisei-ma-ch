@@ -204,6 +204,11 @@ func cnBootstrapLogin(accounts *accountstore.Accounts, advertiseHost string, por
 			if request.Context().Err() != nil {
 				return
 			}
+			if errors.Is(err, accountstore.ErrAccountBanned) {
+				writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+				_ = json.NewEncoder(writer).Encode(map[string]any{"res_code": -3208, "res_str": err.Error(), "res_err_action": 1})
+				return
+			}
 			http.Error(writer, "resolve CN local account", http.StatusBadRequest)
 			return
 		}

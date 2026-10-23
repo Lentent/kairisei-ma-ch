@@ -419,6 +419,15 @@ func (accounts *Accounts) resolveLoginTransaction(ctx context.Context, transacti
 		loginUUID,
 	).Scan(&identity.UserID, &identity.LoginUUID, &identity.SessionKey)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if err == nil {
+		var count int
+		if e := transaction.QueryRowContext(ctx, `SELECT COUNT(*) FROM cn_account_ban WHERE user_id=? AND (until_unix=0 OR until_unix>?)`, identity.UserID, time.Now().Unix()).Scan(&count); e != nil {
+			return accountIdentity{}, e
+		}
+		if count > 0 {
+			return accountIdentity{}, ErrAccountBanned
+		}
+	}
 	if err == nil && !rotate {
 		return identity, nil
 	}

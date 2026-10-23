@@ -431,6 +431,8 @@ func New(config Config) (http.Handler, error) {
 	router.Put("/api/item-shop", admin.setItemShop)
 	router.Get("/api/accounts", admin.accountList)
 	router.Post("/api/accounts/resolve", admin.resolveAccounts)
+	router.Get("/api/accounts/{userID}/ban", admin.accountBan)
+	router.Post("/api/accounts/{userID}/ban", admin.accountBan)
 	router.Get("/api/accounts/{userID}", admin.accountDetail)
 	router.Post("/api/accounts/{userID}/grant", admin.grantAccountResources)
 	router.Post("/api/accounts/{userID}/mail", admin.sendAccountMail)

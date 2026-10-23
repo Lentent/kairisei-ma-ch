@@ -155,6 +155,11 @@ func (c *clientConn) handle(method string, payload string) error {
 			return err
 		}
 	}
+	if c.userID > 0 {
+		if err := c.server.hub.checkAccountAccess(c.userID); err != nil {
+			return err
+		}
+	}
 	if method != "Ping" && method != "SpeedUpRate" {
 		c.server.logger.Info(
 			"BattleSv client request",
@@ -360,6 +365,9 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	if err != nil {
 		return c.writeRoomRequestRejected(responseMethod, fmt.Errorf("RoomCreateRequest user is invalid: %w", err))
 	}
+	if err := c.server.hub.checkAccountAccess(userID); err != nil {
+		return c.writeRoomRequestRejected(responseMethod, err)
+	}
 	bossID, err := parsePositiveInt(fields[1])
 	if err != nil {
 		return c.writeRoomRequestRejected(responseMethod, fmt.Errorf("RoomCreateRequest boss is invalid: %w", err))
@@ -532,6 +540,9 @@ func (c *clientConn) handleEnter(payload string) error {
 	userID, err := parsePositiveInt(fields[0])
 	if err != nil {
 		return c.writeRoomRequestRejected("RoomEnterRequestResult", fmt.Errorf("RoomEnterRequest user is invalid: %w", err))
+	}
+	if err := c.server.hub.checkAccountAccess(userID); err != nil {
+		return c.writeRoomRequestRejected("RoomEnterRequestResult", err)
 	}
 	roomID, err := strconv.ParseInt(fields[1], 10, 64)
 	if err != nil || roomID <= 0 {

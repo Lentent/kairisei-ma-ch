@@ -64,9 +64,11 @@ type Router struct {
 	build         func(int) (http.Handler, error)
 	prepare       func(http.Handler)
 	persistStates func([]gamestate.State) error
+	checkAccess   func(int) error
 }
 
 type Config struct {
+	CheckAccess   func(int) error
 	Primary       http.Handler
 	Build         func(int) (http.Handler, error)
 	Prepare       func(http.Handler)
@@ -75,7 +77,7 @@ type Config struct {
 }
 
 func New(config Config) *Router {
-	router := &Router{handlers: make(map[int]*handlerEntry), build: config.Build, prepare: config.Prepare, idleLimit: config.IdleLimit, persistStates: config.PersistStates}
+	router := &Router{handlers: make(map[int]*handlerEntry), build: config.Build, prepare: config.Prepare, idleLimit: config.IdleLimit, persistStates: config.PersistStates, checkAccess: config.CheckAccess}
 	if config.Primary != nil {
 		entry := &handlerEntry{handler: config.Primary, active: true}
 		router.handlers[accountstore.PrimaryUserID] = entry
@@ -136,6 +138,11 @@ func (router *Router) WithAccountMaintenance(ctx context.Context, action func() 
 
 // Caller holds the stable account lock throughout acquire, use, and release.
 func (router *Router) acquireHandler(userID int) (*handlerEntry, error) {
+	if router.checkAccess != nil {
+		if err := router.checkAccess(userID); err != nil {
+			return nil, err
+		}
+	}
 	router.mu.Lock()
 	entry := router.handlers[userID]
 	if entry != nil {
@@ -222,6 +229,10 @@ func (router *Router) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 
 	entry, err := router.acquireHandler(userID)
 	if err != nil {
+		if errors.Is(err, accountstore.ErrAccountBanned) {
+			http.Error(writer, err.Error(), http.StatusForbidden)
+			return
+		}
 		http.Error(writer, "load CN local account", http.StatusInternalServerError)
 		return
 	}

@@ -172,6 +172,7 @@ func assembleApplication(config Config) (*application, error) {
 	}
 	businessHandler := accounthttp.New(accounthttp.Config{
 		Primary:       primaryBusinessHandler,
+		CheckAccess:   accountStore.CheckAccountAccess,
 		IdleLimit:     cacheLimit,
 		Prepare:       operationStore.PrepareBusiness,
 		PersistStates: accountStore.PersistStates,
@@ -189,6 +190,9 @@ func assembleApplication(config Config) (*application, error) {
 			return handler, nil
 		},
 	})
+	if err := config.Multiplayer.AttachAccountAccess(accountStore.CheckAccountAccess); err != nil {
+		return nil, err
+	}
 	if err := config.Multiplayer.AttachStartAuthorizer(businessHandler.ChargeMultiplayerStart); err != nil {
 		return nil, err
 	}
