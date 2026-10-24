@@ -498,6 +498,9 @@ func (c *clientConn) handleCreateRequest(payload string, responseMethod string, 
 	hub.mu.Lock()
 	hub.rooms[roomID] = created
 	hub.mu.Unlock()
+	if !autoStart {
+		c.server.scheduleWaitingRoomExpiry(created)
+	}
 
 	frames := []battleFrame{{method: responseMethod, payload: joinCSV(
 		"0", "", strconv.FormatInt(roomID, 10), strconv.Itoa(bossID), strconv.Itoa(created.OwnerMemberType), strconv.Itoa(created.GameSpeed), comebackToken, strconv.Itoa(startMembers),
@@ -785,6 +788,7 @@ func (s *Server) finishCountdown(roomID int64) {
 		return
 	}
 	current.State = RoomStateBattle
+	stopWaitingRoomExpiryLocked(current)
 	current.battleLoading = make(map[int]bool, len(current.connections))
 	connections := append([]*clientConn(nil), roomConnections(current)...)
 	payload := roomCountdownPayload(current)

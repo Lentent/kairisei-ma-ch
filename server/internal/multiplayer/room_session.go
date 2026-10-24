@@ -168,6 +168,7 @@ func (h *Hub) roomView(id int64) *roomReadModel {
 // Caller owns the session. Closing the registry entry does not acquire another
 // room's lock, and any waiter must recheck this entry before using its pointer.
 func (h *Hub) removeRoom(current *room) {
+	stopWaitingRoomExpiryLocked(current)
 	current.State = RoomStateClosed
 	h.mu.Lock()
 	if h.rooms[current.RoomID] == current {

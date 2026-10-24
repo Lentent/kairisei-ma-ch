@@ -23,6 +23,7 @@ const (
 	reservationLifetime = time.Minute
 	comebackLifetime    = 2 * time.Minute
 	completedLifetime   = 30 * time.Minute
+	waitingRoomLifetime = 7 * time.Minute
 	firstLocalRoomID    = int64(6020000001)
 	defaultMemberCount  = 2
 	MaxBattleWaves      = 64 // Matches the bounded CN RoomCountdownFinish receiver patch.
@@ -250,6 +251,8 @@ type room struct {
 	session        *roomSession // registry-owned identity; mutable state uses session.mu
 
 	RoomSnapshot
+	waitingExpiresAt       time.Time
+	waitingTimer           *time.Timer
 	battles                []gamestate.TeamBattleReplayBattle
 	battleIndex            int
 	progress               int
