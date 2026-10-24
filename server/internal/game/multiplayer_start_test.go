@@ -91,6 +91,9 @@ func TestPrepaidHostAndFreeGuestCanSettleAtZeroBP(t *testing.T) {
 			s.teamBattleStartReceipts = []gamestate.TeamBattleStartReceipt{{RoomID: roomID, BossID: boss, BPUse: 8}}
 		}
 		profiles := []gamestate.TeamBattleRewardProfile{{BossID: boss, ResultRewards: []gamestate.Reward{{Type: 4, Num: 10}}}}
+		mission := configuredMission(1000000, "boss_clear", false, 1)
+		mission.BossID = boss
+		s.ApplyMissionConfiguration(MissionConfiguration{Revision: 1, Missions: []MissionDefinition{mission}})
 		context, _, started, err := s.BeginTeamBattle(boss, []int8{0}, 15, host, profiles, "multi:room=602000001", []TeamBattleFameSource{{ArthurType: 1, LeaderFame: 1}}, hostType, 0, 0, nil, "", nil, roomID)
 		if err != nil || !started || s.bp != 0 || context.ConsumesBattlePoints != host || context.HostBonusArthurType != hostType {
 			t.Fatalf("host=%v: prepaid/free result context=%+v started=%v err=%v BP=%d", host, context, started, err, s.bp)
@@ -106,6 +109,9 @@ func TestPrepaidHostAndFreeGuestCanSettleAtZeroBP(t *testing.T) {
 		}
 		if s.bp != 0 || s.gold != 10 {
 			t.Fatalf("host=%v settlement BP=%d gold=%d", host, s.bp, s.gold)
+		}
+		if got := s.MissionInfos()[0]; got.State != 1 || got.ProgressNow != 1 {
+			t.Fatalf("host=%v victory did not count toward boss mission: %+v", host, got)
 		}
 	}
 }

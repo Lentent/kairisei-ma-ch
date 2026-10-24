@@ -110,12 +110,19 @@ func validateMissionDefinition(def game.MissionDefinition) error {
 			return errors.New("每日登录的目标固定为1次")
 		}
 	case "explore":
+	case "boss_clear":
+		if def.BossID <= 0 || def.BossID > 2147483647 {
+			return errors.New("请选择指定BOSS及难度")
+		}
 	case "level", "collection":
 		if def.Daily {
 			return errors.New("等级和卡牌图鉴任务仅支持成就分类")
 		}
 	default:
-		return errors.New("任务条件仅支持登录、探索、等级和卡牌图鉴")
+		return errors.New("任务条件仅支持登录、探索、指定BOSS通关、等级和卡牌图鉴")
+	}
+	if def.Kind != "boss_clear" && def.BossID != 0 {
+		return errors.New("仅指定BOSS通关任务可以设置BOSS目标")
 	}
 	if len(def.Rewards) < 1 || len(def.Rewards) > 4 {
 		return errors.New("每项任务须配置1至4种奖励")
@@ -208,6 +215,10 @@ func (a *API) missions(w http.ResponseWriter, _ *http.Request) {
 		WriteAdminError(w, 503, "任务目录尚未载入")
 		return
 	}
+	a.writeMissions(w, policy, a.missionBossTargets())
+}
+
+func (a *API) writeMissions(w http.ResponseWriter, policy *missionPolicySnapshot, targets []missionBossTarget) {
 	entries := []AdminCatalogEntry{}
 	seen := map[string]bool{}
 	for _, def := range policy.Value.Config.Missions {
@@ -224,11 +235,13 @@ func (a *API) missions(w http.ResponseWriter, _ *http.Request) {
 		"supported_kinds": []map[string]any{
 			{"kind": "login", "label": "登录", "daily": true, "growth": true},
 			{"kind": "explore", "label": "探索", "daily": true, "growth": true},
+			{"kind": "boss_clear", "label": "指定BOSS通关", "daily": true, "growth": true},
 			{"kind": "level", "label": "玩家等级", "daily": false, "growth": true},
 			{"kind": "collection", "label": "卡牌图鉴数量", "daily": false, "growth": true},
 		},
 		"limits":         map[string]int{"max_missions": maxManagedMissions, "max_title_length": 60, "max_description_length": 200, "max_target": 10000000, "max_rewards": 4},
 		"reward_entries": entries, "reward_delivery": "mail_per_reward",
+		"boss_targets": targets,
 	})
 }
 
@@ -249,11 +262,20 @@ func (a *API) saveMissions(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, "最多配置200项任务")
 		return
 	}
+	targets := a.missionBossTargets()
+	knownBosses := make(map[int]bool, len(targets))
+	for _, target := range targets {
+		knownBosses[target.BossID] = true
+	}
 	for i := range body.Config.Missions {
 		def := &body.Config.Missions[i]
 		def.Title, def.Description = strings.TrimSpace(def.Title), strings.TrimSpace(def.Description)
 		if err := validateMissionDefinition(*def); err != nil {
 			WriteAdminError(w, 400, err.Error())
+			return
+		}
+		if def.Kind == "boss_clear" && !knownBosses[def.BossID] {
+			WriteAdminError(w, 400, "指定BOSS或难度不存在，请刷新任务配置后重新选择")
 			return
 		}
 		if err := a.canonicalMissionRewards(def); err != nil {
@@ -283,8 +305,9 @@ func (a *API) saveMissions(w http.ResponseWriter, r *http.Request) {
 		writeContentError(w, err)
 		return
 	}
-	o.missionPolicy.Store(missionSnapshot(value, doc.Revision))
-	a.missions(w, r)
+	snapshot := missionSnapshot(value, doc.Revision)
+	o.missionPolicy.Store(snapshot)
+	a.writeMissions(w, snapshot, targets)
 }
 
 func allocateMissionPolicy(previous missionPolicyDocument, config MissionPolicy) (missionPolicyDocument, error) {
@@ -309,7 +332,7 @@ func allocateMissionPolicy(previous missionPolicyDocument, config MissionPolicy)
 		def := &value.Config.Missions[i]
 		if base, exists := active[def.ID]; exists {
 			delete(active, def.ID)
-			if base.Kind == def.Kind && base.Daily == def.Daily {
+			if base.Kind == def.Kind && base.Daily == def.Daily && base.BossID == def.BossID {
 				continue
 			}
 			value.RetiredIDs = append(value.RetiredIDs, def.ID)

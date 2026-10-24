@@ -44,6 +44,9 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 		helper := &state.PlayerProgressionPolicy.Friends.HelperReward
 		helper.OtherPerPartner, helper.FriendPerPartner, helper.MaximumPartners = 5, 10, 3
 	})
+	s.ApplyMissionConfiguration(game.MissionConfiguration{Revision: 1, Missions: []game.MissionDefinition{{
+		ID: 1000000, Kind: "boss_clear", BossID: boss, Title: "联机通关", Target: 2, Enabled: true, Crystals: 1,
+	}}})
 	runtime := gamestate.State{TeamBattleReplays: []gamestate.TeamBattleReplay{replay}, TeamBattleRewards: []gamestate.TeamBattleRewardProfile{profile}}
 	runtime.User.UserID = 1001
 	writes := 0
@@ -62,12 +65,18 @@ func TestMultiplayerResultUsesEveryWaveAndReplaysReceipt(t *testing.T) {
 	if writes != 1 || s.Snapshot(gamestate.State{}).User.Gold != 21 || s.Snapshot(gamestate.State{}).User.BP != 0 || saved.User.Gold != 21 || len(saved.TeamBattleResultReceipts) != 1 {
 		t.Fatalf("incorrect wave rewards or debit: writes=%d gold=%d BP=%d", writes, s.Snapshot(gamestate.State{}).User.Gold, s.Snapshot(gamestate.State{}).User.BP)
 	}
+	if len(saved.Engagement.Missions) != 1 || saved.Engagement.Missions[0].Info.ProgressNow != 1 {
+		t.Fatal("boss mission progress was not saved with the result receipt")
+	}
 	// Once saved, a retry is independent of the expired room and must return
 	// the exact original response without rerolling rewards or charging again.
 	a.multiplayer = multiplayer.NewHub()
 	second := request()
 	if second.Code != http.StatusOK || second.Body.String() != first.Body.String() || writes != 1 || s.Snapshot(gamestate.State{}).User.Gold != 21 {
 		t.Fatal("result retry changed the receipt or granted rewards twice")
+	}
+	if got := s.MissionInfos()[0].ProgressNow; got != 1 {
+		t.Fatal("replayed multiplayer result counted as another boss victory", got)
 	}
 }
 

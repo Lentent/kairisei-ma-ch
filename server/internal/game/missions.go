@@ -24,6 +24,7 @@ type MissionDefinition struct {
 	Crystals    int                `json:"crystals"`
 	Title       string             `json:"title"`
 	Kind        string             `json:"kind"`
+	BossID      int                `json:"boss_id,omitempty"`
 	Daily       bool               `json:"daily"`
 	Enabled     bool               `json:"enabled"`
 	Description string             `json:"description,omitempty"`
@@ -197,9 +198,22 @@ func (s *Account) refreshMissionsLocked(now time.Time) {
 }
 
 func (s *Account) advanceDailyExploreMissionLocked(now time.Time) {
+	s.advanceCountedMissionsLocked("explore", 0, now)
+}
+
+func (s *Account) advanceBossClearMissionsLocked(bossID int, now time.Time) {
+	for _, def := range s.missionDefinitionsLocked() {
+		if def.Enabled && def.Kind == "boss_clear" && def.BossID == bossID {
+			s.advanceCountedMissionsLocked("boss_clear", bossID, now)
+			return
+		}
+	}
+}
+
+func (s *Account) advanceCountedMissionsLocked(kind string, bossID int, now time.Time) {
 	s.refreshMissionsLocked(now)
 	for _, def := range s.missionDefinitionsLocked() {
-		if !def.Enabled || def.Kind != "explore" {
+		if !def.Enabled || def.Kind != kind || (kind == "boss_clear" && def.BossID != bossID) {
 			continue
 		}
 		for i := range s.missions {

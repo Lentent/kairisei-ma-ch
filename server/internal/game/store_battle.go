@@ -1121,6 +1121,11 @@ func (s *Account) CompleteTeamBattle(
 	}); err != nil {
 		return teamBattleSettlement{}, err
 	}
+	// Count only an accepted activity boss victory, after all fallible settlement
+	// work. The consumed start and HTTP result receipts prevent replayed credit.
+	if context.StageQuestAreaID == 0 && context.TowerID == 0 {
+		s.advanceBossClearMissionsLocked(bossID, time.Now())
+	}
 	s.activeBattle = nil
 	return settlement, nil
 }

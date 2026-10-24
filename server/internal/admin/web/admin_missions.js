@@ -1,15 +1,15 @@
 'use strict';
-const missionWorkspace={saved:null,rows:[],revision:0,selected:-1,entries:new Map(),limits:{max_missions:200,max_rewards:4,max_target:10000000}};
-const missionKindNames={login:'登录',explore:'探索结算',level:'玩家等级',collection:'卡牌图鉴种数'};
+const missionWorkspace={saved:null,rows:[],revision:0,selected:-1,entries:new Map(),bossTargets:[],limits:{max_missions:200,max_rewards:4,max_target:10000000}};
+const missionKindNames={login:'登录',explore:'探索结算',boss_clear:'指定 BOSS 通关',level:'玩家等级',collection:'卡牌图鉴种数'};
 const missionRewardKinds=['currency','card','item','material','sphere','buddy','costume','stamp','honor'];
 const missionCurrencyNames={0:'亚瑟经验',4:'金币',9:'友情点',10:'免费水晶',12:'体力'};
 function missionDefinition(m){
-  return {id:m.id||0,title:m.title||'',description:m.description||'',kind:m.kind,daily:!!m.daily,enabled:!!m.enabled,target:m.target,rewards:structuredClone(m.rewards?.length?m.rewards:m.crystals?[{type:10,reward_typeid:0,num:m.crystals,card_lv:0,card_fame:0,card_love:0,card_skill_lv:[]}]:[])};
+  return {id:m.id||0,title:m.title||'',description:m.description||'',kind:m.kind,boss_id:m.kind==='boss_clear'?(m.boss_id||0):0,daily:!!m.daily,enabled:!!m.enabled,target:m.target,rewards:structuredClone(m.rewards?.length?m.rewards:m.crystals?[{type:10,reward_typeid:0,num:m.crystals,card_lv:0,card_fame:0,card_love:0,card_skill_lv:[]}]:[])};
 }
 function missionPolicyDraft(){return {missions:missionWorkspace.rows.map(missionDefinition)}}
 function missionPolicyDirty(){return !!missionWorkspace.saved&&JSON.stringify(missionWorkspace.saved)!==JSON.stringify(missionPolicyDraft())}
 function currentMission(){return missionWorkspace.rows[missionWorkspace.selected]}
-function missionIdentityChanged(m){const old=missionWorkspace.saved?.missions.find(row=>row.id===m.id);return !!old&&(old.kind!==m.kind||old.daily!==m.daily)}
+function missionIdentityChanged(m){const old=missionWorkspace.saved?.missions.find(row=>row.id===m.id);return !!old&&(old.kind!==m.kind||old.daily!==m.daily||(old.boss_id||0)!==(m.boss_id||0))}
 function rememberMissionEntries(entries){for(const e of entries||[]){missionWorkspace.entries.set(contentKey(e),e);contentPicker.labels.set(contentKey(e),e.name)}}
 function updateMissionControls(){
   const loaded=!!missionWorkspace.saved,busy=policyBusy('missions'),row=currentMission(),dirty=missionPolicyDirty();
@@ -26,10 +26,19 @@ function updateMissionControls(){
   $('#mission-state').textContent=!loaded?'正在读取任务…':dirty?'有未保存的修改':'已保存';
 }
 function missionChanged(){updateMissionControls();updateDraftIndicators()}
-function missionConditionSummary(m){return `${m.daily?'每日':'成就'} · ${missionKindNames[m.kind]||m.kind} ${m.target}`}
+function missionBossLabel(b){return `${b.name} · ${b.difficulty||'未标注难度'} · ID ${b.boss_id}`}
+function missionConditionSummary(m){const boss=missionWorkspace.bossTargets.find(b=>b.boss_id===m.boss_id);return `${m.daily?'每日':'成就'} · ${missionKindNames[m.kind]||m.kind} ${m.target}${m.kind==='boss_clear'?` · ${boss?missionBossLabel(boss):'请选择 BOSS'}`:''}`}
+function renderMissionBossOptions(){
+  const m=currentMission();if(!m)return;
+  const query=$('#mission-boss-search').value.trim().toLowerCase();
+  const rows=missionWorkspace.bossTargets.filter(b=>b.boss_id===m.boss_id||missionBossLabel(b).toLowerCase().includes(query));
+  const missing=m.boss_id&&!missionWorkspace.bossTargets.some(b=>b.boss_id===m.boss_id);
+  $('#mission-boss').innerHTML='<option value="0">请选择 BOSS 及难度</option>'+rows.map(b=>`<option value="${b.boss_id}">${esc(missionBossLabel(b))}</option>`).join('')+(missing?`<option value="${m.boss_id}">BOSS ${m.boss_id}（目录中已不存在，请重新选择）</option>`:'');
+  $('#mission-boss').value=String(m.boss_id||0);
+}
 function renderMissionList(){
   const query=$('#mission-search').value.trim().toLowerCase(),category=$('#mission-filter-category').value,status=$('#mission-filter-state').value;
-  const rows=missionWorkspace.rows.map((m,index)=>({m,index})).filter(({m})=>(category==='all'||m.daily===(category==='daily'))&&(status==='all'||m.enabled===(status==='enabled'))&&`${m.title} ${m.description} ${m.id||''} ${missionKindNames[m.kind]||''}`.toLowerCase().includes(query));
+  const rows=missionWorkspace.rows.map((m,index)=>({m,index})).filter(({m})=>(category==='all'||m.daily===(category==='daily'))&&(status==='all'||m.enabled===(status==='enabled'))&&`${m.title} ${m.description} ${m.id||''} ${missionConditionSummary(m)}`.toLowerCase().includes(query));
   $('#mission-count').textContent=`${missionWorkspace.rows.length} / ${missionWorkspace.limits.max_missions} 项 · 启用 ${missionWorkspace.rows.filter(m=>m.enabled).length} 项`;
   $('#mission-list').innerHTML=rows.map(({m,index})=>`<button type="button" class="mission-list-row ${index===missionWorkspace.selected?'selected':''}" data-mission-index="${index}" aria-pressed="${index===missionWorkspace.selected}"><span class="mission-list-top"><b>${esc(m.title.trim()||'未填写标题')}</b><span class="pill ${m.enabled?'gold':''}">${m.enabled?'启用':'停用'}</span></span><span class="sub">${esc(missionConditionSummary(m))}</span><span class="sub">${m.id?`ID ${m.id}`:'新增 · 保存后分配 ID'} · ${m.rewards.length} 种奖励${missionIdentityChanged(m)?' · 保存后更新 ID':''}</span></button>`).join('')||`<p class="sub mission-list-empty">${missionWorkspace.rows.length?'没有符合筛选的任务。':'暂无任务，点击“新增任务”开始配置。'}</p>`;
 }
@@ -40,8 +49,9 @@ function updateMissionCondition(){
   $('#mission-category').value=m.daily?'daily':'growth';
   $('#mission-target').readOnly=dailyLogin;$('#mission-target').max=dailyLogin?1:missionWorkspace.limits.max_target;
   $('#mission-target').value=m.target;
-  $('#mission-target-label').textContent=m.kind==='level'?'目标等级':m.kind==='collection'?'目标图鉴种数':m.kind==='login'?(m.daily?'当天登录次数（固定 1 次）':'累计登录天数'):'目标探索次数';
-  const help={login:m.daily?'当天登录即可完成，每日目标固定为 1。':'累计登录天数计入进度，包含已有签到天数。',explore:m.daily?'统计当天任务启用期间成功结算的探索次数。':'统计此项任务启用期间成功结算的探索次数；旧版未记录的历史探索不补计。',level:'达到目标等级即可完成，已有等级计入进度；仅支持成就分类。',collection:'卡牌图鉴中的不同卡牌种数达到目标即可完成，已有图鉴计入进度；仅支持成就分类。'};
+  $('#mission-boss-fields').hidden=m.kind!=='boss_clear';$('#mission-boss').disabled=m.kind!=='boss_clear';renderMissionBossOptions();
+  $('#mission-target-label').textContent=m.kind==='level'?'目标等级':m.kind==='collection'?'目标图鉴种数':m.kind==='login'?(m.daily?'当天登录次数（固定 1 次）':'累计登录天数'):m.kind==='boss_clear'?'目标通关次数':'目标探索次数';
+  const help={login:m.daily?'当天登录即可完成，每日目标固定为 1。':'累计登录天数计入进度，包含已有签到天数。',explore:m.daily?'统计当天任务启用期间成功结算的探索次数。':'统计此项任务启用期间成功结算的探索次数；旧版未记录的历史探索不补计。',boss_clear:'只统计任务启用期间所选 BOSS 及难度的胜利结算，单人和联机均计入；失败、重复结算及历史通关不计入。'+(m.daily?'每日北京时间 00:00 重置。':'累计进度，奖励只能领取一次。'),level:'达到目标等级即可完成，已有等级计入进度；仅支持成就分类。',collection:'卡牌图鉴中的不同卡牌种数达到目标即可完成，已有图鉴计入进度；仅支持成就分类。'};
   $('#mission-condition-help').textContent=help[m.kind]||'';
   $('#mission-identity-note').hidden=!missionIdentityChanged(m);
 }
@@ -60,7 +70,7 @@ function renderMissionEditor(){
   $('#mission-editor-title').textContent=m?'编辑任务':'选择一个任务';
   if(m){
     $('#mission-id').value=m.id||'保存时自动分配';$('#mission-title').value=m.title;$('#mission-description').value=m.description;
-    $('#mission-kind').value=m.kind;$('#mission-enabled').checked=m.enabled;
+    $('#mission-kind').value=m.kind;$('#mission-enabled').checked=m.enabled;$('#mission-boss-search').value='';
     updateMissionCondition();renderMissionRewards();
   }
   updateMissionControls();
@@ -69,6 +79,7 @@ function renderMissions(){renderMissionList();renderMissionEditor();missionChang
 function acceptMissionPolicy(data){
   const previous=currentMission()?.id,previousIndex=missionWorkspace.selected;
   missionWorkspace.limits={...missionWorkspace.limits,...data.limits};rememberMissionEntries(data.reward_entries);
+  missionWorkspace.bossTargets=data.boss_targets||[];
   missionWorkspace.saved={missions:(data.config.missions||[]).map(missionDefinition)};
   missionWorkspace.rows=structuredClone(missionWorkspace.saved.missions);missionWorkspace.revision=data.revision;
   missionWorkspace.selected=previous?missionWorkspace.rows.findIndex(m=>m.id===previous):-1;
@@ -98,9 +109,12 @@ $('#mission-enabled').onchange=()=>{const m=currentMission();if(!m||policyBusy('
 function changeMissionCondition(){
   const m=currentMission();if(!m||policyBusy('missions'))return;m.kind=$('#mission-kind').value;m.daily=$('#mission-category').value==='daily';
   if(m.kind==='level'||m.kind==='collection')m.daily=false;if(m.daily&&m.kind==='login')m.target=1;
+  if(m.kind!=='boss_clear')m.boss_id=0;
   updateMissionCondition();renderMissionList();missionChanged();
 }
 $('#mission-kind').onchange=$('#mission-category').onchange=changeMissionCondition;
+$('#mission-boss-search').oninput=renderMissionBossOptions;
+$('#mission-boss').onchange=()=>{const m=currentMission();if(!m||policyBusy('missions'))return;m.boss_id=Number($('#mission-boss').value);updateMissionCondition();renderMissionList();missionChanged()};
 $('#mission-rewards').oninput=event=>{const input=event.target.closest('[data-mission-reward]'),m=currentMission();if(!input||!m||policyBusy('missions'))return;m.rewards[Number(input.dataset.missionReward)][input.dataset.field]=Number(input.value);missionChanged()};
 $('#mission-rewards').onclick=event=>{const button=event.target.closest('[data-mission-reward-remove]'),m=currentMission();if(!button||!m||policyBusy('missions'))return;m.rewards.splice(Number(button.dataset.missionRewardRemove),1);renderMissionRewards();renderMissionList();missionChanged()};
 $('#mission-reward-add').onclick=()=>{
@@ -127,6 +141,7 @@ function validateMissionDraft(){
     if([...m.description].length>200)return fail('任务说明最多 200 字');
     if(!Number.isInteger(m.target)||m.target<1||m.target>missionWorkspace.limits.max_target)return fail('目标须为 1–10000000 的整数');
     if(m.daily&&m.kind==='login'&&m.target!==1)return fail('每日登录目标固定为 1');
+    if(m.kind==='boss_clear'&&!missionWorkspace.bossTargets.some(b=>b.boss_id===m.boss_id))return fail('请选择目录中的 BOSS 及难度');
     if(m.rewards.length<1||m.rewards.length>missionWorkspace.limits.max_rewards)return fail('请选择 1–4 种奖励');
     for(const r of m.rewards){
       const entry=missionWorkspace.entries.get(contentKey(r)),max=[14,16,18].includes(r.type)?1:[6,15,19].includes(r.type)?100:10000000;
