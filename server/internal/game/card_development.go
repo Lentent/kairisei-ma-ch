@@ -201,8 +201,11 @@ func (s *Account) StartCardFameTraining(uniqueID int64, fame int, now time.Time)
 		return cardFameTrainState{}, errors.New("another card fame training is active")
 	}
 	index := cardIndexByUniqueID(s.cards, uniqueID)
-	if index < 0 || s.cards[index].IsLock != 0 {
-		return cardFameTrainState{}, errors.New("card fame training target is unavailable")
+	if index < 0 {
+		return cardFameTrainState{}, ErrCardUnavailable
+	}
+	if s.cards[index].IsLock != 0 {
+		return cardFameTrainState{}, ErrCardLocked
 	}
 	card := s.cards[index]
 	rule, exists := s.cardDevelopmentRules[card.CardID]

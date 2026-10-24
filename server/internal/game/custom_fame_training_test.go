@@ -1,11 +1,35 @@
 package game
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
 	"kairisei.local/server/internal/gamestate"
 )
+
+func TestFameTrainingLockedCardCanStartAfterUnlock(t *testing.T) {
+	s := ConsumptionTestStore(t)
+	s.cards[1].Fame = 3
+	s.cards[1].IsLock = 1
+	s.cardDevelopmentRules = map[int]cardDevelopmentRule{20: {DevelopmentType: 2, FameMax: 100, DevelopRadix: 20}}
+	s.cardDevelopmentPolicy = gamestate.CardDevelopmentPolicy{TimeEveryFameSeconds: 60, CoinEveryHour: 1}
+	s.stive = 1000
+	before := CloneCards(s.cards)
+	if _, err := s.StartCardFameTraining(2, 4, time.Unix(1000, 0)); err != ErrCardLocked {
+		t.Fatalf("locked card error = %v, want unlock prompt", err)
+	}
+	if s.stive != 1000 || s.cardFameTraining != nil || !reflect.DeepEqual(before, CloneCards(s.cards)) {
+		t.Fatal("locked training changed cards, points or training state")
+	}
+	if err := s.SetCardLock(2, s.cards[1].Slot, false); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.StartCardFameTraining(2, 4, time.Unix(1000, 0))
+	if err != nil || result.UniqueID != 2 || result.Fame != 4 || result.Stive != 920 || result.Remain != 240 || result.IsLock != 1 || s.cardFameTraining == nil {
+		t.Fatalf("unlocked training = %+v, %v", result, err)
+	}
+}
 
 func TestFameTrainingDisabledStillAllowsSameCardFusion(t *testing.T) {
 	s := ConsumptionTestStore(t)
