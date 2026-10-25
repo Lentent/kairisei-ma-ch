@@ -20,6 +20,7 @@ type stampDefinition struct {
 	Label        string `json:"label"`
 	DisplayText  string `json:"display_text"`
 	DefaultOwned bool   `json:"default_owned"`
+	Kind         string `json:"kind,omitempty"`
 }
 
 type stampRuntimeMaster struct {
@@ -88,6 +89,9 @@ func validateStampRuntimeMaster(master stampRuntimeMaster) error {
 	seen := make(map[int]struct{}, len(master.Stamps))
 	defaultCount := 0
 	for _, stamp := range master.Stamps {
+		if stamp.Kind != "" && stamp.Kind != "text" && stamp.Kind != "image" && stamp.Kind != "sound" {
+			return fmt.Errorf("invalid CN stamp kind %q", stamp.Kind)
+		}
 		if stamp.StampID <= 0 || stamp.Category < 1 || stamp.Category > 7 || stamp.Label == "" {
 			return fmt.Errorf("invalid CN stamp %d", stamp.StampID)
 		}
@@ -109,10 +113,14 @@ func ApplyStampRuntimeMaster(state *gamestate.State, master stampRuntimeMaster) 
 	definitions := make([]gamestate.CollectionRewardDefinition, 0, len(master.Stamps))
 	for _, stamp := range master.Stamps {
 		name := stamp.DisplayText
-		if name == "" {
+		if name == "" || stamp.Kind != "" {
 			name = stamp.Label
 		}
-		definitions = append(definitions, gamestate.CollectionRewardDefinition{Type: 16, ID: stamp.StampID, Name: name, Detail: "战斗对话／表情 · 领取后在聊天编成中使用"})
+		pict := 0
+		if stamp.Kind == "image" || stamp.Kind == "sound" {
+			pict = stamp.StampID
+		}
+		definitions = append(definitions, gamestate.CollectionRewardDefinition{Type: 16, ID: stamp.StampID, Name: name, PictID: pict, Detail: "战斗对话／表情 · 领取后在聊天编成中使用"})
 	}
 	state.SetCollectionRewardDefinitions(16, definitions)
 	available := make(map[int]struct{}, len(master.Stamps))

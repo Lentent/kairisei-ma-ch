@@ -55,6 +55,7 @@
       <button data-view="shop"><svg class="icon"><use href="#i-bag"/></svg><span>道具商店</span></button>
       <button data-view="evolution"><svg class="icon"><use href="#i-branch"/></svg><span>卡牌进化链</span></button>
       <button data-view="custom-cards"><svg class="icon"><use href="#i-layers"/></svg><span>自制卡牌</span></button>
+      <button data-view="custom-stamps"><svg class="icon"><use href="#i-layers"/></svg><span>自制表情</span></button>
       <div class="nav-group">系统</div>
       <button data-view="player-policy"><svg class="icon"><use href="#i-megaphone"/></svg><span>公告与奖励</span></button>
       <button data-view="missions">✓　<span>任务管理</span></button>
@@ -115,6 +116,27 @@
         </div></div>
       </div>
       <div class="savebar"><div class="savebar-status"><span class="hint" id="custom-card-status" aria-live="polite">保存草稿后可生成更新包。</span></div><div class="savebar-actions"><button class="primary" id="custom-card-save" data-save-shortcut>保存草稿</button><button class="secondary" id="custom-card-package">生成资源更新包</button></div></div>
+    </section>
+    <section class="view content-editor" id="custom-stamps">
+      <div class="view-alert" hidden role="alert"></div>
+      <div class="panel"><div class="panel-head"><h2>自制表情</h2><span class="pill" id="custom-stamp-version">草稿 v0</span></div><div class="panel-body">
+        <p class="sub">制作纯文字、图片或图片加声音的表情。保存设计后生成资源更新包，应用资源并重启后，可在礼物发放、表情商店或其他奖励中选择新表情。</p>
+        <div class="toolbar"><button class="primary" id="custom-stamp-new">新增表情</button><button class="secondary" id="custom-stamp-json">导出设计 JSON</button><label class="secondary file-button">导入设计<input type="file" id="custom-stamp-import" accept="application/json,.json" hidden></label></div>
+      </div></div>
+      <div class="custom-card-workspace">
+        <div class="panel"><div class="panel-head"><h2>我的表情</h2><span class="pill" id="custom-stamp-count">0 个</span></div><div class="panel-body"><input class="search" id="custom-stamp-search" type="search" placeholder="搜索名称或编号" aria-label="搜索自制表情"><div id="custom-stamp-list" class="custom-card-list"></div></div></div>
+        <div class="panel"><div class="panel-head"><h2 id="custom-stamp-title">选择或新增表情</h2><button class="danger sm" id="custom-stamp-remove" disabled>移除草稿</button></div><div class="panel-body">
+          <fieldset id="custom-stamp-fields" disabled>
+            <div class="grid2"><div class="field"><label for="custom-stamp-name">名称</label><input id="custom-stamp-name" maxlength="40"></div><div class="field"><label for="custom-stamp-type">类型</label><select id="custom-stamp-type"><option value="text">纯文字</option><option value="image">图片</option><option value="sound">图片加声音</option></select></div></div>
+            <div class="field"><label for="custom-stamp-category">游戏内分类</label><select id="custom-stamp-category"><option value="1">通用表情</option><option value="7">语音表情</option><option value="2">回应与交流</option><option value="3">战术配合</option><option value="4">行动指示</option><option value="5">属性与数值</option><option value="6">状态效果</option></select><p class="hint">沿用游戏中的七个分类；编号自动分配。新表情领取后，在聊天编成中装配。</p></div>
+            <div class="field"><label for="custom-stamp-message">文字内容／图片说明</label><input id="custom-stamp-message" maxlength="100"><p class="hint">文字表情必填，图片表情可留空。最多100字；请使用中文标点，不支持英文逗号、双引号、标签或换行。</p></div>
+            <div id="custom-stamp-image-fields" hidden><div class="custom-card-art"><div id="custom-stamp-preview" class="custom-card-preview"></div><div><label class="secondary file-button">上传表情图片<input type="file" id="custom-stamp-image" accept="image/png,image/jpeg" hidden></label><p class="hint">支持PNG／JPEG，建议256×256透明PNG。单张最多4MB，边长64–4096像素、总像素不超过800万；图片等比例缩放并留透明边。</p></div></div></div>
+            <div id="custom-stamp-text-preview" class="custom-stamp-text-preview" aria-label="文字表情预览"></div>
+            <div id="custom-stamp-sound-fields" hidden><h3>表情声音</h3><label class="secondary file-button">上传声音<input type="file" id="custom-stamp-audio" accept=".mp3,.wav,audio/mpeg,audio/wav" hidden></label><p class="hint">支持8MB以内、30秒以内的MP3／WAV，导入时自动转换。全部图片与转换后的声音合计最多16MB。</p><audio id="custom-stamp-audio-preview" controls preload="metadata" hidden aria-label="表情声音试听" style="width:100%"></audio><label for="custom-stamp-volume">声音音量 <span id="custom-stamp-volume-value">100%</span></label><input type="range" id="custom-stamp-volume" min="0" max="100" step="1" value="100"><p class="hint">音量同步用于试听和游戏，仍遵循玩家的表情声音设置。</p></div>
+          </fieldset>
+        </div></div>
+      </div>
+      <div class="savebar"><div class="savebar-status"><span class="hint" id="custom-stamp-status" aria-live="polite">保存草稿后可生成资源更新包。</span></div><div class="savebar-actions"><button class="primary" id="custom-stamp-save" data-save-shortcut>保存草稿</button><button class="secondary" id="custom-stamp-package">生成资源更新包</button></div></div>
     </section>
     <section class="view content-editor" id="collections">
       <div class="panel"><div class="panel-head"><h2>称号与礼盒</h2><span class="pill gold" id="collection-version">配置 v0</span></div><div class="panel-body">
@@ -796,6 +818,7 @@
 <script defer src="/cdk-admin.js"></script>
 <script defer src="/collections.js"></script>
 <script defer src="/custom-cards.js"></script>
+<script defer src="/custom-stamps.js"></script>
 <script defer src="/player-policy.js"></script>
 <script defer src="/dungeon-schedule.js"></script>
 <script defer src="/missions.js"></script>

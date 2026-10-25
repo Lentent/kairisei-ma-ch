@@ -78,6 +78,9 @@ var adminCollectionsJS []byte
 //go:embed web/admin_custom_cards.js
 var adminCustomCardsJS []byte
 
+//go:embed web/admin_custom_stamps.js
+var adminCustomStampsJS []byte
+
 //go:embed web/admin_custom_bosses.js
 var adminCustomBossesJS []byte
 

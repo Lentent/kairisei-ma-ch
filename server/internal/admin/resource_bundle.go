@@ -285,7 +285,7 @@ func (b resourceBundle) save() []byte {
 	return header.Bytes()
 }
 
-type resourceObject struct{ table, start, size, class int }
+type resourceObject struct{ table, start, size, class, entryStart, entryEnd int }
 
 func replaceResourceTexts(asset []byte, updates map[string]func(string) (string, error)) (result []byte, err error) {
 	found := map[string]bool{}
@@ -334,7 +334,7 @@ func replaceResourceTexts(asset []byte, updates map[string]func(string) (string,
 	return result, nil
 }
 
-func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, error)) (result []byte, err error) {
+func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, error), filters ...func(int, []byte) bool) (result []byte, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("读取客户端序列化资源：%v", r)
@@ -382,6 +382,7 @@ func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, erro
 			c.take(strings)
 		}
 	}
+	countPos := c.p
 	count := int(c.u32())
 	if count < 1 || count > 100000 {
 		return nil, errors.New("表对象数量不正确")
@@ -389,6 +390,7 @@ func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, erro
 	objects := make([]resourceObject, count)
 	for i := range objects {
 		c.align(4)
+		entryStart := c.p
 		c.u64()
 		table := c.p
 		start, size, typeID := int(c.u32()), int(c.u32()), int(c.u32())
@@ -408,17 +410,51 @@ func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, erro
 		if start < 0 || size < 0 || start > len(asset)-offset-size {
 			return nil, errors.New("对象偏移不正确")
 		}
-		objects[i] = resourceObject{table, start, size, class}
+		objects[i] = resourceObject{table, start, size, class, entryStart, c.p}
+	}
+	metadata := bytes.Clone(asset[:offset])
+	filtered := len(filters) > 0
+	if filtered {
+		selected := make([]resourceObject, 0, len(objects))
+		metadata = bytes.Clone(asset[:countPos+4])
+		for _, o := range objects {
+			if !filters[0](o.class, asset[offset+o.start:offset+o.start+o.size]) {
+				continue
+			}
+			for len(metadata)%4 != 0 {
+				metadata = append(metadata, 0)
+			}
+			entry := len(metadata)
+			metadata = append(metadata, asset[o.entryStart:o.entryEnd]...)
+			o.table = entry + 8
+			selected = append(selected, o)
+		}
+		if len(selected) == 0 {
+			return nil, errors.New("筛选后资源为空")
+		}
+		metaEnd := 20 + int(binary.BigEndian.Uint32(asset))
+		if metaEnd < c.p || metaEnd > offset {
+			return nil, errors.New("资源元数据长度不正确")
+		}
+		metadata = append(metadata, asset[c.p:metaEnd]...)
+		binary.LittleEndian.PutUint32(metadata[countPos:], uint32(len(selected)))
+		binary.BigEndian.PutUint32(metadata, uint32(len(metadata)-20))
+		for len(metadata)%16 != 0 {
+			metadata = append(metadata, 0)
+		}
+		binary.BigEndian.PutUint32(metadata[12:], uint32(len(metadata)))
+		objects = selected
 	}
 	sort.Slice(objects, func(i, j int) bool { return objects[i].start < objects[j].start })
-	metadata := bytes.Clone(asset[:offset])
 	var content bytes.Buffer
 	previous := 0
 	for _, o := range objects {
 		if o.start < previous {
 			return nil, errors.New("对象数据重叠")
 		}
-		content.Write(asset[offset+previous : offset+o.start])
+		if !filtered {
+			content.Write(asset[offset+previous : offset+o.start])
+		}
 		for content.Len()%8 != o.start%8 {
 			content.WriteByte(0)
 		}
@@ -434,7 +470,9 @@ func rewriteResourceObjects(asset []byte, update func(int, []byte) ([]byte, erro
 		binary.LittleEndian.PutUint32(metadata[o.table+4:], uint32(len(raw)))
 		previous = o.start + o.size
 	}
-	content.Write(asset[offset+previous:])
+	if !filtered {
+		content.Write(asset[offset+previous:])
+	}
 	result = append(metadata, content.Bytes()...)
 	binary.BigEndian.PutUint32(result[4:], uint32(len(result)))
 	return result, nil

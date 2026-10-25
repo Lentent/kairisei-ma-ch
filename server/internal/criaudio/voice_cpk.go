@@ -177,7 +177,9 @@ func BuildVoiceCPK(templateCPK []byte, voices map[int][]byte) ([]byte, error) {
 	}
 	ids := make([]int, 0, len(voices))
 	for id := range voices {
-		if id < 900000000 || id > 902000000 {
+		// Card voices occupy 900000000–902000000; custom stamps use the
+		// following 9,999 IDs in a separate CPK.
+		if id < 900000000 || id > 902009999 {
 			return nil, errors.New("自制语音编号不在保留范围内")
 		}
 		ids = append(ids, id)

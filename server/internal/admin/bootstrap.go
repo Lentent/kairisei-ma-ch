@@ -222,8 +222,11 @@ func New(config Config) (http.Handler, error) {
 		for _, definition := range config.Operations.content.base.CollectionRewards {
 			kind := map[int]string{14: "costume", 16: "stamp", 18: "honor"}[definition.Type]
 			imageURL := ""
-			if kind == "costume" || kind == "stamp" {
+			if kind == "costume" || kind == "stamp" && (definition.ID < customStampFirstID || definition.ID > customStampLastID || definition.PictID > 0) {
 				imageURL, err = adminOptionalImageURL(assetsRoot, fmt.Sprintf("/assets/%s/%d.webp", kind, definition.ID))
+				if err == nil && imageURL == "" && kind == "stamp" {
+					imageURL, err = adminOptionalImageURL(assetsRoot, fmt.Sprintf("/assets/stamp/%d.png", definition.ID))
+				}
 				if err != nil {
 					return nil, fmt.Errorf("validate CN admin %s %d image: %w", kind, definition.ID, err)
 				}
@@ -332,6 +335,14 @@ func New(config Config) (http.Handler, error) {
 	router.Put("/api/collections", admin.saveCollections)
 	router.Post("/api/collections/export", admin.exportCollections)
 	router.Get("/api/custom-cards", admin.customCards)
+	router.Get("/api/custom-stamps", admin.customStamps)
+	router.Put("/api/custom-stamps", admin.saveCustomStamps)
+	router.Post("/api/custom-stamps/export", admin.exportCustomStamps)
+	router.Get("/custom-stamps.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(adminCustomStampsJS)
+	})
 	router.Get("/api/custom-cards/template/{id}", admin.customCardTemplate)
 	router.Put("/api/custom-cards", admin.saveCustomCards)
 	router.Post("/api/custom-cards/export", admin.exportCustomCards)

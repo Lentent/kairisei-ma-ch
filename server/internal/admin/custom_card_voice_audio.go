@@ -70,6 +70,10 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 			}
 		}
 	}
+	return buildVoiceResources(voices, customVoiceCPK, "admin_custom_voice_cpk", root, manifest, source, files, original)
+}
+
+func buildVoiceResources(voices map[int][]byte, cpkName, sourceKey, root string, manifest, source map[string]any, files, original map[string][]byte) error {
 	if len(voices) == 0 {
 		return nil
 	}
@@ -79,9 +83,9 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 	if cpkRoot == "" || strings.HasPrefix(cpkRoot, "/") || strings.Contains(cpkRoot, ":") || strings.Contains(cpkRoot, "..") {
 		return fmt.Errorf("资源清单缺少有效语音目录")
 	}
-	cpkPath := cpkRoot + "/" + customVoiceCPK
+	cpkPath := cpkRoot + "/" + cpkName
 	old, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(cpkPath)))
-	if err == nil && source["admin_custom_voice_cpk"] != customVoiceCPK {
+	if err == nil && source[sourceKey] != cpkName {
 		return fmt.Errorf("自制语音资源编号已被其他资源使用")
 	}
 	if err != nil && !os.IsNotExist(err) {
@@ -95,7 +99,7 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 	if err != nil {
 		return fmt.Errorf("生成自制语音失败：%w", err)
 	}
-	source["admin_custom_voice_cpk"] = customVoiceCPK
+	source[sourceKey] = cpkName
 	if bytes.Equal(old, generated) {
 		return nil
 	}
@@ -105,6 +109,13 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 	files[cpkPath] = generated
 	versionPath := cpkRoot + "/versions.json"
 	raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(versionPath)))
+	newVersionFile := os.IsNotExist(err)
+	if newVersionFile {
+		// Legacy sets used the loader's default version 1 for all CPKs.
+		// Register only the new file; omitted official entries retain version 1.
+		raw = []byte(`{"schema_version":1,"versions":[]}`)
+		err = nil
+	}
 	if err != nil {
 		return err
 	}
@@ -117,7 +128,7 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 	}
 	found := false
 	for _, item := range versions.Versions {
-		if item["name"] != customVoiceCPK {
+		if item["name"] != cpkName {
 			continue
 		}
 		if found {
@@ -135,10 +146,10 @@ func buildCustomVoiceResources(d customCardDraft, root string, manifest map[stri
 		if old != nil {
 			version = 2
 		}
-		versions.Versions = append(versions.Versions, map[string]any{"name": customVoiceCPK, "version": version})
+		versions.Versions = append(versions.Versions, map[string]any{"name": cpkName, "version": version})
 	}
 	files[versionPath], err = resourceJSON(versions)
-	if err == nil {
+	if err == nil && !newVersionFile {
 		original[versionPath] = raw
 	}
 	return err
