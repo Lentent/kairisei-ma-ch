@@ -36,6 +36,7 @@ type customCard struct {
 	Name               string                   `json:"name"`
 	Prefix             string                   `json:"prefix"`
 	Evolution          *customCardEvolution     `json:"evolution,omitempty"`
+	Divergence         *customCardEvolution     `json:"divergence,omitempty"`
 	RarityRank         *int                     `json:"rarity_rank,omitempty"`
 	AllowFameTraining  *bool                    `json:"allow_fame_training,omitempty"`
 	Details            *customCardDetails       `json:"details,omitempty"`

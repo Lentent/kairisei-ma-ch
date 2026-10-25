@@ -319,7 +319,7 @@ function validateCustomCardDesign(d){
   for(const c of d.cards){
     if(c?.allow_fame_training!=null&&typeof c.allow_fame_training!=='boolean')throw new Error('允许名声强化须为开关值');
     for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置');const volume=c?.[`${kind}_voice_volume`];if(volume!=null&&!integer(volume,0,100))throw new Error('自制语音音量须为0–100的整数百分比')}
-    if(c?.evolution!=null&&(!object(c.evolution)||!integer(c.evolution.target_card_id,98000001,98999999)||!integer(c.evolution.recipe_from_card_id,1,2147483647)||!integer(c.evolution.recipe_to_card_id,1,2147483647)))throw new Error('进化配置须包含目标自制卡及配方来源');
+    for(const key of ['evolution','divergence']){const route=c?.[key];if(route!=null&&(!object(route)||!integer(route.target_card_id,98000001,98999999)||!integer(route.recipe_from_card_id,1,2147483647)||!integer(route.recipe_to_card_id,1,2147483647)))throw new Error('普通及乖离进化配置须包含目标自制卡及配方来源')}
     if(c?.rarity_rank!=null&&!integer(c.rarity_rank,1,8))throw new Error('稀有度须为1–8星，或留空沿用模板');
     if(!object(c)||!integer(c.card_id,98000001,98999999)||!integer(c.template_card_id,1,2147483647)||typeof c.name!=='string'||!c.name.trim()||typeof c.prefix!=='string'||!integer(c.cost,1,10)||!integer(c.arthur_type,0,4)||!validCustomCardAttribute(c.attribute)||!stats(c.initial)||!stats(c.maximum)||!stats(c.love_bonus)||!rows(c.skills,1,40,50)||!rows(c.roles,1,120,32)||!Array.isArray(c.role_sources)||c.role_sources.length!==c.roles.length||c.role_sources.some((s,i)=>!object(s)||!integer(s.index,0,119)||!(integer(s.card_id,1,2147483647)||s.card_id===0&&s.index===0&&customEffectHelp(c.roles[i][8]).template_role))||['artwork','icon_artwork','card_artwork'].some(key=>c[key]!==undefined&&typeof c[key]!=='string'))throw new Error('设计文件的卡牌字段、四维或技能结构不完整');
     if(c.details!=null){
@@ -352,7 +352,7 @@ $('#custom-card-frame-reset').onclick=()=>{const c=currentCustomCard();if(c){del
 $('#custom-card-frame-fit').onchange=()=>{const c=currentCustomCard();if(c){c.card_artwork_mode=$('#custom-card-frame-fit').value;customCardChanged();renderCustomCardPreview()}};
 $('#custom-card-art-reset').onclick=()=>{const c=currentCustomCard();if(c){delete c.artwork;customCardChanged();renderCustomCardPreview()}};
 $('#custom-card-icon-reset').onclick=()=>{const c=currentCustomCard();if(c){delete c.icon_artwork;customCardChanged();renderCustomCardPreview()}};
-$('#custom-card-remove').onclick=()=>{const c=currentCustomCard();if(!c||customCardEditor.applied[c.card_id])return;if(!confirm(`移除“${c.name}”的未发布草稿？`))return;customCardEditor.config.cards=customCardEditor.config.cards.filter(v=>v.card_id!==c.card_id);for(const card of customCardEditor.config.cards)if(card.evolution?.target_card_id===c.card_id)delete card.evolution;customCardEditor.selected=customCardEditor.config.cards[0]?.card_id||0;customCardChanged();renderCustomCards()};
+$('#custom-card-remove').onclick=()=>{const c=currentCustomCard();if(!c||customCardEditor.applied[c.card_id])return;if(!confirm(`移除“${c.name}”的未发布草稿？`))return;customCardEditor.config.cards=customCardEditor.config.cards.filter(v=>v.card_id!==c.card_id);for(const card of customCardEditor.config.cards)for(const kind of ['evolution','divergence'])if(card[kind]?.target_card_id===c.card_id)delete card[kind];customCardEditor.selected=customCardEditor.config.cards[0]?.card_id||0;customCardChanged();renderCustomCards()};
 $('#custom-card-save').onclick=()=>customCardAction(async()=>{const e=customCardEditor,d=await api('/api/custom-cards',{method:'PUT',body:JSON.stringify({expected_revision:e.revision,config:e.config})});e.config=d.config;e.revision=d.revision;e.nextID=d.next_card_id;e.applied=d.applied||{};e.occupied=d.occupied_card_ids||[];loadCustomCardHelp(d);e.dirty=false;clearViewAlert('custom-cards');renderCustomCards();$('#custom-card-status').textContent='草稿已保存；可生成资源更新包，应用后在游戏中生效。';toast('自制卡牌草稿已保存')});
 $('#custom-card-package').onclick=()=>customCardAction(async()=>{const e=customCardEditor;if(e.dirty)throw new Error('请先保存草稿');const r=await fetch('/api/custom-cards/export',{method:'POST',headers:{'Content-Type':'application/json','X-Kairisei-Admin-Action':'apply'},body:JSON.stringify({expected_revision:e.revision})});if(!r.ok){const d=await r.json();const error=new Error(d.error||'生成失败');error.status=r.status;throw error}const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`自制卡牌资源-v${e.revision}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);$('#custom-card-status').textContent='更新包已生成。按包内说明停服备份、覆盖资源、重启；使用CDN时同步资源。应用后再发卡。';toast('资源更新包已生成')});
 $('#custom-card-json').onclick=()=>downloadContent(customCardEditor.config,'自制卡牌设计.json');
@@ -361,47 +361,57 @@ $('#custom-card-import').onchange=()=>customCardAction(async()=>{const d=await i
 function customCardRank(c){return c?.rarity_rank??customCardEditor.templateRarities?.[c?.template_card_id]??0}
 const customRecipeKey=r=>`${r.from_card_id}:${r.to_card_id}`;
 function renderCustomCardEvolution(){
-  const c=currentCustomCard(),e=customCardEditor,rank=customCardRank(c),target=$('#custom-card-evolution-target'),recipe=$('#custom-card-evolution-recipe');
-  const targets=e.config.cards.filter(v=>c&&v.card_id!==c.card_id&&v.arthur_type===c.arthur_type&&customCardRank(v)>rank);
+  for(const kind of ['evolution','divergence'])renderCustomCardEvolutionRoute(kind);
+}
+function renderCustomCardEvolutionRoute(kind){
+  const c=currentCustomCard(),e=customCardEditor,rank=customCardRank(c),route=c?.[kind],divergent=kind==='divergence',target=$(`#custom-card-${kind}-target`),recipe=$(`#custom-card-${kind}-recipe`);
+  const nativeRecipes=(e.evolutionRecipes||[]).filter(r=>(r.evolution_type??0)===(divergent?1:0)&&r.from_rarity===rank);
+  const targets=e.config.cards.filter(v=>c&&v.card_id!==c.card_id&&(divergent?nativeRecipes.some(r=>r.to_rarity===customCardRank(v)):v.arthur_type===c.arthur_type&&customCardRank(v)>rank));
   target.innerHTML='<option value="">不设置进化目标</option>'+targets.map(v=>`<option value="${v.card_id}">${esc(v.name)} · ${v.card_id} · ${esc(customCardRarityNames[customCardRank(v)]||'沿用模板')}</option>`).join('');
-  if(c?.evolution&&!targets.some(v=>v.card_id===c.evolution.target_card_id))target.innerHTML+=`<option value="${c.evolution.target_card_id}">目标 ${c.evolution.target_card_id}（请核对星级与职业）</option>`;
-  target.value=c?.evolution?.target_card_id??'';
-  const selected=e.config.cards.find(v=>v.card_id===c?.evolution?.target_card_id);
-  const recipes=(e.evolutionRecipes||[]).filter(r=>r.from_rarity===rank&&(!selected||r.to_rarity===customCardRank(selected)));
+  if(route&&!targets.some(v=>v.card_id===route.target_card_id))target.innerHTML+=`<option value="${route.target_card_id}">目标 ${route.target_card_id}（请核对星级${divergent?'':'与职业'}）</option>`;
+  target.value=route?.target_card_id??'';
+  const selected=e.config.cards.find(v=>v.card_id===route?.target_card_id);
+  const recipes=nativeRecipes.filter(r=>!selected||r.to_rarity===customCardRank(selected));
   recipe.innerHTML='<option value="">请选择材料配方</option>'+recipes.map(r=>`<option value="${customRecipeKey(r)}">${esc(r.name)} · ${r.from_rarity} → ${r.to_rarity} 星 · ${num(r.gold)} 金币</option>`).join('');
-  const savedKey=c?.evolution?`${c.evolution.recipe_from_card_id}:${c.evolution.recipe_to_card_id}`:'';
-  if(c?.evolution?.recipe_from_card_id>0&&!recipes.some(r=>customRecipeKey(r)===savedKey))recipe.innerHTML+=`<option value="${savedKey}">原配方 ${savedKey}（当前星级不匹配，请重选）</option>`;
+  const savedKey=route?`${route.recipe_from_card_id}:${route.recipe_to_card_id}`:'';
+  if(route?.recipe_from_card_id>0&&!recipes.some(r=>customRecipeKey(r)===savedKey))recipe.innerHTML+=`<option value="${savedKey}">原配方 ${savedKey}（类型或星级不匹配，请重选）</option>`;
   recipe.value=savedKey;
   if(!recipe.value){const preferred=recipes.find(r=>r.from_card_id===c?.template_card_id)||recipes[0];recipe.value=preferred?customRecipeKey(preferred):''}
-  updateCustomEvolutionInfo();
+  updateCustomEvolutionInfo(kind);
 }
-function selectedCustomEvolutionRecipe(){return (customCardEditor.evolutionRecipes||[]).find(r=>customRecipeKey(r)===$('#custom-card-evolution-recipe').value)}
-function updateCustomEvolutionInfo(){
-  const c=currentCustomCard(),r=selectedCustomEvolutionRecipe();
-  $('#custom-card-evolution-info').textContent=r?`${num(r.gold)} 金币；素材：${r.material_text||'无需素材'}。${c?.evolution?'进化关系已设置；保存并应用更新包后生效。':'选择目标或点击下方按钮新建进化形态。'}`:'当前星级没有匹配的普通进化配方；可先调整星级或目标卡。';
-  $('#custom-card-evolution-create').disabled=!c||!r||!!c.evolution||customCardEditor.config.cards.length>=200;
+function selectedCustomEvolutionRecipe(kind='evolution'){
+  const c=currentCustomCard(),target=customCardEditor.config.cards.find(v=>v.card_id===c?.[kind]?.target_card_id);
+  return (customCardEditor.evolutionRecipes||[]).find(r=>(r.evolution_type??0)===(kind==='divergence'?1:0)&&r.from_rarity===customCardRank(c)&&(!target||r.to_rarity===customCardRank(target))&&customRecipeKey(r)===$(`#custom-card-${kind}-recipe`).value);
 }
-$('#custom-card-evolution-target').onchange=()=>{
-  const c=currentCustomCard();if(!c)return;const id=Number($('#custom-card-evolution-target').value),r=selectedCustomEvolutionRecipe();
+function updateCustomEvolutionInfo(kind='evolution'){
+  const c=currentCustomCard(),r=selectedCustomEvolutionRecipe(kind),label=kind==='divergence'?'乖离进化':'普通进化';
+  $(`#custom-card-${kind}-info`).textContent=r?`${num(r.gold)} 金币；素材：${r.material_text||'无需素材'}。${c?.[kind]?'进化关系已设置；保存并应用更新包后生效。':'选择目标或点击下方按钮新建形态。'}`:`当前配置没有匹配的${label}配方；请核对类型、星级或目标卡并重选配方。`;
+  $(`#custom-card-${kind}-create`).disabled=!c||!r||!!c[kind]||customCardEditor.config.cards.length>=200;
+}
+for(const kind of ['evolution','divergence']){
+$(`#custom-card-${kind}-target`).onchange=()=>{
+  const c=currentCustomCard();if(!c)return;const id=Number($(`#custom-card-${kind}-target`).value),r=selectedCustomEvolutionRecipe(kind);
   const target=customCardEditor.config.cards.find(v=>v.card_id===id),matched=r&&r.to_rarity===customCardRank(target)?r:null;
-  if(!id)delete c.evolution;else c.evolution={target_card_id:id,recipe_from_card_id:matched?.from_card_id||0,recipe_to_card_id:matched?.to_card_id||0};
+  if(!id)delete c[kind];else c[kind]={target_card_id:id,recipe_from_card_id:matched?.from_card_id||0,recipe_to_card_id:matched?.to_card_id||0};
   customCardChanged();renderCustomCardEvolution();
   // Choosing a target can change the matching rarity, so use its refreshed recipe.
-  if(c.evolution){const matched=selectedCustomEvolutionRecipe();c.evolution.recipe_from_card_id=matched?.from_card_id||0;c.evolution.recipe_to_card_id=matched?.to_card_id||0;updateCustomEvolutionInfo()}
+  if(c[kind]){const matched=selectedCustomEvolutionRecipe(kind);c[kind].recipe_from_card_id=matched?.from_card_id||0;c[kind].recipe_to_card_id=matched?.to_card_id||0;updateCustomEvolutionInfo(kind)}
 };
-$('#custom-card-evolution-recipe').onchange=()=>{
-  const c=currentCustomCard();if(!c)return;const r=selectedCustomEvolutionRecipe();
-  if(c.evolution){c.evolution.recipe_from_card_id=r?.from_card_id||0;c.evolution.recipe_to_card_id=r?.to_card_id||0;customCardChanged()}
-  updateCustomEvolutionInfo();
+$(`#custom-card-${kind}-recipe`).onchange=()=>{
+  const c=currentCustomCard();if(!c)return;const r=selectedCustomEvolutionRecipe(kind);
+  if(c[kind]){c[kind].recipe_from_card_id=r?.from_card_id||0;c[kind].recipe_to_card_id=r?.to_card_id||0;customCardChanged()}
+  updateCustomEvolutionInfo(kind);
 };
-$('#custom-card-evolution-create').onclick=()=>customCardAction(async()=>{
-  const c=currentCustomCard(),e=customCardEditor,r=selectedCustomEvolutionRecipe();if(!c||!r||c.evolution)return;
+$(`#custom-card-${kind}-create`).onclick=()=>customCardAction(async()=>{
+  const c=currentCustomCard(),e=customCardEditor,r=selectedCustomEvolutionRecipe(kind);if(!c||!r||c[kind])return;
   if(e.config.cards.length>=200)throw new Error('最多制作200张卡');
   const data=await api(`/api/custom-cards/template/${r.to_card_id}`),target=data.card;loadCustomCardHelp(data);
-  target.card_id=nextCustomCardID(customCardUsedIDs());target.name=c.name;target.prefix=c.prefix;target.arthur_type=c.arthur_type;target.attribute=c.attribute;target.rarity_rank=r.to_rarity;
-  e.config.cards.push(target);c.evolution={target_card_id:target.card_id,recipe_from_card_id:r.from_card_id,recipe_to_card_id:r.to_card_id};
+  target.card_id=nextCustomCardID(customCardUsedIDs());target.name=c.name;target.prefix=c.prefix;target.rarity_rank=r.to_rarity;
+  if(kind==='evolution'){target.arthur_type=c.arthur_type;target.attribute=c.attribute}
+  e.config.cards.push(target);c[kind]={target_card_id:target.card_id,recipe_from_card_id:r.from_card_id,recipe_to_card_id:r.to_card_id};
   e.selected=target.card_id;customCardChanged();renderCustomCards();toast(`已连接 ${c.card_id} → ${target.card_id}；请编辑进化后形态的卡面、数值和技能`);
 });
+}
 
 // Import old or partial designs without dropping any already-published card.
 function mergePublishedCustomCardDrafts(d){

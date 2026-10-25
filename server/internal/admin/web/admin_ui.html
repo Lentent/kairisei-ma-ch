@@ -101,6 +101,13 @@
               <button type="button" class="secondary" id="custom-card-evolution-create">按配方新建进化形态</button>
               <p class="hint">选择配方后可自动复制它的进化后模板并连接；也可从上方选择已制作的目标卡。满级后消耗所选配方的素材与金币。保存草稿、生成并应用资源更新包后生效。</p>
             </details>
+            <details open><summary>乖离进化</summary>
+              <p class="hint">可连接同星级、不同职业的自制卡。每个方向分别设置；要双向转换，请在目标卡上再设置指回当前卡的乖离路线。前后星级须与所选配方一致。</p>
+              <div class="field"><label for="custom-card-divergence-target">乖离后的自制卡</label><select id="custom-card-divergence-target"></select></div>
+              <div class="field"><label for="custom-card-divergence-recipe">乖离材料配方</label><select id="custom-card-divergence-recipe"></select><p class="hint" id="custom-card-divergence-info"></p></div>
+              <button type="button" class="secondary" id="custom-card-divergence-create">按配方新建乖离形态</button>
+              <p class="hint">新建形态沿用配方目标的职业与属性，可继续编辑卡面、四维和技能。素材按每张卡的名声消耗：名声有剩余则保留素材卡，恰好用完则消耗卡牌。保存草稿、生成并应用资源更新包后生效。</p>
+            </details>
             <div class="grid3"><div class="field"><label for="custom-card-job">职业</label><select id="custom-card-job"><option value="0">通用</option><option value="1">佣兵</option><option value="2">富豪</option><option value="3">盗贼</option><option value="4">歌姬</option></select></div><div class="field"><label for="custom-card-attr">第一属性</label><select id="custom-card-attr"><option value="FIRE">火</option><option value="ICE">冰</option><option value="WIND">风</option><option value="LIGHT">光</option><option value="DARK">暗</option></select><label for="custom-card-attr-secondary">第二属性（可选）</label><select id="custom-card-attr-secondary"><option value="">无（单属性）</option></select><p class="hint">选择第二属性后为双属性卡；两种属性不能相同。</p></div><div class="field"><label for="custom-card-cost">COST</label><input id="custom-card-cost" type="number" min="1" max="10"></div></div>
             <p class="hint" id="custom-card-attribute-info" hidden>双属性攻击不会增加攻击次数。附魔、属性防御等指定单一属性的效果保留来源属性；需要两种效果时请分别添加。</p>
             <h3>卡牌四维</h3><p class="hint">设置初始、满级和忠诚度满额加成；等级上限和升级经验表跟随所选星级，名声加成另行计算。</p><div class="table-wrap"><table class="dense"><thead><tr><th>属性</th><th>初始值</th><th>满级值</th><th>满忠诚度加成</th></tr></thead><tbody id="custom-card-stats"></tbody></table></div>

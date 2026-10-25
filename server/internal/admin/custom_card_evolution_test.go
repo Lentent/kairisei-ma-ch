@@ -165,8 +165,11 @@ func assertCustomEvolutionStars(t *testing.T, rows [][]string, ranks map[int]int
 	t.Helper()
 	records := map[int][]string{}
 	for _, row := range rows {
-		if _, ok := ranks[customRowInt(row, 0)]; ok {
-			records[customRowInt(row, 0)] = row
+		id := customRowInt(row, 0)
+		if _, ok := ranks[id]; ok {
+			if records[id] == nil || len(row) > 1 && row[1] == "NORMAL" {
+				records[id] = row
+			}
 		}
 	}
 	var maximum func(int, map[int]bool) int
@@ -188,6 +191,15 @@ func assertCustomEvolutionStars(t *testing.T, rows [][]string, ranks map[int]int
 }
 
 func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
+	testCustomCardEvolutionCompleteResourceExport(t, 0)
+}
+
+func TestCustomCardDivergenceCompleteResourceExport(t *testing.T) {
+	testCustomCardEvolutionCompleteResourceExport(t, 1)
+}
+
+func testCustomCardEvolutionCompleteResourceExport(t *testing.T, kind int) {
+	t.Helper()
 	root := os.Getenv("CN602_CUSTOM_CARD_RESOURCE_SET")
 	if root == "" {
 		t.Skip("requires complete game resources")
@@ -200,7 +212,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	}
 	var recipe customEvolutionRecipe
 	for _, r := range customEvolutionRecipes(s) {
-		if r.FromRank == 5 && r.ToRank == 6 {
+		if r.Type == kind && ((kind == 0 && r.FromRank == 5 && r.ToRank == 6) || (kind == 1 && r.FromRank == 6 && r.ToRank == 6)) {
 			if _, err := s.template(r.FromID); err != nil {
 				continue
 			}
@@ -212,7 +224,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 		}
 	}
 	if recipe.FromID == 0 {
-		t.Fatal("no 5 -> 6 native recipe")
+		t.Fatalf("no matching native recipe of type %d", kind)
 	}
 	// Compare with a native ordinary chain (other templates may also have GOD branches).
 	assertCustomEvolutionStars(t, s.EvolutionRows, map[int]int{10108001: 5, 10108002: 6}, 10108001, 6)
@@ -220,8 +232,15 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	to, _ := s.template(recipe.ToID)
 	from.ID = customCardNextID(s, customCardDraft{})
 	to.ID = customCardNextID(s, customCardDraft{Cards: []customCard{from}})
-	to.ArthurType = from.ArthurType
-	from.Evolution = &customCardEvolution{to.ID, recipe.FromID, recipe.ToID}
+	if kind == 0 {
+		to.ArthurType = from.ArthurType
+		from.Evolution = &customCardEvolution{to.ID, recipe.FromID, recipe.ToID}
+	} else {
+		from.Divergence = &customCardEvolution{to.ID, recipe.FromID, recipe.ToID}
+		// The recipe supplies costs/level behavior; it need not connect the
+		// actual template IDs. The same 6 -> 6 costs can serve either direction.
+		to.Divergence = &customCardEvolution{from.ID, recipe.FromID, recipe.ToID}
+	}
 	archive, err := a.buildCustomCardPatch(customCardDraft{Cards: []customCard{from, to}}, s)
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +272,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	for _, tr := range master.EvolutionTransitions {
 		if tr.FromCardID == from.ID {
 			count++
-			if tr.ToCardID != to.ID || tr.Gold != recipe.Gold || !reflect.DeepEqual(tr.Materials, recipe.Materials) {
+			if tr.Type != kind || tr.ToCardID != to.ID || tr.Gold != recipe.Gold || !reflect.DeepEqual(tr.Materials, recipe.Materials) {
 				t.Fatal("wrong server recipe", tr)
 			}
 		}
@@ -269,7 +288,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	for _, row := range rows {
 		if customRowInt(row, 0) == from.ID {
 			count++
-			if customRowInt(row, 4) != to.ID || row[1] != "NORMAL" {
+			if customRowInt(row, 4) != to.ID || row[1] != []string{"NORMAL", "GOD"}[kind] {
 				t.Fatal("wrong client recipe", row)
 			}
 		}
@@ -279,8 +298,32 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 	}
 	// The original client's star renderer traverses NORMAL routes only when
 	// their target has an evolution-table entry, including terminal "ID," rows.
-	assertCustomEvolutionStars(t, rows, map[int]int{from.ID: 5, to.ID: 6}, from.ID, 6)
-	assertCustomEvolutionStars(t, rows, map[int]int{from.ID: 5, to.ID: 6}, to.ID, 6)
+	ranks := map[int]int{from.ID: recipe.FromRank, to.ID: recipe.ToRank}
+	assertCustomEvolutionStars(t, rows, ranks, from.ID, 6)
+	assertCustomEvolutionStars(t, rows, ranks, to.ID, 6)
+	if kind == 1 {
+		wantRow, wantTransition, _ := customEvolutionRecipeRows(s, recipe.FromID, recipe.ToID, 1)
+		wantRow[0], wantRow[4] = strconv.Itoa(to.ID), strconv.Itoa(from.ID)
+		found := false
+		for _, row := range rows {
+			if reflect.DeepEqual(row, wantRow) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("reverse client GOD route missing or modified")
+		}
+		wantTransition.FromCardID, wantTransition.ToCardID = to.ID, from.ID
+		found = false
+		for _, tr := range master.EvolutionTransitions {
+			if reflect.DeepEqual(tr, wantTransition) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("reverse server GOD route missing or modified")
+		}
+	}
 	bundle, err := readResourceBundle(files["resource-set/resources/patch/main_c/container.dat"])
 	if err != nil {
 		t.Fatal(err)
@@ -292,7 +335,7 @@ func TestCustomCardEvolutionCompleteResourceExport(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(client, rows) {
 			t.Fatal("client/server evolution CSV differ", err)
 		}
-		assertCustomEvolutionStars(t, client, map[int]int{from.ID: 5, to.ID: 6}, from.ID, 6)
+		assertCustomEvolutionStars(t, client, ranks, from.ID, 6)
 		return text, nil
 	}})
 	if err != nil || !seen {
