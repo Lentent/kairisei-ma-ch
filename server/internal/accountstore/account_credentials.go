@@ -233,5 +233,8 @@ func (accounts *Accounts) LoginAccount(name, password string) (AccountBinding, e
 	if subtle.ConstantTimeCompare(actual, expected) != 1 || missing {
 		return AccountBinding{}, errAccountCredentials
 	}
+	if err := accounts.CheckAccountAccess(result.UserID); err != nil {
+		return AccountBinding{}, err
+	}
 	return result, nil
 }

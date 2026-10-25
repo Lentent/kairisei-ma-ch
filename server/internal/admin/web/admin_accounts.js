@@ -20,7 +20,7 @@ async function loadAccountsPage(){
 }
 function renderAccounts(){
   $('#account-count').textContent=`筛选结果 ${num(accountPage.total)} 个账号`;
-  $('#account-rows').innerHTML=state.accounts.map(a=>{const system=isSystemPartner(a.user_id),on=selectedPlayers.has(a.user_id),since=relativeTime(a.last_login_utc);return `<tr class="${on?'selected':''}"><td>${system?'':`<input class="check player-check" type="checkbox" aria-label="选择${esc(playerLabel(a))}" data-id="${a.user_id}" ${on?'checked':''}>`}</td><td class="cell-wrap"><b>${esc(a.name||'未命名')}</b><span class="sub"><code>#${a.user_id}</code> 存档 r${a.revision}</span></td><td>Lv.${a.level}<span class="sub">${esc(cardJobName(a.arthur_type))}</span></td><td class="num">${num(a.gold)}<span class="sub">水晶 ${num(a.crystals)}</span></td><td>${a.username?`<span class="tag ok">已绑定</span> ${esc(a.username)}`:system?'<span class="tag">系统伙伴</span>':'<span class="tag">游客</span>'}<details><summary class="sub">安装标识</summary><code>${esc(a.login_uuid)}</code></details></td><td>${esc(formatTime(a.last_login_utc))}<span class="sub">${since?esc(since)+' · ':''}注册 ${esc(formatTime(a.created_utc))}</span></td><td><div class="row-actions"><button class="ghost account-detail" data-user="${a.user_id}">详情</button>${system?'':`<button class="ghost mail-shortcut" data-user="${a.user_id}">寄礼物</button><button class="ghost inbox-open" data-user="${a.user_id}">邮件</button><button class="ghost grant" data-user="${a.user_id}">加资源</button><button class="ghost credentials" data-user="${a.user_id}">${a.username?'管理绑定':'绑定账号'}</button>`}</div></td></tr>`}).join('')||emptyRow(7,'没有匹配的账号','调整搜索词或点击“清除筛选”。');
+  $('#account-rows').innerHTML=state.accounts.map(a=>{const system=isSystemPartner(a.user_id),on=selectedPlayers.has(a.user_id),since=relativeTime(a.last_login_utc);return `<tr class="${on?'selected':''}"><td>${system?'':`<input class="check player-check" type="checkbox" aria-label="选择${esc(playerLabel(a))}" data-id="${a.user_id}" ${on?'checked':''}>`}</td><td class="cell-wrap"><b>${esc(a.name||'未命名')}</b><span class="sub"><code>#${a.user_id}</code> 存档 r${a.revision}</span></td><td>Lv.${a.level}<span class="sub">${esc(cardJobName(a.arthur_type))}</span></td><td class="num">${num(a.gold)}<span class="sub">水晶 ${num(a.crystals)}</span></td><td>${a.username?`<span class="tag ok">已绑定</span> ${esc(a.username)}`:system?'<span class="tag">系统伙伴</span>':'<span class="tag">游客</span>'}<details><summary class="sub">安装标识</summary><code>${esc(a.login_uuid)}</code></details></td><td>${esc(formatTime(a.last_login_utc))}<span class="sub">${since?esc(since)+' · ':''}注册 ${esc(formatTime(a.created_utc))}</span></td><td><div class="row-actions"><button class="ghost account-detail" data-user="${a.user_id}">详情</button>${system?'':`<button class="ghost mail-shortcut" data-user="${a.user_id}">寄礼物</button><button class="ghost inbox-open" data-user="${a.user_id}">邮件</button><button class="ghost grant" data-user="${a.user_id}">加资源</button><button class="ghost account-ban" data-user="${a.user_id}">封禁 / 解封</button><button class="ghost credentials" data-user="${a.user_id}">${a.username?'管理绑定':'绑定账号'}</button>`}</div></td></tr>`}).join('')||emptyRow(7,'没有匹配的账号','调整搜索词或点击“清除筛选”。');
   let anchor=null;
   $$('.player-check').forEach((box,index)=>box.onclick=e=>{
     const boxes=$$('.player-check'),indices=e.shiftKey&&anchor!==null?[Math.min(anchor,index),Math.max(anchor,index)]:[index,index];
@@ -29,6 +29,7 @@ function renderAccounts(){
   });
   $$('.account-detail').forEach(b=>b.onclick=()=>openAccountDetail(Number(b.dataset.user)));
   $$('.inbox-open').forEach(b=>b.onclick=()=>openPlayerInbox(Number(b.dataset.user)));
+  $$('.account-ban').forEach(b=>b.onclick=()=>manageAccountBan(Number(b.dataset.user)));
   $$('.credentials').forEach(b=>b.onclick=()=>openCredentials(Number(b.dataset.user)));
   $$('.grant').forEach(b=>b.onclick=()=>openGrant(Number(b.dataset.user)));
   $$('.mail-shortcut').forEach(b=>b.onclick=()=>{const a=state.accounts.find(a=>a.user_id===Number(b.dataset.user));if(selectedPlayers.size&&!(selectedPlayers.size===1&&selectedPlayers.has(a.user_id))&&!confirm(`当前已选 ${selectedPlayers.size} 名玩家。改为只给「${playerLabel(a)}」寄礼物？（原选择将被替换）`))return;selectedPlayers.clear();selectedPlayers.set(a.user_id,a);updatePlayerSelection();switchView('mail')});
@@ -271,3 +272,24 @@ $('#inbox-filter').onchange=()=>{playerInbox.page=0;loadPlayerInbox()};
 $('#inbox-search').oninput=()=>{playerInbox.page=0;playerInbox.serial++;clearTimeout(loadPlayerInbox.timer);loadPlayerInbox.timer=setTimeout(loadPlayerInbox,200)};
 $('#inbox-clear').onclick=()=>{playerInbox.selected.clear();loadPlayerInbox()};
 $('#inbox-select-page').onclick=()=>{for(const p of playerInbox.rows){if(playerInbox.selected.size>=100&&!playerInbox.selected.has(p.present_id)){toast('每次最多选择 100 封邮件',true);break}playerInbox.selected.set(p.present_id,p)}$$('.inbox-check').forEach(b=>{b.checked=playerInbox.selected.has(b.dataset.id);b.closest('tr').classList.toggle('selected',b.checked)});updateInboxControls()};
+
+async function manageAccountBan(id){
+ try{
+  const status=await api(`/api/accounts/${id}/ban`);
+  const a=state.accounts.find(x=>x.user_id===id);
+  let body;
+  if(status.banned){
+   if(!confirm(`解封 ${playerLabel(a)}？\n原因：${status.reason}\n期限：${status.until_unix?new Date(status.until_unix*1000).toLocaleString():'永久'}\n解封后需重新登录。`))return;
+   body={banned:false};
+  }else{
+   const reason=prompt(`封禁 ${playerLabel(a)}\n请输入封禁原因（必填，最多500字）：`);if(reason===null)return;
+   if(!reason.trim()||[...reason.trim()].length>500)throw new Error('请填写1–500字封禁原因');
+   const hours=prompt('封禁小时数：输入0表示永久封禁','0');if(hours===null)return;
+   const n=Number(hours);if(!hours.trim()||!Number.isFinite(n)||n<0||n>876000)throw new Error('请输入0–876000之间的小时数');
+   body={banned:true,reason:reason.trim(),until_unix:n?Math.ceil(Date.now()/1000+n*3600):0};
+   if(!confirm(`确认封禁 ${playerLabel(a)}？\n期限：${n?n+'小时':'永久'}\n原因：${body.reason}\n旧登录会话将失效，角色存档保留。`))return;
+  }
+  await api(`/api/accounts/${id}/ban`,{method:'POST',body:JSON.stringify(body)});
+  state.loaded.delete('audit');toast(body.banned?'账号已封禁，旧会话已失效':'账号已解封，请重新登录');
+ }catch(e){toast(errorText(e),true)}
+}

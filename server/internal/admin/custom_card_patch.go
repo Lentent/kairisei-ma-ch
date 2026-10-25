@@ -83,6 +83,11 @@ func rewriteCustomCSV(text string, changes map[string][][]string) (string, error
 }
 
 func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]string, [][]string, gamestate.Card, error) {
+	attribute, fusionAttributes, err := normalizeCustomCardAttribute(c.Attribute)
+	if err != nil {
+		return nil, nil, nil, gamestate.Card{}, err
+	}
+	c.Attribute = attribute
 	if e := validateCustomClientSkillCapacity(c); e != nil {
 		return nil, nil, nil, gamestate.Card{}, e
 	}
@@ -161,6 +166,9 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 			if e := validateCustomSpecialRole(c.Roles[j], c.RoleSources[j]); e != nil {
 				return nil, nil, nil, gamestate.Card{}, e
 			}
+			if e := validateCustomSpecialRoleTarget(c.Roles[j], c.Skills); e != nil {
+				return nil, nil, nil, gamestate.Card{}, e
+			}
 			fn := customRowInt(r, 0)
 			copy(r[1:8], directions[fn])
 			r[0] = strconv.Itoa(ids[fn])
@@ -194,6 +202,13 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		r[0] = strconv.Itoa(ids[fn])
 		for i, kind := range s.Rules[r[8]] {
 			if kind == "ATTR" && r[20+i] == attribute {
+				// Dual ATTR enums are valid for direct attacks. Enchant,
+				// attribute defense and other selectors consume a single
+				// attribute; retain their source instead of exporting an
+				// unusable dual selector or inventing additional effects.
+				if strings.Contains(c.Attribute, "_") && r[8] != "ATTACK_AA" {
+					continue
+				}
 				r[20+i] = c.Attribute
 			}
 		}
@@ -231,7 +246,7 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		}
 	}
 	card.ParameterInitial, card.ParameterMaximum, card.ParameterLoveMaximumBonus = c.Initial, c.Maximum, c.LoveBonus
-	card.FusionAttributes = map[string]uint8{"FIRE": 1, "ICE": 2, "WIND": 4, "LIGHT": 8, "DARK": 16}[c.Attribute]
+	card.FusionAttributes = fusionAttributes
 	card.AcquisitionText = "自制卡牌／扭蛋／运营赠礼"
 	p, e := s.Master.CardProgressionPolicy.ParametersAt(card, card.Level, card.Love, card.Fame)
 	if e != nil {

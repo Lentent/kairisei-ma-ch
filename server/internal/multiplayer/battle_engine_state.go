@@ -46,7 +46,7 @@ type BattleEngine struct {
 	skillTargets       *battleSkillTargets // Scoped to one 7adb0 invocation; nested death/CALL skills restore it.
 	openingDraw        *[4][10]bool        // Pending first-battle shuffle, after Start applies all passives.
 
-	singleToAllActive bool // Applies to subsequent ordinary cards until the next turn/wave.
+	singleToAllMembers uint8 // Recipient bits 0..3; cleared at the next turn/wave.
 }
 
 type battlePhase uint8

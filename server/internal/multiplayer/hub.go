@@ -330,6 +330,7 @@ type Hub struct {
 	completed          map[int64]*completedBattle
 	repository         CompletionRepository
 	combat             *CombatCatalog
+	accountAccess      func(int) error
 	startAuthorizer    func(BattleStart) error
 	continueAuthorizer func(BattleContinue) (ContinueBalance, error)
 	gameSpeed          func() int

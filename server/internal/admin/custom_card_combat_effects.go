@@ -15,6 +15,7 @@ const customCardEffectsPath = "_local/control/server/cn602-battle-master/" + mul
 func customSingleToAllRole(functionID int) []string {
 	row := make([]string, 33)
 	row[0], row[8], row[9] = strconv.Itoa(functionID), multiplayer.CombatFunctionTurnSingleToAll, "SELF"
+	row[20] = "1" // Scoped effect version; empty preserves old team-wide markers.
 	for i := 11; i < 20; i++ {
 		row[i] = "1"
 	}
@@ -26,8 +27,28 @@ func isCustomSpecialRole(row []string) bool {
 }
 
 func validateCustomSpecialRole(row []string, source customRoleSource) error {
-	if source.CardID != 0 || source.Index != 0 || !reflect.DeepEqual(row, customSingleToAllRole(customRowInt(row, 0))) {
-		return errors.New("全体化效果的类型、目标及参数不可修改，请从添加特殊效果重新添加")
+	expected := customSingleToAllRole(customRowInt(row, 0))
+	if len(row) == len(expected) {
+		if row[20] == "" && row[9] == "SELF" {
+			expected[20] = "" // Previously exported marker.
+		} else if row[20] == "1" && (row[9] == "SELF" || row[9] == "USER_ONE" || row[9] == "USER_ALL") {
+			expected[9] = row[9]
+		}
+	}
+	if source.CardID != 0 || source.Index != 0 || !reflect.DeepEqual(row, expected) {
+		return errors.New("全体化效果仅可选择自身、己方一人或全队，类型及参数不可修改，请从添加特殊效果重新添加")
+	}
+	return nil
+}
+
+func validateCustomSpecialRoleTarget(row []string, skills [][]string) error {
+	if row[20] != "1" || row[9] != "USER_ONE" {
+		return nil
+	}
+	for _, skill := range skills {
+		if (customRowInt(skill, 49) == customRowInt(row, 0) || customRowInt(skill, 49) == 0 && skill[0] == row[0]) && skill[19] != "USER_ONE" {
+			return errors.New("全体化选择己方一人时，关联技能的目标须设为己方单体，出牌时选择生效角色")
+		}
 	}
 	return nil
 }

@@ -428,9 +428,11 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		if !collectionText(c.Name, 40) || c.Prefix != "" && !collectionText(c.Prefix, 30) || c.Cost < 1 || c.Cost > 10 || c.ArthurType < 0 || c.ArthurType > 4 {
 			return errors.New("名称、冠名、职业或COST无效（COST为1–10）")
 		}
-		if !map[string]bool{"FIRE": true, "ICE": true, "WIND": true, "LIGHT": true, "DARK": true}[c.Attribute] {
-			return errors.New("请选择火、冰、风、光或暗属性")
+		attribute, _, e := normalizeCustomCardAttribute(c.Attribute)
+		if e != nil {
+			return e
 		}
+		c.Attribute = attribute
 		initial, maximum, bonus := customParameterValues(c.Initial), customParameterValues(c.Maximum), customParameterValues(c.LoveBonus)
 		for j := range initial {
 			if initial[j] < 0 || maximum[j] < initial[j] || maximum[j] > 10000000 || bonus[j] < 0 || bonus[j] > 10000000 {
@@ -481,6 +483,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 					return errors.New("特殊效果须分配到模板已有的技能分支")
 				}
 				if e := validateCustomSpecialRole(row, source); e != nil {
+					return e
+				}
+				if e := validateCustomSpecialRoleTarget(row, c.Skills); e != nil {
 					return e
 				}
 				functions[fn] = true
