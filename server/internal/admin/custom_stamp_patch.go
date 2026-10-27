@@ -226,6 +226,15 @@ func (a *API) buildCustomStampPatch(d customStampDraft) (result []byte, err erro
 }
 
 func finishCustomStampPatch(root string, d customStampDraft, files, original map[string][]byte, assets, manifest map[string]any, read func(string) ([]byte, error)) ([]byte, error) {
+	reportStamps := append([]customStamp(nil), d.Stamps...)
+	for i := range reportStamps {
+		reportStamps[i].Artwork = nil
+		reportStamps[i].Audio = nil
+	}
+	return finishCustomResourcePatch(files, original, assets, manifest, read, map[string]any{"stamps": reportStamps}, "自制表情资源更新包\n停服并备份资源与数据库。核对configuration.json内base_sha256与当前文件一致（空值表示新文件，目标不应已存在），再将resource-set内容按原路径合并覆盖并重启。使用CDN时同步更新后的资源、清单及语音CPK。\n客户端重新登录并下载资源后生效，无需修改APK。保存草稿和下载ZIP不会自动发布或发放表情。应用后在礼物发放、表情商店、任务或兑换奖励中选择新表情。\n保留玩家存档和部署配置；不同更新包须依次基于已应用资源生成。请在Android核对聊天编成、图片、声音和多人接收。\n")
+}
+
+func finishCustomResourcePatch(files, original map[string][]byte, assets, manifest map[string]any, read func(string) ([]byte, error), reportFields map[string]any, instructions string) ([]byte, error) {
 	const versionPath = "resources/patch/version.dat"
 	encoded, err := read(versionPath)
 	if err != nil {
@@ -402,12 +411,8 @@ func finishCustomStampPatch(root string, d customStampDraft, files, original map
 			return nil, err
 		}
 	}
-	reportStamps := append([]customStamp(nil), d.Stamps...)
-	for i := range reportStamps {
-		reportStamps[i].Artwork = nil
-		reportStamps[i].Audio = nil
-	}
-	report, err := resourceJSON(map[string]any{"base_sha256": before, "stamps": reportStamps})
+	reportFields["base_sha256"] = before
+	report, err := resourceJSON(reportFields)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +423,7 @@ func finishCustomStampPatch(root string, d customStampDraft, files, original map
 	if err != nil {
 		return nil, err
 	}
-	_, err = io.WriteString(w, "自制表情资源更新包\n停服并备份资源与数据库。核对configuration.json内base_sha256与当前文件一致（空值表示新文件，目标不应已存在），再将resource-set内容按原路径合并覆盖并重启。使用CDN时同步更新后的资源、清单及语音CPK。\n客户端重新登录并下载资源后生效，无需修改APK。保存草稿和下载ZIP不会自动发布或发放表情。应用后在礼物发放、表情商店、任务或兑换奖励中选择新表情。\n保留玩家存档和部署配置；不同更新包须依次基于已应用资源生成。请在Android核对聊天编成、图片、声音和多人接收。\n")
+	_, err = io.WriteString(w, instructions)
 	if err != nil {
 		return nil, err
 	}

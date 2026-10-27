@@ -36,6 +36,9 @@ func fitCustomArtwork(src image.Image, w, h int) *image.NRGBA {
 // 400x560 and Card50's Dmy_chr is 613x490 (ui_card.dat). Fitting only in
 // texture space stretches uploaded artwork when those quads are rendered.
 func fitCustomTextureArtwork(src image.Image, name string, w, h int, cardMode ...string) *image.NRGBA {
+	if len(cardMode) > 0 && cardMode[0] == "texture" {
+		return fitCustomArtwork(src, w, h)
+	}
 	switch {
 	case strings.HasPrefix(name, "chr10_"):
 		if len(cardMode) > 0 && cardMode[0] == "contain" {

@@ -98,8 +98,19 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 		}
 		seen[key] = true
 		idx := slices.IndexFunc(original, func(v dropTarget) bool { return v.BattleIndex == t.BattleIndex && v.EnemyIndex == t.EnemyIndex })
-		if idx < 0 || original[idx].Stats == nil || original[idx].Stats.EnemyID != t.Stats.EnemyID || t.Name != original[idx].Name {
+		if idx < 0 || original[idx].Stats == nil || original[idx].Stats.EnemyID != t.Stats.EnemyID {
 			return errors.New("不能修改部位身份、数量或编队结构")
+		}
+		if t.Name != original[idx].Name && (!collectionText(t.Name, 80) || strings.ContainsAny(t.Name, ",\"<>")) {
+			return errors.New("部位名称须为1至80字，不支持英文逗号、引号、标签或换行")
+		}
+		if len(t.Artwork) > 0 {
+			if original[idx].StaticImageID == 0 {
+				return errors.New("只有普通2D图片部位支持上传PNG；请选择2D模板，Live2D和3D部位保留原外观")
+			}
+			if _, err := decodeCustomBossArtwork(t.Artwork); err != nil {
+				return err
+			}
 		}
 		if err := gamestate.ValidateTeamBattleEnemyStats(*t.Stats); err != nil {
 			return fmt.Errorf("第%d波 %s：%w", t.BattleIndex+1, t.Name, err)
@@ -114,6 +125,13 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 		if (base.AttributeRates == nil) != (t.Stats.AttributeRates == nil) || (base.StatusResistances == nil) != (t.Stats.StatusResistances == nil) || (base.DOTReductions == nil) != (t.Stats.DOTReductions == nil) {
 			return errors.New("不能移除模板的抗性资料")
 		}
+	}
+	total := 0
+	for _, t := range b.Targets {
+		total += len(t.Artwork)
+	}
+	if total > 16<<20 {
+		return errors.New("一个Boss的部位PNG合计最多16MB")
 	}
 	return nil
 }
@@ -155,7 +173,7 @@ func (o *Operations) loadCustomBosses(c *contentStore) error {
 
 func (c *contentStore) installCustomBossMetadata() {
 	for _, b := range c.customBosses {
-		c.bosses[b.BossID] = DropBoss{BossID: b.BossID, GroupID: b.GroupID, SourceBossID: b.SourceBossID, Name: b.Name, Difficulty: b.Difficulty, Category: "boss", Targets: cloneBossTargets(b.Targets)}
+		c.bosses[b.BossID] = DropBoss{BossID: b.BossID, GroupID: b.GroupID, SourceBossID: b.SourceBossID, Name: b.Name, Difficulty: b.Difficulty, Category: "boss", BattleModel: c.bosses[b.SourceBossID].BattleModel, Targets: cloneBossTargets(b.Targets)}
 	}
 }
 
@@ -225,6 +243,17 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		}
 		groups = append(groups, raw)
 		r := b.Replay
+		r.Battles = slices.Clone(r.Battles)
+		if appearance, ok := c.customBossAppearances[b.BossID]; ok && appearance.SourceBossID == b.SourceBossID {
+			if len(r.Battles) == 0 {
+				r.Battles = []gamestate.TeamBattleReplayBattle{{EnemyPartyID: r.EnemyPartyID, EnemyType: r.EnemyType}}
+			}
+			if len(appearance.Parties) == len(r.Battles) {
+				for i := range r.Battles {
+					r.Battles[i].ClientEnemyPartyID = appearance.Parties[i]
+				}
+			}
+		}
 		r.EnemyOverrides = make([]gamestate.TeamBattleEnemyOverride, 0, len(b.Targets))
 		for _, t := range b.Targets {
 			r.EnemyOverrides = append(r.EnemyOverrides, gamestate.TeamBattleEnemyOverride{BattleIndex: t.BattleIndex, EnemyIndex: t.EnemyIndex, Stats: *t.Stats, Actions: t.Actions, IncludeOriginalActions: t.IncludeOriginalActions, AnimationModel: meta.Category})
@@ -259,7 +288,11 @@ func (a *API) customBossCatalog(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []customBoss{}
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "sources": sources, "bosses": rows})
+	current := map[int]bool{}
+	for _, b := range rows {
+		current[b.BossID] = c.customBossAppearanceCurrent(b)
+	}
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "sources": sources, "bosses": rows, "appearance_current": current})
 }
 
 func (a *API) createCustomBoss(w http.ResponseWriter, r *http.Request) {
@@ -366,7 +399,7 @@ func (a *API) createCustomBoss(w http.ResponseWriter, r *http.Request) {
 		writeContentError(w, err)
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "boss": b})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "boss": b, "appearance_current": c.customBossAppearanceCurrent(b)})
 }
 
 func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +418,7 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 		Enabled    *bool        `json:"enabled"`
 		Targets    []dropTarget `json:"targets"`
 	}
-	if err := decodeAdminJSON(r, &input); err != nil || input.Expected == nil || input.Enabled == nil || input.Continue == nil {
+	if err := DecodeAdminJSONLimit(r, &input, 24<<20); err != nil || input.Expected == nil || input.Enabled == nil || input.Continue == nil {
 		WriteAdminError(w, 400, "请提交完整配置与版本")
 		return
 	}
@@ -412,6 +445,14 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 	b.Name, b.Difficulty = strings.TrimSpace(input.Name), strings.TrimSpace(input.Difficulty)
 	b.BPUse, b.BPUseHalf, b.Continue, b.Enabled = input.BPUse, input.BPUseHalf, *input.Continue, *input.Enabled
 	b.Targets = input.Targets
+	for i := range b.Targets {
+		b.Targets[i].Name = strings.TrimSpace(b.Targets[i].Name)
+		for _, t := range original {
+			if t.BattleIndex == b.Targets[i].BattleIndex && t.EnemyIndex == b.Targets[i].EnemyIndex {
+				b.Targets[i].StaticImageID = t.StaticImageID
+			}
+		}
+	}
 	if err := validateCustomBoss(b, original); err != nil {
 		WriteAdminError(w, 400, err.Error())
 		return
@@ -426,7 +467,7 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 		writeContentError(w, err)
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "boss": b})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "revision": c.customBossRevision, "boss": b, "appearance_current": c.customBossAppearanceCurrent(b)})
 }
 
 func (o *Operations) saveCustomBossesLocked(expected int, next []customBoss) error {

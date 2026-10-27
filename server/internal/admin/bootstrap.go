@@ -432,6 +432,7 @@ func New(config Config) (http.Handler, error) {
 	})
 	router.Post("/api/custom-bosses", admin.createCustomBoss)
 	router.Put("/api/custom-bosses", admin.saveCustomBoss)
+	router.Post("/api/custom-bosses/export", admin.exportCustomBossAppearance)
 	router.Put("/api/boss-rules", admin.saveBossRules)
 	router.Put("/api/boss-drops", admin.saveDropEditor)
 	router.Get("/api/exchanges", admin.exchangeEditor)

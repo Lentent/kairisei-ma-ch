@@ -1069,8 +1069,10 @@ type TradeShopPurchase struct {
 // number of entries returned in TeamBattleSoloStart.battles and advances
 // enemy_partyid by battle_idx.
 type TeamBattleReplayBattle struct {
-	EnemyPartyID int  `json:"enemy_party_id"`
-	EnemyType    int8 `json:"enemy_type"`
+	// Optional client-only party uses independent art/names; combat keeps the template.
+	ClientEnemyPartyID int  `json:"client_enemy_party_id,omitempty"`
+	EnemyPartyID       int  `json:"enemy_party_id"`
+	EnemyType          int8 `json:"enemy_type"`
 }
 
 type TeamBattleReplay struct {

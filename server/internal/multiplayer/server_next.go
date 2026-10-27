@@ -51,7 +51,11 @@ func roomCountdownPayload(current *room) string {
 	waves := current.battles
 	fields := []string{strconv.Itoa(len(waves))}
 	for _, wave := range waves {
-		fields = append(fields, strconv.Itoa(wave.EnemyPartyID), strconv.Itoa(int(wave.EnemyType)), "0", "", "0", "")
+		partyID := wave.EnemyPartyID
+		if wave.ClientEnemyPartyID > 0 {
+			partyID = wave.ClientEnemyPartyID
+		}
+		fields = append(fields, strconv.Itoa(partyID), strconv.Itoa(int(wave.EnemyType)), "0", "", "0", "")
 	}
 	return joinCSV(fields...)
 }

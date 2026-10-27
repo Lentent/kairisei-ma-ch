@@ -49,6 +49,8 @@ type dropTarget struct {
 	BattleIndex            int                               `json:"battle_index"`
 	EnemyIndex             int                               `json:"enemy_index"`
 	Name                   string                            `json:"name"`
+	Artwork                []byte                            `json:"artwork,omitempty"`
+	StaticImageID          int                               `json:"static_image_id,omitempty"`
 	Stats                  *enemyStats                       `json:"stats,omitempty"`
 	Actions                []gamestate.TeamBattleEnemyAction `json:"actions"`
 	IncludeOriginalActions bool                              `json:"include_original_actions,omitempty"`
@@ -57,6 +59,7 @@ type dropTarget struct {
 type enemyStats = gamestate.TeamBattleEnemyStats
 
 type DropBoss struct {
+	BattleModel  string       `json:"battle_model,omitempty"`
 	SourceBossID int          `json:"source_boss_id,omitempty"`
 	Category     string       `json:"category"`
 	BossID       int          `json:"boss_id"`
@@ -67,24 +70,25 @@ type DropBoss struct {
 }
 
 type contentStore struct {
-	customSkillCatalog *multiplayer.CombatCatalog
-	customBosses       []customBoss
-	customBossRevision int
-	activities         activityRewards
-	activityRevision   int
-	base               gamestate.State
-	bosses             map[int]DropBoss
-	bossNames          map[int]string
-	bossNameBases      map[int]string
-	bossNameRevision   int
-	drops              map[int]BossDrops
-	shops              map[int]exchangeShop
-	dropRevision       int
-	shopRevision       int
-	rules              map[int]BossRules
-	ruleRevision       int
-	ruleBases          map[int]bossRuleEntry
-	configuration      game.ContentConfiguration
+	customBossAppearances map[int]customBossAppearance
+	customSkillCatalog    *multiplayer.CombatCatalog
+	customBosses          []customBoss
+	customBossRevision    int
+	activities            activityRewards
+	activityRevision      int
+	base                  gamestate.State
+	bosses                map[int]DropBoss
+	bossNames             map[int]string
+	bossNameBases         map[int]string
+	bossNameRevision      int
+	drops                 map[int]BossDrops
+	shops                 map[int]exchangeShop
+	dropRevision          int
+	shopRevision          int
+	rules                 map[int]BossRules
+	ruleRevision          int
+	ruleBases             map[int]bossRuleEntry
+	configuration         game.ContentConfiguration
 }
 
 type exchangeShop struct {
@@ -163,6 +167,7 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 					Continue   int    `json:"7"`
 					StartRule  int    `json:"24"`
 					OnlyMyDeck int    `json:"1"`
+					Model      int    `json:"14"`
 				} `json:"10"`
 			}
 			if err := json.Unmarshal(raw, &group); err != nil {
@@ -174,6 +179,10 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 					continue
 				}
 				row := DropBoss{BossID: b.ID, GroupID: group.ID, Name: group.Name, Difficulty: b.Difficulty, Targets: []dropTarget{}}
+				row.BattleModel = "2d"
+				if b.Model == 1 {
+					row.BattleModel = "3d"
+				}
 				if b.StartRule == 0 && b.OnlyMyDeck == 0 {
 					rule := BossRules{BossID: b.ID, Standard: true, Continue: b.Continue != 0}
 					c.ruleBases[b.ID] = bossRuleEntry{BossRules: rule, GroupID: group.ID, BPUse: b.BPUse, BPUseHalf: b.BPUseHalf, Default: rule}
@@ -201,6 +210,9 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 							}
 							target := dropTarget{BattleIndex: wave, EnemyIndex: slot, Name: name}
 							if def, ok := enemies[e.EnemyID]; ok {
+								if b.Model == 0 && def.ImageID > 0 && def.Live2DName == "" {
+									target.StaticImageID = def.ImageID
+								}
 								target.Stats = &enemyStats{EnemyID: def.ID, Attribute: def.Attribute,
 									HP: def.HP * e.HPRate, Attack: def.Attack, Magic: def.Magic,
 									Recovery: def.Recovery,
@@ -249,6 +261,9 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 		}
 	}
 	if err := o.loadBossNames(c); err != nil {
+		return err
+	}
+	if err := c.loadCustomBossAppearances(filepath.Join(filepath.Dir(battleMasterPath), "cn602-custom-boss-appearances.json")); err != nil {
 		return err
 	}
 	if err := o.loadCustomBosses(c); err != nil {
