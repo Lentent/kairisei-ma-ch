@@ -4,11 +4,11 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'C:/Users/lenovo/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const root=path.resolve(__dirname,'../../server/internal/admin/web');
 const routes={'/admin':'admin_ui.html','/admin.js':'admin_ui.js','/admin.css':'admin_ui.css','/gacha-legacy.js':'admin_gacha_legacy.js','/cdk-admin.js':'admin_cdk.js'};
-function testPNG(){
+function testPNG(red=220){
  const crc=raw=>{let n=0xffffffff;for(const b of raw){n^=b;for(let i=0;i<8;i++)n=n&1?(n>>>1)^0xedb88320:n>>>1}return(n^0xffffffff)>>>0};
  const chunk=(name,raw)=>{const body=Buffer.concat([Buffer.from(name),raw]),size=Buffer.alloc(4),hash=Buffer.alloc(4);size.writeUInt32BE(raw.length);hash.writeUInt32BE(crc(body));return Buffer.concat([size,body,hash])};
  const header=Buffer.alloc(13);header.writeUInt32BE(64,0);header.writeUInt32BE(128,4);header[8]=8;header[9]=6;
- const pixels=Buffer.alloc((64*4+1)*128);for(let y=0;y<128;y++)for(let x=0;x<64;x++){const i=y*257+1+x*4;pixels[i]=220;pixels[i+1]=80;pixels[i+3]=255}
+ const pixels=Buffer.alloc((64*4+1)*128);for(let y=0;y<128;y++)for(let x=0;x<64;x++){const i=y*257+1+x*4;pixels[i]=red;pixels[i+1]=80;pixels[i+3]=255}
  return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',require('node:zlib').deflateSync(pixels)),chunk('IEND',Buffer.alloc(0))]);
 }
 for(const name of fs.readdirSync(root).filter(s=>s.startsWith('admin_')&&s.endsWith('.js')))routes['/'+name.slice(6).replaceAll('_','-')]=name;
@@ -59,10 +59,18 @@ const server=http.createServer(async(req,res)=>{
   const art=process.env.CUSTOM_BOSS_TEST_PNG?fs.readFileSync(process.env.CUSTOM_BOSS_TEST_PNG):testPNG();
   await page.locator('#cb-0-artwork').setInputFiles({name:'custom-boss.png',mimeType:'image/png',buffer:art});await page.waitForFunction(()=>!customBossEditor.busy);
   assert.equal(await page.locator('#cb-0-preview img').count(),1);assert.equal(await page.locator('[data-boss-export]').first().isDisabled(),true);
+  assert.equal(await page.locator('#custom-boss-cover-preview img').getAttribute('src'),'data:image/png;base64,'+art.toString('base64'));
+  await page.locator('[data-selection-settings]').first().click();await page.locator('#custom-boss-name').fill('自制机械试炼');
+  assert.equal(await page.locator('#custom-boss-selection-title').innerText(),'自制机械试炼');
+  await page.locator('#custom-boss-layout').selectOption('separate');
+  const cover=testPNG(40);await page.locator('#custom-boss-cover').setInputFiles({name:'cover.png',mimeType:'image/png',buffer:cover});await page.waitForFunction(()=>!customBossEditor.busy);
+  assert.equal(await page.locator('#custom-boss-cover-preview img').getAttribute('src'),'data:image/png;base64,'+cover.toString('base64'));
+  await page.locator('#cb-tab-appearance').click();assert.match(await page.locator('[data-selection-name]').first().innerText(),/自制机械试炼/);
   await page.locator('[data-boss-wave="1"]').click();assert.equal(await page.locator('#cb-2-name').inputValue(),'本体');assert.equal(await page.locator('#cb-2-preview img').count(),0);
   await page.locator('#cb-2-name').fill('觉醒核心');await page.locator('[data-boss-wave="0"]').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');
   await page.locator('#custom-boss-save').click();await page.waitForFunction(()=>!customBossEditor.busy&&!customBossEditor.dirty);
   assert.equal(writes[0].targets[0].name,'机械核心');assert.equal(writes[0].targets[2].name,'觉醒核心');assert.equal(writes[0].targets[0].artwork,art.toString('base64'));assert.equal(source.targets[0].name,'本体');
+  assert.equal(writes[0].name,'自制机械试炼');assert.equal(writes[0].artwork_layout,'separate');assert.equal(writes[0].cover_artwork,cover.toString('base64'));
   const download=page.waitForEvent('download');await page.locator('[data-boss-export]').first().click();await download;await page.waitForFunction(()=>!customBossEditor.busy);assert.equal(exportCount,1);
   if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'desktop.png'),fullPage:true});
   await page.reload();await page.waitForFunction(()=>state.loaded.has('custom-bosses'));await page.locator('#cb-tab-appearance').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');assert.equal(await page.locator('#cb-0-preview img').count(),1);
@@ -71,6 +79,9 @@ const server=http.createServer(async(req,res)=>{
   await page.setViewportSize({width:390,height:844});await page.locator('#cb-tab-appearance').click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'mobile.png'),fullPage:true});
   await page.locator('[data-part-artwork-reset="0"]').click();assert.equal(await page.locator('#cb-0-preview img').count(),0);assert.equal(await page.evaluate(()=>customBossEditor.dirty),true);
-  assert.deepEqual(errors,[]);console.log('PASS: 2D template search, PNG validation/preview, independent waves, save/reload, authenticated export, conflict preservation, restore and mobile layout');
+  assert.equal(await page.locator('#custom-boss-cover-preview img').getAttribute('src'),'data:image/png;base64,'+cover.toString('base64'));
+  await page.locator('#cb-tab-basic').click();assert.equal(await page.locator('#custom-boss-layout').inputValue(),'separate');
+  await page.locator('#custom-boss-cover-reset').click();assert.equal(await page.locator('#custom-boss-cover-preview img').count(),0);
+  assert.deepEqual(errors,[]);console.log('PASS: selection name, automatic and explicit cover, layout selection, PNG validation, independent waves, save/reload, export, conflicts, restore and mobile layout');
  }finally{await browser.close();server.close()}
 })().catch(err=>{console.error(err);process.exitCode=1;server.close()});

@@ -21,19 +21,21 @@ const customBossGroupOffset = -100000000
 // SourceGroup, Replay and Reward freeze the original encounter. Editing the
 // copy changes only its public identity and per-wave parameters, never masters.
 type customBoss struct {
-	BossID       int                               `json:"boss_id"`
-	GroupID      int                               `json:"group_id"`
-	SourceBossID int                               `json:"source_boss_id"`
-	Name         string                            `json:"name"`
-	Difficulty   string                            `json:"difficulty"`
-	BPUse        int                               `json:"bp_use"`
-	BPUseHalf    int                               `json:"bp_use_half"`
-	Continue     bool                              `json:"continue"`
-	Enabled      bool                              `json:"enabled"`
-	Targets      []dropTarget                      `json:"targets"`
-	SourceGroup  json.RawMessage                   `json:"source_group"`
-	Replay       gamestate.TeamBattleReplay        `json:"replay"`
-	Reward       gamestate.TeamBattleRewardProfile `json:"reward"`
+	BossID        int                               `json:"boss_id"`
+	GroupID       int                               `json:"group_id"`
+	SourceBossID  int                               `json:"source_boss_id"`
+	Name          string                            `json:"name"`
+	CoverArtwork  []byte                            `json:"cover_artwork,omitempty"`
+	ArtworkLayout string                            `json:"artwork_layout,omitempty"`
+	Difficulty    string                            `json:"difficulty"`
+	BPUse         int                               `json:"bp_use"`
+	BPUseHalf     int                               `json:"bp_use_half"`
+	Continue      bool                              `json:"continue"`
+	Enabled       bool                              `json:"enabled"`
+	Targets       []dropTarget                      `json:"targets"`
+	SourceGroup   json.RawMessage                   `json:"source_group"`
+	Replay        gamestate.TeamBattleReplay        `json:"replay"`
+	Reward        gamestate.TeamBattleRewardProfile `json:"reward"`
 }
 
 func (c *contentStore) customBossSource(id int) (DropBoss, error) {
@@ -78,6 +80,14 @@ func cloneBossTargets(rows []dropTarget) []dropTarget {
 }
 
 func validateCustomBoss(b customBoss, original []dropTarget) error {
+	if b.ArtworkLayout != "" && b.ArtworkLayout != "auto" && b.ArtworkLayout != "separate" && b.ArtworkLayout != "template" {
+		return errors.New("请选择自动、独立排列或模板拼接布局")
+	}
+	if len(b.CoverArtwork) > 0 {
+		if _, err := decodeCustomBossArtwork(b.CoverArtwork); err != nil {
+			return fmt.Errorf("选关封面：%w", err)
+		}
+	}
 	if b.BossID < customBossFirstID || b.BossID > customBossLastID || b.GroupID != b.BossID+customBossGroupOffset {
 		return errors.New("自定义 Boss 身份无效")
 	}
@@ -126,7 +136,7 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 			return errors.New("不能移除模板的抗性资料")
 		}
 	}
-	total := 0
+	total := len(b.CoverArtwork)
 	for _, t := range b.Targets {
 		total += len(t.Artwork)
 	}
@@ -188,8 +198,11 @@ func (c *contentStore) customBossGroup(b customBoss) (json.RawMessage, AdminBatt
 	}
 	set := func(fields map[string]json.RawMessage, key string, value any) { fields[key], _ = json.Marshal(value) }
 	set(group, "0", b.GroupID)
+	set(group, "1", 0)
+	set(group, "2", b.GroupID)
 	set(group, "4", b.Name)
 	set(group, "9", 0)
+	set(group, "11", []any{})
 	boss := bosses[0]
 	set(boss, "0", b.BossID)
 	set(boss, "4", b.Difficulty)
@@ -208,6 +221,10 @@ func (c *contentStore) customBossGroup(b customBoss) (json.RawMessage, AdminBatt
 	set(boss, "17", 0)
 	set(boss, "16", 0)
 	set(boss, "26", 0)
+	if appearance, ok := c.customBossAppearances[b.BossID]; ok && appearance.SourceBossID == b.SourceBossID && appearance.CoverPictureID > 0 {
+		set(group, "7", appearance.CoverPictureID)
+		set(boss, "9", appearance.CoverPictureID)
+	}
 	set(group, "10", bosses)
 	var pictureID, model int
 	_ = json.Unmarshal(group["7"], &pictureID)
@@ -218,6 +235,9 @@ func (c *contentStore) customBossGroup(b customBoss) (json.RawMessage, AdminBatt
 	}
 	segments := max(1, len(b.Replay.Battles))
 	meta := AdminBattleGroup{Custom: true, Enabled: b.Enabled, GroupID: b.GroupID, Name: b.Name, PictureID: pictureID, BossCount: 1, BossIDs: []int{b.BossID}, Category: category, Difficulties: []string{b.Difficulty}, SegmentCounts: []int{segments}, MaxSegments: segments, ImageURL: fmt.Sprintf("/assets/boss/%d.webp", pictureID), Bosses: []DropBoss{c.bosses[b.BossID]}}
+	if pictureID == customBossCoverID(b.BossID) {
+		meta.ImageURL = fmt.Sprintf("/assets/boss/%d.png", pictureID)
+	}
 	raw, err := json.Marshal(group)
 	return raw, meta, err
 }
@@ -230,10 +250,14 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 	if err := json.Unmarshal(state.TeamBattleSolo, &top); err != nil {
 		return err
 	}
-	var groups []json.RawMessage
-	if len(top["9"]) > 0 {
-		if err := json.Unmarshal(top["9"], &groups); err != nil {
-			return err
+	groups := map[string][]json.RawMessage{}
+	for _, key := range []string{"10", "12"} {
+		if len(top[key]) > 0 {
+			var rows []json.RawMessage
+			if err := json.Unmarshal(top[key], &rows); err != nil {
+				return err
+			}
+			groups[key] = rows
 		}
 	}
 	for _, b := range c.customBosses {
@@ -241,7 +265,11 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		if err != nil {
 			return err
 		}
-		groups = append(groups, raw)
+		key := "12"
+		if meta.Category == "3d" {
+			key = "10"
+		}
+		groups[key] = append(groups[key], raw)
 		r := b.Replay
 		r.Battles = slices.Clone(r.Battles)
 		if appearance, ok := c.customBossAppearances[b.BossID]; ok && appearance.SourceBossID == b.SourceBossID {
@@ -262,7 +290,9 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		state.TeamBattleReplays = append(state.TeamBattleReplays, r)
 		state.TeamBattleRewards = append(state.TeamBattleRewards, standaloneCustomBossReward(b.Reward))
 	}
-	top["9"], _ = json.Marshal(groups)
+	for key, rows := range groups {
+		top[key], _ = json.Marshal(rows)
+	}
 	var err error
 	state.TeamBattleSolo, err = json.Marshal(top)
 	return err
@@ -408,15 +438,17 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Expected   *int         `json:"expected_revision"`
-		BossID     int          `json:"boss_id"`
-		Name       string       `json:"name"`
-		Difficulty string       `json:"difficulty"`
-		BPUse      int          `json:"bp_use"`
-		BPUseHalf  int          `json:"bp_use_half"`
-		Continue   *bool        `json:"continue"`
-		Enabled    *bool        `json:"enabled"`
-		Targets    []dropTarget `json:"targets"`
+		Expected      *int         `json:"expected_revision"`
+		BossID        int          `json:"boss_id"`
+		Name          string       `json:"name"`
+		CoverArtwork  *[]byte      `json:"cover_artwork"`
+		ArtworkLayout *string      `json:"artwork_layout"`
+		Difficulty    string       `json:"difficulty"`
+		BPUse         int          `json:"bp_use"`
+		BPUseHalf     int          `json:"bp_use_half"`
+		Continue      *bool        `json:"continue"`
+		Enabled       *bool        `json:"enabled"`
+		Targets       []dropTarget `json:"targets"`
 	}
 	if err := DecodeAdminJSONLimit(r, &input, 24<<20); err != nil || input.Expected == nil || input.Enabled == nil || input.Continue == nil {
 		WriteAdminError(w, 400, "请提交完整配置与版本")
@@ -443,6 +475,12 @@ func (a *API) saveCustomBoss(w http.ResponseWriter, r *http.Request) {
 	}
 	original := source.Targets
 	b.Name, b.Difficulty = strings.TrimSpace(input.Name), strings.TrimSpace(input.Difficulty)
+	if input.CoverArtwork != nil {
+		b.CoverArtwork = *input.CoverArtwork
+	}
+	if input.ArtworkLayout != nil {
+		b.ArtworkLayout = *input.ArtworkLayout
+	}
 	b.BPUse, b.BPUseHalf, b.Continue, b.Enabled = input.BPUse, input.BPUseHalf, *input.Continue, *input.Enabled
 	b.Targets = input.Targets
 	for i := range b.Targets {

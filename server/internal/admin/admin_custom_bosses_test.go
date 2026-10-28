@@ -212,7 +212,10 @@ func TestCustomBossCopyEditRestartAndDropIsolation(t *testing.T) {
 			Rule int `json:"24"`
 		} `json:"10"`
 	}
-	_ = json.Unmarshal(catalog["9"][0], &group)
+	if len(catalog["9"]) != 0 || len(catalog["10"]) != 2 {
+		t.Fatal("3D copy did not use the 3D selection catalog")
+	}
+	_ = json.Unmarshal(catalog["10"][1], &group)
 	if group.Bosses[0].Rule != 3 {
 		t.Fatal("copy exposed native offline solo with template stats")
 	}

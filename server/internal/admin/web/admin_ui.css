@@ -992,4 +992,6 @@ label.catalog-card.selected::after{content:none}
 .cb-artwork-preview{aspect-ratio:1;display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid var(--line);border-radius:12px;overflow:hidden;background-color:var(--surface);background-image:conic-gradient(#90909018 25%,transparent 0 50%,#90909018 0 75%,transparent 0);background-size:24px 24px}
 .cb-artwork-preview img{width:100%;height:100%;object-fit:contain}.cb-artwork-preview .hint{padding:20px;line-height:1.8}
 .cb-part-appearance input[type=file]{max-width:100%;min-width:0;font-size:12px}.cb-part-appearance .hint{line-height:1.8}
+.cb-part-appearance>.cb-entry-note:first-child{margin-bottom:20px}.cb-selection-settings{margin:24px 0}.cb-selection-settings>h3{font-size:14px}
+[data-original-list] .cb-damage-grid{margin-top:16px}[data-original-list] .hint{overflow-wrap:anywhere}
 @media(max-width:800px){.cb-artwork-layout{grid-template-columns:1fr}.cb-artwork-preview{width:min(100%,280px)}}

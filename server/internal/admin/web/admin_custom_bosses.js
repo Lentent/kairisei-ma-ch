@@ -42,6 +42,8 @@ function renderCustomBossSources(selected){
 function updateCustomBossHeading(){
   const b=customBossEditor.draft;if(!b)return;
   $('#custom-boss-title').textContent=b.name||'未命名 Boss';
+  $('#custom-boss-selection-title').textContent=b.name||'未命名关卡';
+  $$('[data-selection-name]').forEach(el=>el.textContent=b.name||'未命名关卡');
   $('#custom-boss-identity').textContent=`BOSS ${b.boss_id} · ${new Set(b.targets.map(t=>t.battle_index)).size} 波 · ${b.targets.length} 个部位`;
   $('#custom-boss-opening').textContent=b.enabled?'允许开放':'制作中 · 未开放';
   $('#custom-boss-opening').className=`pill ${b.enabled?'ok':'gold'}`;
@@ -58,7 +60,7 @@ function updateCustomBossScope(){
   $('#custom-boss-part').innerHTML=b.targets.map((row,i)=>row.battle_index===t.battle_index?`<option value="${i}">${esc(row.name)} · 部位 ${row.enemy_index+1}</option>`:'').join('');
   $('#custom-boss-part').value=e.target;
   $('#custom-boss-part-title').textContent=t.name||`部位 ${t.enemy_index+1}`;
-  $('#custom-boss-part-note').textContent=e.tab==='actions'?'为这个波次的当前部位编排行动。其他波次和部位分别配置。':e.tab==='appearance'?'修改当前波次、当前部位；位置、数量和破坏关系沿用模板。':'这些是 Boss 部位自身的基础数值。HP 已包含原编队倍率。';
+  $('#custom-boss-part-note').textContent=e.tab==='actions'?'为这个波次的当前部位编排行动。其他波次和部位分别配置。':e.tab==='appearance'?'修改当前波次、当前部位。完整角色图片可在「基础与开放」设置独立排列。':'这些是 Boss 部位自身的基础数值。HP 已包含原编队倍率。';
   $('#custom-boss-part-mode').textContent=e.tab==='actions'?(t.actions==null?'沿用模板行动':`${t.actions.length} 条自定义行动`):`敌人 ${t.stats.enemy_id}`;
   $$('[data-boss-part-panel]').forEach(el=>{
     el.hidden=Number(el.dataset.bossPartPanel)!==e.target;
@@ -214,9 +216,34 @@ $('#custom-boss-targets').addEventListener('click',async e=>{
 function renderCustomBossAppearance(t,i,source){
   const e=customBossEditor,original=source?.targets.find(s=>s.battle_index===t.battle_index&&s.enemy_index===t.enemy_index),canUpload=!!original?.static_image_id;
   const status=e.appearanceCurrent[e.draft.boss_id]===false?'图片或部位名有待应用的修改。生成更新包后，按包内说明合并资源并重启。':'当前使用已应用的外观；修改图片或部位名后，须重新生成并应用更新包。';
-  return `<section class="cb-part-appearance"><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-artwork-layout"><div class="cb-artwork-preview" id="cb-${i}-preview">${customBossArtworkPreview(t)}</div><div><h4>部位 PNG</h4>${canUpload?`<div class="field"><label for="cb-${i}-artwork">上传本体或部位图片</label><input id="cb-${i}-artwork" type="file" accept="image/png,.png" data-part-artwork="${i}"></div><button type="button" class="secondary sm" data-part-artwork-reset="${i}" ${t.artwork?'':'disabled'}>恢复模板图片</button><p class="hint">建议透明背景 PNG，单张最多 4MB，边长 64–4096 像素，总像素不超过 800 万；每个 Boss 合计最多 16MB。图片等比适配模板画布，保留透明边缘；本体和其他部位分别上传。</p>`:'<p class="hint">这个部位使用 3D 或 Live2D 外观，可修改名称。上传 PNG 请选择标有「2D 可换图」的模板及普通图片部位。</p>'}<p class="hint">沿用模板的部位数量、位置、点击目标、破坏关系与动画。这里不调整位置或新增部位。</p></div></div><div class="cb-entry-note"><b>应用战斗外观</b><p>${status}</p><p>先保存配置，再生成当前 Boss 的外观更新包。客户端重新登录下载资源后生效；数值与行动仍在保存后用于新开房。</p><button type="button" class="secondary" data-boss-export>生成外观资源更新包</button></div></section>`;
+  return `<section class="cb-part-appearance"><div class="cb-entry-note"><b>选关页名称：<span data-selection-name>${esc(e.draft.name)}</span></b><p>下面修改的是战斗部位名。关卡名称、选关封面和图片排列在「基础与开放」分别设置。</p><button type="button" class="secondary sm" data-selection-settings>修改关卡名称与封面</button></div><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-artwork-layout"><div class="cb-artwork-preview" id="cb-${i}-preview">${customBossArtworkPreview(t)}</div><div><h4>部位 PNG</h4>${canUpload?`<div class="field"><label for="cb-${i}-artwork">上传本体或部位图片</label><input id="cb-${i}-artwork" type="file" accept="image/png,.png" data-part-artwork="${i}"></div><button type="button" class="secondary sm" data-part-artwork-reset="${i}" ${t.artwork?'':'disabled'}>恢复模板图片</button><p class="hint">建议透明背景 PNG，单张最多 4MB，边长 64–4096 像素，总像素不超过 800 万；部位图和封面合计最多 16MB。首波本体图默认同时用作选关封面，也可另行上传封面。</p>`:'<p class="hint">这个部位使用 3D 或 Live2D 外观，可修改名称。上传 PNG 请选择标有「2D 可换图」的模板及普通图片部位。</p>'}<p class="hint">完整角色图选择「独立排列」，本体与部位会分开显示。已制作好透明留白的分层部件图选择「模板拼接」。部位数量和实际战斗破坏关系保持模板配置。</p></div></div><div class="cb-entry-note"><b>应用战斗外观</b><p>${status}</p><p>先保存配置，再生成当前 Boss 的外观更新包。封面、排列和部位名在应用资源包、重启并重新下载资源后生效。</p><button type="button" class="secondary" data-boss-export>生成外观资源更新包</button></div></section>`;
 }
 function customBossArtworkPreview(t){return t.artwork?`<img src="data:image/png;base64,${esc(t.artwork)}" alt="部位PNG预览">`:'<span class="hint">沿用模板图片<br>上传 PNG 后在这里预览</span>'}
+function renderCustomBossSelectionPreview(){
+  const b=customBossEditor.draft;if(!b)return;
+  const artwork=b.cover_artwork||b.targets.find(t=>t.battle_index===0&&t.enemy_index===0)?.artwork;
+  $('#custom-boss-cover-preview').innerHTML=artwork?`<img src="data:image/png;base64,${esc(artwork)}" alt="选关封面预览">`:'<span class="hint">沿用模板封面</span>';
+  $('#custom-boss-cover-reset').disabled=!b.cover_artwork;
+}
+async function readCustomBossPNG(file){
+  if(!file.size||file.size>4*1024*1024)throw new Error('请选择4MB以内的PNG图片');
+  const signature=new Uint8Array(await file.slice(0,8).arrayBuffer());
+  if(![137,80,78,71,13,10,26,10].every((v,i)=>signature[i]===v))throw new Error('图片必须为PNG格式');
+  const bitmap=await createImageBitmap(file);
+  try{if(bitmap.width<64||bitmap.height<64||bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>8*1024*1024)throw new Error('PNG边长须为64–4096像素，总像素不超过800万')}finally{bitmap.close()}
+  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file)});
+}
+$('#custom-boss-cover').addEventListener('change',async()=>{
+  const e=customBossEditor,b=e.draft,input=$('#custom-boss-cover'),file=input.files[0];if(!b||!file||e.busy)return;
+  e.busy=true;customBossControls();customBossError();
+  try{
+    const artwork=await readCustomBossPNG(file);
+    if(b.targets.reduce((n,t)=>n+(t.artwork?.length||0)*.75,file.size)>16*1024*1024)throw new Error('封面和部位PNG合计最多16MB');
+    if(e.draft!==b)return;b.cover_artwork=artwork;customBossChanged();renderCustomBossSelectionPreview();
+  }catch(err){customBossError(errorText(err))}finally{input.value='';e.busy=false;customBossControls()}
+});
+$('#custom-boss-cover-reset').onclick=()=>{const b=customBossEditor.draft;if(!b||customBossEditor.busy)return;delete b.cover_artwork;customBossChanged();renderCustomBossSelectionPreview()};
+$('#custom-boss-layout').onchange=()=>{const b=customBossEditor.draft;if(b){b.artwork_layout=$('#custom-boss-layout').value;customBossChanged()}};
 $('#custom-boss-targets').addEventListener('input',event=>{
   const i=event.target.dataset.partName;if(i===undefined)return;
   const t=customBossEditor.draft.targets[Number(i)];t.name=event.target.value;customBossChanged();updateCustomBossScope();
@@ -226,21 +253,17 @@ $('#custom-boss-targets').addEventListener('change',async event=>{
   const e=customBossEditor,b=e.draft,t=b?.targets[Number(index)],file=input.files[0];if(!t||!file||e.busy)return;
   e.busy=true;customBossControls();customBossError();
   try{
-    if(!file.size||file.size>4*1024*1024)throw new Error('请选择4MB以内的PNG图片');
-    const signature=new Uint8Array(await file.slice(0,8).arrayBuffer());
-    if(![137,80,78,71,13,10,26,10].every((v,i)=>signature[i]===v))throw new Error('部位图片必须为PNG格式');
-    const bitmap=await createImageBitmap(file);
-    try{if(bitmap.width<64||bitmap.height<64||bitmap.width>4096||bitmap.height>4096||bitmap.width*bitmap.height>8*1024*1024)throw new Error('PNG边长须为64–4096像素，总像素不超过800万')}finally{bitmap.close()}
-    const artwork=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('图片读取失败'));reader.readAsDataURL(file)});
-    const total=b.targets.reduce((n,row)=>n+(row===t?file.size:(row.artwork?.length||0)*.75),0);
+    const artwork=await readCustomBossPNG(file);
+    const total=b.targets.reduce((n,row)=>n+(row===t?file.size:(row.artwork?.length||0)*.75),(b.cover_artwork?.length||0)*.75);
     if(total>16*1024*1024)throw new Error('一个Boss的部位PNG合计最多16MB');
     if(e.draft!==b)return;
-    t.artwork=artwork;customBossChanged();$(`#cb-${index}-preview`).innerHTML=customBossArtworkPreview(t);$(`[data-part-artwork-reset="${index}"]`).disabled=false;
+    t.artwork=artwork;customBossChanged();renderCustomBossSelectionPreview();$(`#cb-${index}-preview`).innerHTML=customBossArtworkPreview(t);$(`[data-part-artwork-reset="${index}"]`).disabled=false;
   }catch(err){customBossError(errorText(err))}finally{input.value='';e.busy=false;customBossControls()}
 });
 $('#custom-boss-targets').addEventListener('click',async event=>{
+  if(event.target.closest('[data-selection-settings]')){customBossEditor.tab='basic';updateCustomBossScope();$('#custom-boss-name').focus();return}
   const reset=event.target.closest('[data-part-artwork-reset]');
-  if(reset){const i=Number(reset.dataset.partArtworkReset),t=customBossEditor.draft?.targets[i];if(!t||customBossEditor.busy)return;delete t.artwork;customBossChanged();$(`#cb-${i}-preview`).innerHTML=customBossArtworkPreview(t);reset.disabled=true;return}
+  if(reset){const i=Number(reset.dataset.partArtworkReset),t=customBossEditor.draft?.targets[i];if(!t||customBossEditor.busy)return;delete t.artwork;customBossChanged();renderCustomBossSelectionPreview();$(`#cb-${i}-preview`).innerHTML=customBossArtworkPreview(t);reset.disabled=true;return}
   if(!event.target.closest('[data-boss-export]'))return;
   const e=customBossEditor;if(e.busy||e.dirty||!e.draft)return;
   e.busy=true;customBossControls();customBossError();
@@ -260,6 +283,7 @@ function renderCustomBossForm(){
   $('#custom-boss-name').value=b.name;$('#custom-boss-difficulty').value=b.difficulty;
   $('#custom-boss-bp').value=b.bp_use;$('#custom-boss-bp-half').value=b.bp_use_half;
   $('#custom-boss-enabled').checked=b.enabled;$('#custom-boss-continue').checked=b.continue;
+  $('#custom-boss-layout').value=b.artwork_layout||'auto';renderCustomBossSelectionPreview();
   const source=customBossEditor.sources.find(s=>s.boss_id===b.source_boss_id);
   $('#custom-boss-template').textContent=`沿用模板：${source?.name||b.source_boss_id} · ${source?.difficulty||''}。从组队入口进入；一个人请选择 AI 房间。`;
   $('#custom-boss-targets').innerHTML=b.targets.map((t,i)=>{
@@ -349,7 +373,7 @@ $('#custom-boss-save').onclick=async()=>{
   const incomplete=b.targets.findIndex(t=>t.actions?.some(a=>!a.skill_id||!a.function_id));
   if(incomplete!==-1){customBossEditor.tab='actions';customBossEditor.target=incomplete;updateCustomBossScope();customBossError('请为每条行动选择有效招式');const j=b.targets[incomplete].actions.findIndex(a=>!a.skill_id||!a.function_id);$(`#ca-${incomplete}-${j}-skill`).focus();return}
   customBossEditor.busy=true;customBossError();customBossControls();
-  const body={expected_revision:customBossEditor.revision,...Object.fromEntries(['boss_id','name','difficulty','bp_use','bp_use_half','enabled','continue','targets'].map(k=>[k,b[k]]))};
+  const body={expected_revision:customBossEditor.revision,cover_artwork:b.cover_artwork||'',artwork_layout:b.artwork_layout||'auto',...Object.fromEntries(['boss_id','name','difficulty','bp_use','bp_use_half','enabled','continue','targets'].map(k=>[k,b[k]]))};
   try{
     const data=await api('/api/custom-bosses',{method:'PUT',body:JSON.stringify(body)});
     customBossEditor.revision=data.revision;customBossEditor.bosses=customBossEditor.bosses.map(row=>row.boss_id===data.boss.boss_id?data.boss:row);customBossEditor.appearanceCurrent[data.boss.boss_id]=data.appearance_current;selectCustomBoss(data.boss.boss_id,true);

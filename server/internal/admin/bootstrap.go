@@ -275,6 +275,15 @@ func New(config Config) (http.Handler, error) {
 			assetURLs[group.ImageURL] = struct{}{}
 		}
 	}
+	for _, group := range config.Operations.customBossGroups() {
+		url, err := adminOptionalImageURL(assetsRoot, group.ImageURL)
+		if err != nil {
+			return nil, err
+		}
+		if url != "" {
+			assetURLs[url] = struct{}{}
+		}
+	}
 	admin := &API{
 		accounts: config.Accounts, business: config.Runtime, operations: config.Operations,
 		groups: groups, catalog: catalog, catalogByKey: catalogByKey,

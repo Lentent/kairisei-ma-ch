@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"kairisei.local/server/internal/game"
 	"kairisei.local/server/internal/gamestate"
 	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/testfixture"
@@ -85,10 +87,13 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 		t.Fatal("2D template did not expose editable artwork")
 	}
 	b.Targets[0].Name = "机械核心"
+	b.Name = "机械试炼"
 	b.Targets[0].Artwork = bossTestArtwork(t)
 	b.Targets[2].Name = "第二波核心"
 	b.Targets[2].Artwork = bossTestArtwork(t)
-	input := map[string]any{"expected_revision": 1, "boss_id": b.BossID, "name": b.Name, "difficulty": b.Difficulty, "bp_use": b.BPUse, "bp_use_half": b.BPUseHalf, "continue": b.Continue, "enabled": b.Enabled, "targets": b.Targets}
+	b.CoverArtwork = bossTestArtwork(t)
+	b.ArtworkLayout = "separate"
+	input := map[string]any{"expected_revision": 1, "boss_id": b.BossID, "name": b.Name, "difficulty": b.Difficulty, "bp_use": b.BPUse, "bp_use_half": b.BPUseHalf, "continue": b.Continue, "enabled": b.Enabled, "targets": b.Targets, "cover_artwork": b.CoverArtwork, "artwork_layout": b.ArtworkLayout}
 	if err = json.Unmarshal(testfixture.CallContentAdmin(t, router, "PUT", "/copies", input, 200), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +115,7 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 	bad[0].Artwork = []byte("fake png")
 	input["targets"] = bad
 	testfixture.CallContentAdmin(t, router, "PUT", "/copies", input, 400)
-	receipt := map[int]customBossAppearance{b.BossID: {SourceBossID: 11, Fingerprint: customBossAppearanceHash(b), Parties: []int{customBossPartyID(b.BossID, 0), customBossPartyID(b.BossID, 1)}}}
+	receipt := map[int]customBossAppearance{b.BossID: {SourceBossID: 11, Fingerprint: customBossAppearanceHash(b), Parties: []int{customBossPartyID(b.BossID, 0), customBossPartyID(b.BossID, 1)}, CoverPictureID: customBossCoverID(b.BossID)}}
 	raw, _ = json.Marshal(receipt)
 	if err = os.WriteFile(filepath.Join(filepath.Dir(path), "cn602-custom-boss-appearances.json"), raw, 0600); err != nil {
 		t.Fatal(err)
@@ -126,7 +131,36 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 	if !bytes.Equal(saved.Targets[0].Artwork, b.Targets[0].Artwork) || saved.Targets[0].Name != "机械核心" || !restarted.content.customBossAppearanceCurrent(saved) {
 		t.Fatal("design or applied receipt lost on restart")
 	}
+	if !bytes.Equal(saved.CoverArtwork, b.CoverArtwork) || saved.ArtworkLayout != "separate" {
+		t.Fatal("cover and layout were lost on restart")
+	}
 	config := restarted.ContentConfiguration().State
+	assertSelection := func(raw json.RawMessage) {
+		t.Helper()
+		var top map[string][]map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &top); err != nil {
+			t.Fatal(err)
+		}
+		if len(top["9"]) != 0 || len(top["12"]) != 1 {
+			t.Fatal("2D copy did not use enemy-art selection catalog")
+		}
+		g := top["12"][0]
+		var name string
+		var picture, search int
+		var bosses []map[string]json.RawMessage
+		_ = json.Unmarshal(g["4"], &name)
+		_ = json.Unmarshal(g["7"], &picture)
+		_ = json.Unmarshal(g["2"], &search)
+		_ = json.Unmarshal(g["10"], &bosses)
+		var bossPicture int
+		_ = json.Unmarshal(bosses[0]["9"], &bossPicture)
+		if name != b.Name || picture != customBossCoverID(b.BossID) || bossPicture != picture || search != b.GroupID {
+			t.Fatal("selection name, cover or independent search identity is stale")
+		}
+	}
+	assertSelection(config.TeamBattleSolo)
+	account := game.ApplyContentState(gamestate.State{TeamBattleSolo: base.TeamBattleSolo}, restarted.ContentConfiguration())
+	assertSelection(account.TeamBattleSolo)
 	for wave, w := range config.TeamBattleReplays[1].Battles {
 		if w.EnemyPartyID != 101 || w.ClientEnemyPartyID != customBossPartyID(b.BossID, wave) {
 			t.Fatal("client appearance changed server combat party")
@@ -145,6 +179,14 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 	saved.Targets[0].Name = "改名待应用"
 	if restarted.content.customBossAppearanceCurrent(saved) {
 		t.Fatal("unapplied rename marked current")
+	}
+	a.operations = restarted
+	input["targets"] = b.Targets
+	input["cover_artwork"] = ""
+	input["artwork_layout"] = "template"
+	testfixture.CallContentAdmin(t, router, "PUT", "/copies", input, 200)
+	if len(restarted.content.customBosses[0].CoverArtwork) != 0 || restarted.content.customBosses[0].ArtworkLayout != "template" {
+		t.Fatal("cover reset/layout switch did not persist")
 	}
 }
 
@@ -181,10 +223,32 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 	if err = ops.InitializeContent(base, path); err != nil {
 		t.Fatal(err)
 	}
+	sourceEnemyCSV, err := os.ReadFile(filepath.Join(filepath.Dir(path), "cn602-battle-master/enemy.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceEnemyRows, err := customBossCSVRows(string(sourceEnemyCSV))
+	if err != nil {
+		t.Fatal(err)
+	}
 	sourceID := 0
 	for id := range ops.content.bosses {
 		s, e := ops.content.customBossSource(id)
-		if e == nil && len(s.Targets) > 1 && s.Targets[0].StaticImageID > 0 && (sourceID == 0 || id < sourceID) {
+		firstCount, allStatic, sizes := 0, true, ""
+		for _, t := range s.Targets {
+			if t.BattleIndex == 0 {
+				firstCount++
+				allStatic = allStatic && t.StaticImageID > 0
+				if t.Stats == nil {
+					allStatic = false
+					continue
+				}
+				if row := sourceEnemyRows[t.Stats.EnemyID]; len(row) > 24 {
+					sizes += row[24]
+				}
+			}
+		}
+		if e == nil && firstCount == 3 && allStatic && sizes == "LPP" && (sourceID == 0 || id < sourceID) {
 			sourceID = id
 		}
 	}
@@ -250,7 +314,7 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		}
 		out := map[string]string{}
 		updates := map[string]func(string) (string, error){}
-		for _, name := range []string{"enemy.csv", "enemy_party.csv", "enemy_lvup.csv"} {
+		for _, name := range []string{"enemy.csv", "enemy_party.csv", "enemy_lvup.csv", "enemy_target.csv", "enemy_uipos.csv"} {
 			updates[name] = func(s string) (string, error) { out[name] = s; return s, nil }
 		}
 		if _, e = replaceResourceTexts(bundle.nodes[0].data, updates); e != nil {
@@ -265,11 +329,11 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 	}
 	before, after := readTexts(original), readTexts(files["resource-set/"+containerPath])
 	for name, text := range before {
-		old, e := customBossCSVRows(text)
+		old, e := customBossCSVRows(text, name == "enemy_target.csv")
 		if e != nil {
 			t.Fatal(e)
 		}
-		next, e := customBossCSVRows(after[name])
+		next, e := customBossCSVRows(after[name], name == "enemy_target.csv")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -281,6 +345,17 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 	}
 	enemies, _ := customBossCSVRows(after["enemy.csv"])
 	parties, _ := customBossCSVRows(after["enemy_party.csv"])
+	targets, _ := customBossCSVRows(after["enemy_target.csv"], true)
+	separatedPositions := false
+	for _, line := range strings.Split(after["enemy_uipos.csv"], "\n") {
+		if strings.HasPrefix(line, "SSS,") {
+			r := strings.Split(line, ",")
+			separatedPositions = len(r) > 21 && r[1] != r[11] && r[11] != r[21] && r[1] != r[21]
+		}
+	}
+	if !separatedPositions {
+		t.Fatal("separate 2D layout has no distinct client coordinates")
+	}
 	for wave := 0; wave < 2; wave++ {
 		id := customBossEnemyID(b.BossID, wave, 0)
 		pict := customBossImageID(b.BossID, wave, 0)
@@ -302,6 +377,32 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		if e != nil || !found {
 			t.Fatal("new texture not loadable", e)
 		}
+		for slot := 0; slot < 3; slot++ {
+			id := customBossEnemyID(b.BossID, wave, slot)
+			if enemies[id][24] != "S" || parties[customBossPartyID(b.BossID, wave)][4+slot*3] != strconv.Itoa(slot) {
+				t.Fatal("independent 2D sprites still use overlapping template layout/parent anchors")
+			}
+			for j := 1; j < 5; j++ {
+				if targets[id][j] != "0" {
+					t.Fatal("separated target does not anchor to its own image")
+				}
+			}
+		}
+	}
+	coverPath := fmt.Sprintf("resource-set/resources/patch/main_c/image/custom_boss_%d_cover.dat", b.BossID)
+	cover, e := readResourceBundle(files[coverPath])
+	if e != nil {
+		t.Fatal(e)
+	}
+	coverFound := false
+	_, e = rewriteResourceObjects(cover.nodes[0].data, func(class int, object []byte) ([]byte, error) {
+		if class == 28 && resourceObjectName(object) == fmt.Sprintf("chr60_%08d", customBossCoverID(b.BossID)) {
+			coverFound = true
+		}
+		return object, nil
+	})
+	if e != nil || !coverFound {
+		t.Fatal("selection cover lacks the client chr60 resource", e)
 	}
 	if enemies[customBossEnemyID(b.BossID, 0, 0)][6] != "自制核心" || enemies[customBossEnemyID(b.BossID, 1, 0)][6] != "二波核心" {
 		t.Fatal("per-wave names not exported")
@@ -324,9 +425,13 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Re-export from the applied set. Only the original texture is read as a template.
+	coverTemplate, err := customBossCoverTemplate(b, assets["catalog_assets"].([]any))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, v := range assets["catalog_assets"].([]any) {
 		entry := v.(map[string]any)
-		if entry["name"] == "chr50_"+strconv.Itoa(b.Targets[0].StaticImageID) {
+		if entry["name"] == "chr50_"+strconv.Itoa(b.Targets[0].StaticImageID) || entry["bundle"] == coverTemplate["bundle"] {
 			name := "resources/patch/" + entry["bundle"].(string)
 			raw, e := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
 			if e != nil {
@@ -342,6 +447,7 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		}
 	}
 	b.Targets[0].Name = "再次改名"
+	b.ArtworkLayout = "template"
 	a2 := &API{collectionResourceRoot: staging}
 	second, err := a2.buildCustomBossAppearancePatch(b)
 	if err != nil {
@@ -351,6 +457,15 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 	secondEnemies, _ := customBossCSVRows(readTexts(secondFiles["resource-set/"+containerPath])["enemy.csv"])
 	if secondEnemies[customBossEnemyID(b.BossID, 0, 0)][6] != "再次改名" {
 		t.Fatal("applied design could not be updated")
+	}
+	secondTexts := readTexts(secondFiles["resource-set/"+containerPath])
+	secondTargets, _ := customBossCSVRows(secondTexts["enemy_target.csv"], true)
+	originalTargets, _ := customBossCSVRows(before["enemy_target.csv"], true)
+	for _, target := range b.Targets {
+		id := customBossEnemyID(b.BossID, target.BattleIndex, target.EnemyIndex)
+		if expected := originalTargets[target.Stats.EnemyID]; len(expected) > 0 && !reflect.DeepEqual(expected[1:], secondTargets[id][1:]) {
+			t.Fatal("template layout lost its original aim/effect coordinates")
+		}
 	}
 	if output := os.Getenv("CUSTOM_BOSS_TEST_ZIP"); output != "" {
 		if err = os.WriteFile(output, patch, 0600); err != nil {

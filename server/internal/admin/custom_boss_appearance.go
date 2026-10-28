@@ -22,9 +22,50 @@ import (
 const customBossAppearancePath = "_local/control/server/cn602-custom-boss-appearances.json"
 
 type customBossAppearance struct {
-	SourceBossID int    `json:"source_boss_id"`
-	Fingerprint  string `json:"fingerprint"`
-	Parties      []int  `json:"parties"`
+	CoverPictureID int    `json:"cover_picture_id,omitempty"`
+	SourceBossID   int    `json:"source_boss_id"`
+	Fingerprint    string `json:"fingerprint"`
+	Parties        []int  `json:"parties"`
+}
+
+func customBossCoverID(boss int) int { return 97300000 + boss - customBossFirstID }
+
+func customBossCoverArtwork(b customBoss) []byte {
+	if len(b.CoverArtwork) > 0 {
+		return b.CoverArtwork
+	}
+	for _, t := range b.Targets {
+		if t.BattleIndex == 0 && t.EnemyIndex == 0 && len(t.Artwork) > 0 {
+			return t.Artwork
+		}
+	}
+	return nil
+}
+
+func customBossSeparateWave(b customBoss, wave int, enemies map[int][]string) bool {
+	if b.ArtworkLayout == "template" {
+		return false
+	}
+	var group struct {
+		Bosses []struct {
+			Model int `json:"14"`
+		} `json:"10"`
+	}
+	if json.Unmarshal(b.SourceGroup, &group) != nil || len(group.Bosses) != 1 || group.Bosses[0].Model != 0 {
+		return false
+	}
+	uploaded := b.ArtworkLayout == "separate"
+	for _, t := range b.Targets {
+		if t.BattleIndex != wave {
+			continue
+		}
+		row := enemies[t.Stats.EnemyID]
+		if len(row) < 25 || row[4] == "" || row[4] == "0" || row[5] != "" {
+			return false
+		}
+		uploaded = uploaded || len(t.Artwork) > 0
+	}
+	return uploaded
 }
 
 // Reserve separate client identities for every wave and slot. Server combat
@@ -62,9 +103,12 @@ func customBossAppearanceHash(b customBoss) string {
 	}
 	slices.SortFunc(parts, func(a, b part) int { return (a.Wave*4 + a.Slot) - (b.Wave*4 + b.Slot) })
 	raw, _ := json.Marshal(struct {
-		Source int
-		Parts  []part
-	}{b.SourceBossID, parts})
+		Source  int
+		Parts   []part
+		Layout  string
+		Cover   string
+		Version int
+	}{b.SourceBossID, parts, b.ArtworkLayout, resourceHash(customBossCoverArtwork(b)), 2})
 	return resourceHash(raw)
 }
 
@@ -81,6 +125,9 @@ func (c *contentStore) loadCustomBossAppearances(path string) error {
 		return err
 	}
 	for id, a := range c.customBossAppearances {
+		if a.CoverPictureID != 0 && a.CoverPictureID != customBossCoverID(id) {
+			return errors.New("自制Boss封面编号无效")
+		}
 		if id < customBossFirstID || id > customBossLastID || a.SourceBossID < 1 || len(a.Parties) < 1 || len(a.Parties) > 64 || len(a.Fingerprint) != 64 {
 			return errors.New("自制Boss外观发布记录无效")
 		}
@@ -98,6 +145,9 @@ func (c *contentStore) customBossAppearanceCurrent(b customBoss) bool {
 		return a.SourceBossID == b.SourceBossID && a.Fingerprint == customBossAppearanceHash(b)
 	}
 	source := c.bosses[b.SourceBossID]
+	if len(b.CoverArtwork) > 0 || b.ArtworkLayout == "separate" {
+		return false
+	}
 	for _, t := range b.Targets {
 		i := slices.IndexFunc(source.Targets, func(s dropTarget) bool { return s.BattleIndex == t.BattleIndex && s.EnemyIndex == t.EnemyIndex })
 		if i < 0 || t.Name != source.Targets[i].Name || len(t.Artwork) > 0 {
@@ -152,7 +202,7 @@ func (a *API) exportCustomBossAppearance(w http.ResponseWriter, r *http.Request)
 	_, _ = w.Write(patch)
 }
 
-func customBossCSVRows(text string) (map[int][]string, error) {
+func customBossCSVRows(text string, firstWins ...bool) (map[int][]string, error) {
 	rows := map[int][]string{}
 	for _, line := range strings.Split(text, "\n") {
 		id, _, _ := strings.Cut(line, ",")
@@ -168,6 +218,11 @@ func customBossCSVRows(text string) (map[int][]string, error) {
 			return nil, err
 		}
 		if _, exists := rows[n]; exists {
+			// Official enemy_target.csv contains historical duplicates. Its
+			// client loader keeps the first row; mirror that without rewriting it.
+			if len(firstWins) > 0 && firstWins[0] {
+				continue
+			}
 			return nil, fmt.Errorf("模板资料%d重复", n)
 		}
 		rows[n] = row
@@ -255,7 +310,7 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 	}
 	texts := map[string]string{}
 	extract := map[string]func(string) (string, error){}
-	for _, name := range []string{"enemy.csv", "enemy_party.csv", "enemy_lvup.csv"} {
+	for _, name := range []string{"enemy.csv", "enemy_party.csv", "enemy_lvup.csv", "enemy_target.csv", "enemy_uipos.csv"} {
 		extract[name] = func(s string) (string, error) { texts[name] = s; return s, nil }
 	}
 	if _, err = replaceResourceTexts(container.nodes[0].data, extract); err != nil {
@@ -273,7 +328,11 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 	if err != nil {
 		return nil, err
 	}
-	changes := map[string]map[string][]string{"enemy.csv": {}, "enemy_party.csv": {}, "enemy_lvup.csv": {}}
+	targets, err := customBossCSVRows(texts["enemy_target.csv"], true)
+	if err != nil {
+		return nil, err
+	}
+	changes := map[string]map[string][]string{"enemy.csv": {}, "enemy_party.csv": {}, "enemy_lvup.csv": {}, "enemy_target.csv": {}, "enemy_uipos.csv": {}}
 	newParties := make([]int, len(waves))
 	bundles := assets["bundles"].([]any)
 	catalog := assets["catalog_assets"].([]any)
@@ -289,6 +348,21 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 		}
 		party[0] = strconv.Itoa(newParty)
 		newParties[wave] = newParty
+		separate := customBossSeparateWave(boss, wave, enemies)
+		count := 0
+		for _, t := range boss.Targets {
+			if t.BattleIndex == wave {
+				count++
+			}
+		}
+		if separate && count == 4 && !strings.Contains("\n"+texts["enemy_uipos.csv"], "\nSSSS,") {
+			row := []string{"SSSS"}
+			for _, x := range []int{-288, -96, 96, 288} {
+				row = append(row, strconv.Itoa(x), "0", "0", "0", "-75", "-10", "140", "-75", "-10", "140")
+			}
+			row = append(row, "")
+			changes["enemy_uipos.csv"]["SSSS"] = row
+		}
 		for _, t := range boss.Targets {
 			if t.BattleIndex != wave {
 				continue
@@ -315,6 +389,30 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 			id := strconv.Itoa(newEnemy)
 			party[slot] = id
 			enemy[0], enemy[6], lv[0] = id, t.Name, id
+			target := slices.Clone(targets[t.Stats.EnemyID])
+			if len(target) < 9 {
+				target = []string{id, "0", "0", "0", "0", "0", "0", "0", "0", ""}
+			}
+			if _, exists := targets[newEnemy]; exists && !owned {
+				return nil, errors.New("自制Boss目标坐标编号已被占用")
+			}
+			target[0] = id
+			if separate {
+				size := "S"
+				if count == 1 {
+					size = "L"
+				} else if count == 2 {
+					size = "M"
+				}
+				enemy[24] = size
+				// Client targets anchor to their own separated sprite. Server parent
+				// relations remain in the unchanged original combat party.
+				party[slot+2] = strconv.Itoa(t.EnemyIndex)
+				for j := 1; j <= 4; j++ {
+					target[j] = "0"
+				}
+			}
+			changes["enemy_target.csv"][id] = target
 			if len(t.Artwork) > 0 {
 				if enemy[5] != "" || enemy[4] == "" || enemy[4] == "0" {
 					return nil, errors.New("该部位不是普通2D图片")
@@ -420,11 +518,15 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 		return nil, err
 	}
 	files[containerPath] = container.save()
-	installed.customBossAppearances[boss.BossID] = customBossAppearance{boss.SourceBossID, customBossAppearanceHash(boss), newParties}
+	assets["bundles"], assets["catalog_assets"] = bundles, catalog
+	coverID, err := buildCustomBossCoverResource(boss, assets, files, original, read, owned)
+	if err != nil {
+		return nil, err
+	}
+	installed.customBossAppearances[boss.BossID] = customBossAppearance{SourceBossID: boss.SourceBossID, Fingerprint: customBossAppearanceHash(boss), Parties: newParties, CoverPictureID: coverID}
 	files[customBossAppearancePath], err = resourceJSON(installed.customBossAppearances)
 	if err != nil {
 		return nil, err
 	}
-	assets["bundles"], assets["catalog_assets"] = bundles, catalog
-	return finishCustomResourcePatch(files, original, assets, manifest, read, map[string]any{"boss_id": boss.BossID, "appearance": installed.customBossAppearances[boss.BossID]}, "自制Boss外观资源更新包\n正常停服并备份资源与数据库。核对configuration.json的base_sha256与当前文件一致（空值为新文件），再按原路径合并resource-set并重启。使用CDN时同步资源与清单。客户端完全退出、重新登录并下载资源后生效，无需修改APK。\n保存配置和下载ZIP不会应用图片或部位名。已应用的外观保持到下次应用更新包；数值与行动保存后用于新开房。仅替换当前复制品，不覆盖原Boss。不同更新包须依次基于已应用的资源生成。\n在手机核对各波次的PNG、部位名、位置、点击目标、破坏与出招。位置和部位数量沿用模板，不支持新增骨骼、Live2D或3D模型。\n")
+	return finishCustomResourcePatch(files, original, assets, manifest, read, map[string]any{"boss_id": boss.BossID, "appearance": installed.customBossAppearances[boss.BossID]}, "自制Boss外观资源更新包\n正常停服并备份资源与数据库。核对configuration.json的base_sha256与当前文件一致（空值为新文件），再按原路径合并resource-set并重启。使用CDN时同步资源与清单。客户端完全退出、重新登录并下载资源后生效，无需修改APK。\n保存配置和下载ZIP不会应用图片或部位名。已应用的外观保持到下次应用更新包；数值与行动保存后用于新开房。仅替换当前复制品，不覆盖原Boss。不同更新包须依次基于已应用的资源生成。\n在手机核对各波次的PNG、部位名、位置、点击目标、破坏与出招。完整角色PNG可选独立排列，分层部件图可选模板拼接；部位数量与实际战斗破坏关系沿用模板。更新早期版本后须重新生成并应用本包，补齐封面和目标坐标。不支持新增骨骼、Live2D或3D模型。\n")
 }
