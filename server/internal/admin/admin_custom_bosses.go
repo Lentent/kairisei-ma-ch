@@ -128,6 +128,9 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 		if err := gamestate.ValidateTeamBattleEnemyActions(t.Actions); err != nil {
 			return err
 		}
+		if err := gamestate.ValidateTeamBattleEnemyOriginalSkills(t.OriginalSkills); err != nil {
+			return err
+		}
 		base := original[idx].Stats
 		if t.Stats.Attribute != base.Attribute && strings.Contains(t.Stats.Attribute, "_") {
 			return errors.New("新属性请选择单一属性；模板的复合属性可原样保留")
@@ -284,7 +287,7 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		}
 		r.EnemyOverrides = make([]gamestate.TeamBattleEnemyOverride, 0, len(b.Targets))
 		for _, t := range b.Targets {
-			r.EnemyOverrides = append(r.EnemyOverrides, gamestate.TeamBattleEnemyOverride{BattleIndex: t.BattleIndex, EnemyIndex: t.EnemyIndex, Stats: *t.Stats, Actions: t.Actions, IncludeOriginalActions: t.IncludeOriginalActions, AnimationModel: meta.Category})
+			r.EnemyOverrides = append(r.EnemyOverrides, gamestate.TeamBattleEnemyOverride{BattleIndex: t.BattleIndex, EnemyIndex: t.EnemyIndex, Stats: *t.Stats, Actions: t.Actions, OriginalSkills: t.OriginalSkills, IncludeOriginalActions: t.IncludeOriginalActions, AnimationModel: meta.Category})
 		}
 		r.EnemyOverrides = gamestate.CloneTeamBattleEnemyOverrides(r.EnemyOverrides)
 		state.TeamBattleReplays = append(state.TeamBattleReplays, r)

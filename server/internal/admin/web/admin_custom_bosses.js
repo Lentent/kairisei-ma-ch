@@ -3,6 +3,46 @@ const customBossEditor={revision:0,sources:[],bosses:[],appearanceCurrent:{},dra
 const customBossAttributes=[['FIRE','火'],['ICE','冰'],['WIND','风'],['LIGHT','光'],['DARK','暗'],['EARTH','地'],['THUNDER','雷'],['WATER','水'],['NEUTRAL','无属性'],['NULL','无'],['NONE','无']];
 const customBossStatusNames=['','眩晕','沉默','魅惑','中毒','燃烧','冻结','流血','侵蚀','弱点','感电','陷阱持续伤害','封锁 COST','抽卡惩罚','治疗削减'];
 let customBossBuffPresets=[];
+const customBossOriginalActions=new Map();
+
+function renderCustomBossOriginalSkills(t,i){
+  const source=customBossEditor.draft.source_boss_id;
+  if(!customBossOriginalActions.has(source))return '<p class="hint">正在读取原有招式…</p>';
+  const entries=customBossOriginalActions.get(source).filter(a=>a.battle_index===t.battle_index&&a.enemy_index===t.enemy_index);
+  const inactive=t.actions!=null&&!t.include_original_actions;
+  const categories={normal:'普通攻击',skill:'普通招式／先制',special:'蓄力招式',death:'破坏招式',passive:'开场被动'};
+  return `<h3>原有招式 · ${entries.length} 个分支</h3><p class="hint">直接修改下方原有攻击，无需重新添加行动。原回合条件、概率、选人、顺序和分支判断继续生效。留空继承原值；基础伤害是防御前的每段威力，倍率 50 表示减半，同时填写先替换再乘倍率。多个攻击效果分别应用设置，附带效果保持原样。</p>${inactive?'<p class="hint">当前为「只用自定义行动」，原有普通／蓄力招式不会执行；下面的修改会保留，切回含原逻辑的模式后生效。</p>':''}`+entries.map((a,j)=>{
+    const saved=t.original_skills?.find(s=>s.slot===a.slot&&s.skill_id===a.skill_id&&s.function_id===a.function_id);
+    const fields=[['power','每段基础伤害（防御前）',0,100000000],['power_rate','基础伤害倍率（%）',0,1000],['hits','每个攻击效果的攻击次数',1,20]];
+    return `<article class="cb-action-card" data-original-slot="${a.slot}" data-original-skill="${a.skill_id}" data-original-function="${a.function_id}"><div class="cb-action-head"><div><h4>${esc(a.name||'招式 '+a.skill_id)}</h4><span class="hint">${esc(categories[a.category]||a.category)} · ${a.skill_id} / 分支 ${a.function_id}</span></div>${a.editable?'<button type="button" class="secondary sm" data-original-reset>恢复原值</button>':''}</div><div class="cb-action-body"><p class="hint">${esc(a.rule)}</p><p class="hint">${esc(a.branch||'')}</p><div class="custom-boss-effects"><b>原始效果</b><ul>${(a.effects||[]).map(s=>`<li>${esc(s)}</li>`).join('')||'<li>暂无可显示的效果资料。</li>'}</ul></div>${a.editable?`<div class="cb-damage-grid">${fields.map(([key,label,min,max])=>`<div class="field"><label for="co-${i}-${j}-${key}">${label}</label><input id="co-${i}-${j}-${key}" data-original-field="${key}" type="number" min="${min}" max="${max}" step="1" placeholder="沿用原招式" value="${saved?.[key]??''}"></div>`).join('')}</div>`:`<p class="hint">${esc(a.reason||'此招式暂不支持编辑')}，保持原有行为。</p>`}</div></article>`;
+  }).join('')+(entries.length?'':'<p class="empty">当前部位没有原有招式资料。</p>');
+}
+
+function refreshCustomBossOriginalSkills(){
+  const b=customBossEditor.draft;if(!b)return;
+  b.targets.forEach((t,i)=>{const el=$(`[data-original-list="${i}"]`);if(el)el.innerHTML=renderCustomBossOriginalSkills(t,i)});
+}
+
+$('#custom-boss-targets').addEventListener('input',e=>{
+  const key=e.target.dataset.originalField;if(!['power','power_rate','hits'].includes(key))return;
+  const card=e.target.closest('[data-original-slot]'),i=Number(card.closest('[data-action-target]').dataset.actionTarget),t=customBossEditor.draft.targets[i];
+  const identity={slot:Number(card.dataset.originalSlot),skill_id:Number(card.dataset.originalSkill),function_id:Number(card.dataset.originalFunction)};
+  t.original_skills??=[];
+  let edit=t.original_skills.find(s=>s.slot===identity.slot&&s.skill_id===identity.skill_id&&s.function_id===identity.function_id);
+  if(!edit){edit=identity;t.original_skills.push(edit)}
+  if(e.target.value==='')delete edit[key];else edit[key]=Number(e.target.value);
+  t.original_skills=t.original_skills.filter(s=>s.power!=null||s.power_rate!=null||s.hits!=null);
+  if(!t.original_skills.length)delete t.original_skills;
+  customBossChanged();
+});
+$('#custom-boss-targets').addEventListener('click',e=>{
+  if(e.target.closest('[data-original-retry]')){loadCustomBossActionSkills();return}
+  const button=e.target.closest('[data-original-reset]');if(!button)return;
+  const card=button.closest('[data-original-slot]'),i=Number(card.closest('[data-action-target]').dataset.actionTarget),t=customBossEditor.draft.targets[i];
+  t.original_skills=(t.original_skills||[]).filter(s=>!(s.slot===Number(card.dataset.originalSlot)&&s.skill_id===Number(card.dataset.originalSkill)&&s.function_id===Number(card.dataset.originalFunction)));
+  if(!t.original_skills.length)delete t.original_skills;
+  card.querySelectorAll('[data-original-field]').forEach(el=>el.value='');customBossChanged();
+});
 function renderCustomBossPage(){
   const rows=customBossEditor.bosses.filter(b=>matchesWords(`${b.name} ${b.difficulty} ${b.boss_id}`,$('#custom-boss-list-search').value));
   $('#custom-boss-count').textContent=`${rows.length} / ${customBossEditor.bosses.length} 个`;
@@ -102,7 +142,7 @@ function renderCustomBossActions(t,i){
     <div id="ca-${i}-${j}-buff-editor" class="custom-boss-buff-editor" hidden></div><div class="field cb-animation-field"><label for="ca-${i}-${j}-animation">施放演出</label><select id="ca-${i}-${j}-animation" data-action-field="animation"><option value="auto">自动匹配演出</option></select><p class="hint" id="ca-${i}-${j}-animation-note"></p></div></div></article>`;
   }).join('');
   const presets=customBossBuffPresets;
-  return `<section class="cb-action-section" data-action-target="${i}"><div class="cb-action-mode"><div class="field"><label for="ca-${i}-mode">行动逻辑模式（当前波次、当前部位）</label><select id="ca-${i}-mode" data-action-mode aria-describedby="ca-${i}-mode-help">${[['original','只用原逻辑'],['custom','只用自定义行动'],['combined','原逻辑＋自定义行动']].map(([v,label])=>`<option value="${v}" ${mode===v?'selected':''}>${label}</option>`).join('')}</select><p class="hint" id="ca-${i}-mode-help">${modeHelp[mode]}</p></div></div><p class="hint">首次 1／间隔 2 表示第 1、3、5……回合施放，间隔 0 只放一次。自定义行动同回合按列表从上到下执行；开场（第 0 回合）也遵循所选模式。开场被动、破坏技能仍沿用模板。死亡、眩晕的部位不执行回合行动。</p><div data-action-list ${enabled?'':'hidden'}><div class="custom-boss-buff-picker"><label for="ca-${i}-buff-preset">快速添加玩家 Buff · ${presets.length} 个资源招式分支</label><input type="search" id="ca-${i}-buff-search" data-buff-search placeholder="搜索物攻、魔防、抽卡、暴击、回复、屏障等" aria-label="搜索玩家 Buff"><div class="filterbar"><select id="ca-${i}-buff-preset">${customBossBuffPresetOptions(presets)}</select><button type="button" class="secondary" data-action-command="add-buff" ${presets.length?'':'disabled'}>添加 Buff 行动</button></div><p class="hint">自动整理当前资源中的纯玩家增益、回复和减益解除招式；添加后逐项修改数值。属性、范围等沿用来源，完整效果显示在行动卡内。若想保留 Boss 原有攻击并额外加 Buff，选择「原逻辑＋自定义行动」。</p></div>${rows}<button type="button" class="secondary" data-action-command="add">添加普通／其他行动</button></div></section>`;
+  return `<section class="cb-action-section" data-action-target="${i}"><div class="cb-action-mode"><div class="field"><label for="ca-${i}-mode">行动逻辑模式（当前波次、当前部位）</label><select id="ca-${i}-mode" data-action-mode aria-describedby="ca-${i}-mode-help">${[['original','只用原逻辑'],['custom','只用自定义行动'],['combined','原逻辑＋自定义行动']].map(([v,label])=>`<option value="${v}" ${mode===v?'selected':''}>${label}</option>`).join('')}</select><p class="hint" id="ca-${i}-mode-help">${modeHelp[mode]}</p></div></div><p class="hint">首次 1／间隔 2 表示第 1、3、5……回合施放，间隔 0 只放一次。自定义行动同回合按列表从上到下执行；开场（第 0 回合）也遵循所选模式。开场被动、破坏技能仍沿用模板。死亡、眩晕的部位不执行回合行动。</p><div data-original-list="${i}">${renderCustomBossOriginalSkills(t,i)}</div><div data-action-list ${enabled?'':'hidden'}><div class="custom-boss-buff-picker"><label for="ca-${i}-buff-preset">快速添加玩家 Buff · ${presets.length} 个资源招式分支</label><input type="search" id="ca-${i}-buff-search" data-buff-search placeholder="搜索物攻、魔防、抽卡、暴击、回复、屏障等" aria-label="搜索玩家 Buff"><div class="filterbar"><select id="ca-${i}-buff-preset">${customBossBuffPresetOptions(presets)}</select><button type="button" class="secondary" data-action-command="add-buff" ${presets.length?'':'disabled'}>添加 Buff 行动</button></div><p class="hint">自动整理当前资源中的纯玩家增益、回复和减益解除招式；添加后逐项修改数值。属性、范围等沿用来源，完整效果显示在行动卡内。若想保留 Boss 原有攻击并额外加 Buff，选择「原逻辑＋自定义行动」。</p></div>${rows}<button type="button" class="secondary" data-action-command="add">添加普通／其他行动</button></div></section>`;
 }
 function customBossBuffPresetOptions(rows){return rows.map(p=>`<option value="${p.source_boss_id}:${p.skill_id}:${p.function_id}">${esc(p.label)}</option>`).join('')||'<option value="">没有匹配的玩家增益招式</option>'}
 function updateCustomBossActionEffects(i,j){
@@ -127,11 +167,22 @@ function updateCustomBossActionEffects(i,j){
 async function customBossSkillOptions(source){
   const e=customBossEditor;
   if(e.skills.has(source))return e.skills.get(source);
-  if(!e.skillRequests.has(source))e.skillRequests.set(source,api(`/api/custom-boss-skills?source_boss_id=${source}`).then(data=>{e.skills.set(source,data.skills);return data.skills}).finally(()=>e.skillRequests.delete(source)));
+  if(!e.skillRequests.has(source))e.skillRequests.set(source,api(`/api/custom-boss-skills?source_boss_id=${source}`).then(data=>{e.skills.set(source,data.skills||[]);customBossOriginalActions.set(source,data.original_actions||[]);return data.skills||[]}).finally(()=>e.skillRequests.delete(source)));
   return e.skillRequests.get(source);
 }
 async function loadCustomBossActionSkills(){
   const draft=customBossEditor.draft;if(!draft)return;
+  try{
+    await customBossSkillOptions(draft.source_boss_id);
+    if(customBossEditor.draft!==draft)return;
+    refreshCustomBossOriginalSkills();
+  }catch(err){
+    if(customBossEditor.draft===draft){
+      customBossError(`读取原有招式失败：${errorText(err)}`);
+      $$('[data-original-list]').forEach(el=>el.innerHTML='<p class="hint">原有招式读取失败。</p><button type="button" class="secondary sm" data-original-retry>重新读取</button>');
+    }
+    return;
+  }
   await Promise.all(draft.targets.flatMap((t,i)=>(t.actions||[]).map(async(a,j)=>{
     const source=a.source_boss_id||draft.source_boss_id;
     try{
@@ -364,8 +415,8 @@ $('#custom-boss-targets').addEventListener('input',e=>{
 });
 $('#custom-boss-save').onclick=async()=>{
   const b=customBossEditor.draft;if(customBossEditor.busy||!b||!customBossEditor.dirty)return;
-  const invalid=[...$('#custom-boss-form').querySelectorAll('input[type=number]')].find(el=>!el.disabled&&((!el.value&&!el.dataset.buffField&&!['power','power_rate','hits'].includes(el.dataset.actionField))||!el.checkValidity()));
-  if(invalid){const part=invalid.closest('[data-boss-part-panel]');customBossEditor.tab=part?(invalid.dataset.actionField||invalid.dataset.buffField?'actions':'stats'):'basic';if(part)customBossEditor.target=Number(part.dataset.bossPartPanel);updateCustomBossScope();invalid.closest('details')?.setAttribute('open','');invalid.reportValidity();invalid.focus();return}
+  const invalid=[...$('#custom-boss-form').querySelectorAll('input[type=number]')].find(el=>!el.disabled&&((!el.value&&!el.dataset.originalField&&!el.dataset.buffField&&!['power','power_rate','hits'].includes(el.dataset.actionField))||!el.checkValidity()));
+  if(invalid){const part=invalid.closest('[data-boss-part-panel]');customBossEditor.tab=part?(invalid.dataset.actionField||invalid.dataset.buffField||invalid.dataset.originalField?'actions':'stats'):'basic';if(part)customBossEditor.target=Number(part.dataset.bossPartPanel);updateCustomBossScope();invalid.closest('details')?.setAttribute('open','');invalid.reportValidity();invalid.focus();return}
   if(!b.name.trim()||!b.difficulty.trim()){customBossError('请填写 Boss 名称和难度名称');return}
   const invalidName=b.targets.findIndex(t=>!t.name.trim()||Array.from(t.name).length>80||/[,"<>\r\n\x00]/.test(t.name)&&t.name!==customBossEditor.sources.find(s=>s.boss_id===b.source_boss_id)?.targets.find(s=>s.battle_index===t.battle_index&&s.enemy_index===t.enemy_index)?.name);
   if(invalidName!==-1){customBossEditor.tab='appearance';customBossEditor.target=invalidName;updateCustomBossScope();customBossError('部位名称须为1至80字，不支持英文逗号、引号、标签或换行');$(`#cb-${invalidName}-name`).focus();return}

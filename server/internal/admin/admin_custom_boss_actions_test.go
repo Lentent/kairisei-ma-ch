@@ -71,6 +71,23 @@ func TestCustomBossActionCatalogSaveRestartAndRejectInvalid(t *testing.T) {
 	if !strings.Contains(string(catalog), `"buff_editors"`) {
 		t.Fatal("buff numeric editor missing")
 	}
+	var originalCatalog struct {
+		Actions []customBossOriginalAction `json:"original_actions"`
+	}
+	if err := json.Unmarshal(catalog, &originalCatalog); err != nil {
+		t.Fatal(err)
+	}
+	var original *customBossOriginalAction
+	for i := range originalCatalog.Actions {
+		row := &originalCatalog.Actions[i]
+		if row.BattleIndex == 0 && row.EnemyIndex == 0 && row.SkillID == 99 && row.Editable {
+			original = row
+			break
+		}
+	}
+	if original == nil {
+		t.Fatal("original attack missing from default action editor")
+	}
 	quick := testfixture.CallContentAdmin(t, r, "GET", "/buffs", nil, 200)
 	if !strings.Contains(string(quick), `"function_id":100`) || strings.Contains(string(quick), `"function_id":99`) {
 		t.Fatal("quick picker must include pure player buffs and exclude attacks", string(quick))
@@ -82,6 +99,7 @@ func TestCustomBossActionCatalogSaveRestartAndRejectInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	b := created.Boss
+	b.Targets[0].OriginalSkills = []gamestate.TeamBattleEnemyOriginalSkill{{Slot: original.Slot, SkillID: original.SkillID, FunctionID: original.FunctionID, Power: customBossActionTestInt(3456)}}
 	if b.Reward.StageQuestAreaID != 0 || b.Reward.StageQuestStageID != 0 {
 		t.Fatal("standalone copy retained quest reward context")
 	}
@@ -93,6 +111,9 @@ func TestCustomBossActionCatalogSaveRestartAndRejectInvalid(t *testing.T) {
 	input := map[string]any{"expected_revision": 1, "boss_id": b.BossID, "name": b.Name, "difficulty": b.Difficulty, "bp_use": b.BPUse, "bp_use_half": b.BPUseHalf, "enabled": false, "continue": b.Continue, "targets": b.Targets}
 	testfixture.CallContentAdmin(t, r, "PUT", "/copies", input, 200)
 	projected := ops.ContentConfiguration().State.TeamBattleReplays[1]
+	if len(projected.EnemyOverrides[0].OriginalSkills) != 1 || *projected.EnemyOverrides[0].OriginalSkills[0].Power != 3456 || len(projected.EnemyOverrides[1].OriginalSkills) != 0 || len(projected.EnemyOverrides[2].OriginalSkills) != 0 {
+		t.Fatal("original skill edit lost or leaked across parts/waves")
+	}
 	if *projected.EnemyOverrides[0].Actions[1].Buffs[0].Value != 2500 || *projected.EnemyOverrides[0].Actions[1].Buffs[0].Duration != 7 || projected.EnemyOverrides[0].AnimationModel == "" {
 		t.Fatal("buff overrides or animation mode lost in projection")
 	}
@@ -106,6 +127,13 @@ func TestCustomBossActionCatalogSaveRestartAndRejectInvalid(t *testing.T) {
 	if ops.content.customBossRevision != 2 {
 		t.Fatal("invalid action persisted")
 	}
+	b.Targets[0].Actions[0].FunctionID = 99
+	b.Targets[0].OriginalSkills[0].Slot = 999
+	input["targets"] = b.Targets
+	testfixture.CallContentAdmin(t, r, "PUT", "/copies", input, 400)
+	if ops.content.customBossRevision != 2 {
+		t.Fatal("invalid original action persisted")
+	}
 	restarted, err := NewOperations(accounts.Database(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +142,9 @@ func TestCustomBossActionCatalogSaveRestartAndRejectInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved := restarted.content.customBosses[0].Targets
+	if len(saved[0].OriginalSkills) != 1 || *saved[0].OriginalSkills[0].Power != 3456 || saved[0].OriginalSkills[0].Slot != original.Slot {
+		t.Fatal("original skill override lost on restart")
+	}
 	if *saved[0].Actions[1].Buffs[0].Value != 2500 || *saved[0].Actions[1].Buffs[0].Duration != 7 {
 		t.Fatal("buff overrides lost after restart")
 	}

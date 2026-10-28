@@ -28,10 +28,60 @@ type TeamBattleEnemyOverride struct {
 	EnemyIndex  int                  `json:"enemy_index"`
 	Stats       TeamBattleEnemyStats `json:"stats"`
 	// nil inherits AI; a non-nil empty list deliberately disables turn actions.
-	Actions []TeamBattleEnemyAction `json:"actions"`
+	Actions        []TeamBattleEnemyAction        `json:"actions"`
+	OriginalSkills []TeamBattleEnemyOriginalSkill `json:"original_skills,omitempty"`
 	// With a custom list, retain template AI and append scheduled actions to it.
 	IncludeOriginalActions bool   `json:"include_original_actions,omitempty"`
 	AnimationModel         string `json:"animation_model,omitempty"`
+}
+
+// Overrides a native action only after its original AI and branch selection.
+// Slot distinguishes repeated uses of the same skill in a part's action table.
+type TeamBattleEnemyOriginalSkill struct {
+	Slot       int  `json:"slot"`
+	SkillID    int  `json:"skill_id"`
+	FunctionID int  `json:"function_id"`
+	Power      *int `json:"power,omitempty"`
+	PowerRate  *int `json:"power_rate,omitempty"`
+	Hits       *int `json:"hits,omitempty"`
+}
+
+func (s TeamBattleEnemyOriginalSkill) AttackOverride() TeamBattleEnemyAction {
+	return TeamBattleEnemyAction{SkillID: s.SkillID, FunctionID: s.FunctionID, Target: "AUTO", Power: s.Power, PowerRate: s.PowerRate, Hits: s.Hits}
+}
+
+func ValidateTeamBattleEnemyOriginalSkills(rows []TeamBattleEnemyOriginalSkill) error {
+	if len(rows) > 1000 {
+		return errors.New("每个部位最多修改1000个原有招式分支")
+	}
+	seen := map[[2]int]bool{}
+	for _, s := range rows {
+		key := [2]int{s.Slot, s.FunctionID}
+		if s.Slot < 0 || seen[key] {
+			return errors.New("原有招式位置无效或分支重复")
+		}
+		seen[key] = true
+		if err := ValidateTeamBattleEnemyActions([]TeamBattleEnemyAction{s.AttackOverride()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func CloneTeamBattleEnemyOriginalSkills(rows []TeamBattleEnemyOriginalSkill) []TeamBattleEnemyOriginalSkill {
+	if rows == nil {
+		return nil
+	}
+	next := append([]TeamBattleEnemyOriginalSkill{}, rows...)
+	for i := range next {
+		for _, p := range []**int{&next[i].Power, &next[i].PowerRate, &next[i].Hits} {
+			if *p != nil {
+				n := **p
+				*p = &n
+			}
+		}
+	}
+	return next
 }
 
 // Actions run in list order. Turn zero is the opening attack; RepeatEvery=0
@@ -188,6 +238,7 @@ func CloneTeamBattleEnemyOverrides(rows []TeamBattleEnemyOverride) []TeamBattleE
 	result := append([]TeamBattleEnemyOverride{}, rows...)
 	for i := range result {
 		result[i].Actions = CloneTeamBattleEnemyActions(result[i].Actions)
+		result[i].OriginalSkills = CloneTeamBattleEnemyOriginalSkills(result[i].OriginalSkills)
 		s := &result[i].Stats
 		if s.AttributeRates != nil {
 			v := *s.AttributeRates

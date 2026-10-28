@@ -46,14 +46,15 @@ func editableDroppedReward(r gamestate.Reward) bool {
 }
 
 type dropTarget struct {
-	BattleIndex            int                               `json:"battle_index"`
-	EnemyIndex             int                               `json:"enemy_index"`
-	Name                   string                            `json:"name"`
-	Artwork                []byte                            `json:"artwork,omitempty"`
-	StaticImageID          int                               `json:"static_image_id,omitempty"`
-	Stats                  *enemyStats                       `json:"stats,omitempty"`
-	Actions                []gamestate.TeamBattleEnemyAction `json:"actions"`
-	IncludeOriginalActions bool                              `json:"include_original_actions,omitempty"`
+	BattleIndex            int                                      `json:"battle_index"`
+	EnemyIndex             int                                      `json:"enemy_index"`
+	Name                   string                                   `json:"name"`
+	Artwork                []byte                                   `json:"artwork,omitempty"`
+	StaticImageID          int                                      `json:"static_image_id,omitempty"`
+	Stats                  *enemyStats                              `json:"stats,omitempty"`
+	Actions                []gamestate.TeamBattleEnemyAction        `json:"actions"`
+	OriginalSkills         []gamestate.TeamBattleEnemyOriginalSkill `json:"original_skills,omitempty"`
+	IncludeOriginalActions bool                                     `json:"include_original_actions,omitempty"`
 }
 
 type enemyStats = gamestate.TeamBattleEnemyStats

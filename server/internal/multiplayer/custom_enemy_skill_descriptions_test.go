@@ -23,4 +23,7 @@ func TestCustomEnemySkillDescriptionUsesRuntimeBuffValueAndSide(t *testing.T) {
 	if !playerBuff || len(effects) != 2 || !strings.Contains(effects[0], "魔法攻击，原攻击次数 2") || !strings.Contains(effects[1], "魔法攻击增加 1000 点，持续 4 回合") {
 		t.Fatalf("mixed skill concealed attack or buff: %v", effects)
 	}
+	if !strings.Contains(effects[0], "原每段基础威力：固定 2000 ＋ 当前魔攻 × 100%") {
+		t.Fatalf("missing original attack formula: %v", effects)
+	}
 }

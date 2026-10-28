@@ -32,6 +32,10 @@ func (engine *BattleEngine) applyEnemyOverrides() error {
 			}
 		}
 		enemy.CustomActions = row.Actions
+		if err := engine.catalog.ValidateOriginalEnemySkills(enemy.Level, row.OriginalSkills); err != nil {
+			return err
+		}
+		enemy.OriginalSkills = row.OriginalSkills
 		enemy.IncludeOriginalActions = row.IncludeOriginalActions
 		enemy.CustomAnimationModel = row.AnimationModel
 		enemy.HP, enemy.MaxHP, enemy.BaseMaxHP = s.HP, s.HP, s.HP

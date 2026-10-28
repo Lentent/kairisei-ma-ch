@@ -177,6 +177,7 @@ type battleEnemy struct {
 	Attribute              string
 	Level                  CombatEnemyLevel
 	CustomActions          []gamestate.TeamBattleEnemyAction
+	OriginalSkills         []gamestate.TeamBattleEnemyOriginalSkill
 	IncludeOriginalActions bool
 	CustomAnimationModel   string
 	Awake                  int

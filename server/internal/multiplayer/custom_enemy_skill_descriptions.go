@@ -43,6 +43,17 @@ func DescribeCustomEnemySkill(skill CombatSkillDefinition, roles []CombatSkillRo
 				kind = "魔法"
 			}
 			effects = append(effects, fmt.Sprintf("%s：%s攻击，原攻击次数 %d；本次威力可在下方伤害设置中修改", who, kind, maxInt(1, combatParameterInt(role.Parameters[4]))))
+			level := calibratedEnemySkillLevel(role.Function)
+			coefficient := int32(combatParameterInt(role.Parameters[2])) + int32(combatParameterInt(role.Parameters[3]))*int32(level)
+			stat := map[string]string{"ATK": "当前物攻", "INT": "当前魔攻", "MND": "当前回复", "DEF": "当前物防", "MDEF": "当前魔防", "HP": "当前 HP"}[role.Parameters[5]]
+			if stat == "" {
+				stat = role.Parameters[5]
+			}
+			formula := fmt.Sprintf("原每段基础威力：固定 %d", attackExecutionPower(role, level, 0))
+			if coefficient != 0 {
+				formula += fmt.Sprintf(" ＋ %s × %g%%", stat, float64(coefficient)/10)
+			}
+			effects[len(effects)-1] += "。" + formula + "；附加威力效果另计，防御与属性等修正后得到实际伤害"
 		case "HEAL_FIXED", "HEAL_BY_SELF_PARAM", "HEAL_BY_TARGET_MAXHP":
 			effects = append(effects, who+"：回复 HP，回复数值沿用招式公式")
 		default:

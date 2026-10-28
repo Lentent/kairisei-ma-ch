@@ -28,6 +28,14 @@ func (c *contentStore) validateCustomBossActions(b customBoss) error {
 		allowedAnimation[entry.FunctionID] = true
 	}
 	for _, t := range b.Targets {
+		if len(t.OriginalSkills) > 0 {
+			if c.customSkillCatalog == nil {
+				return fmt.Errorf("资源集缺少敌人技能资料")
+			}
+			if err := c.customSkillCatalog.ValidateOriginalEnemySkills(c.customSkillCatalog.EnemyLevels[t.Stats.EnemyID], t.OriginalSkills); err != nil {
+				return fmt.Errorf("第%d波 %s：%w", t.BattleIndex+1, t.Name, err)
+			}
+		}
 		for _, a := range t.Actions {
 			if a.AnimationFunctionID > 0 && !allowedAnimation[a.AnimationFunctionID] {
 				return fmt.Errorf("演出须从原 Boss 的招式中选择")
@@ -59,7 +67,7 @@ func (a *API) customBossSkills(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, err.Error())
 		return
 	}
-	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "skills": c.customBossSkillEntries(source)})
+	WriteAdminJSON(w, 200, map[string]any{"state": "PASS", "skills": c.customBossSkillEntries(source), "original_actions": c.customBossOriginalActions(source)})
 }
 
 type customBossSkillEntry struct {

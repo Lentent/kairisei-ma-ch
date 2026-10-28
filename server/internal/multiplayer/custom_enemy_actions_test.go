@@ -327,16 +327,23 @@ func TestCustomEnemyActionSnapshotAndWaveIsolation(t *testing.T) {
 	base, members := nextBattleFixture(t)
 	base.catalog.EnemySkills = map[int][]CombatSkillDefinition{1: {{ID: 1, FunctionID: 1, Target: "USER_ONE"}}}
 	base.catalog.EnemySkillRoles = map[int][]CombatSkillRole{1: {{Function: "ATTACK_AA"}}}
+	level := base.catalog.EnemyLevels[1]
+	level.Actions = []CombatEnemyAction{{Slot: 1, Category: "skill", SkillID: 1}}
+	base.catalog.EnemyLevels[1] = level
 	power := 5000
 	rows := []gamestate.TeamBattleEnemyOverride{
 		{BattleIndex: 0, EnemyIndex: 0, Stats: gamestate.TeamBattleEnemyStats{EnemyID: 1, HP: 100, Attribute: "FIRE"}, IncludeOriginalActions: true, Actions: []gamestate.TeamBattleEnemyAction{{Turn: 1, SkillID: 1, FunctionID: 1, Target: "AUTO", Power: &power}}},
 		{BattleIndex: 1, EnemyIndex: 0, Stats: gamestate.TeamBattleEnemyStats{EnemyID: 1, HP: 100, Attribute: "FIRE"}, Actions: []gamestate.TeamBattleEnemyAction{}},
 	}
+	rows[0].OriginalSkills = []gamestate.TeamBattleEnemyOriginalSkill{{Slot: 1, SkillID: 1, FunctionID: 1, Power: &power}}
 	e, err := newBattleEngine(base.catalog, RoomSpec{EnemyPartyID: 1, CostInitial: 3, HoldMax: 5, EnemyOverrides: rows}, members)
 	if err != nil {
 		t.Fatal(err)
 	}
 	power = 1
+	if *e.enemies[0].OriginalSkills[0].Power != 5000 {
+		t.Fatal("room did not freeze original skill edit")
+	}
 	rows[0].Actions[0].Turn = 9
 	rows[0].IncludeOriginalActions = false
 	if !e.enemies[0].IncludeOriginalActions || *e.enemies[0].CustomActions[0].Power != 5000 || e.enemies[0].CustomActions[0].Turn != 1 {
@@ -346,6 +353,9 @@ func TestCustomEnemyActionSnapshotAndWaveIsolation(t *testing.T) {
 	next, err := e.NextBattle(1, nil)
 	if err != nil || next.enemies[0].IncludeOriginalActions || next.enemies[0].CustomActions == nil || len(next.enemies[0].CustomActions) != 0 || len(e.enemies[0].CustomActions) != 1 {
 		t.Fatal("wave action config was lost", err)
+	}
+	if len(next.enemies[0].OriginalSkills) != 0 || *e.enemies[0].OriginalSkills[0].Power != 5000 {
+		t.Fatal("original skill edit leaked across waves")
 	}
 	bad := rows
 	bad[0].Actions[0].FunctionID = 999

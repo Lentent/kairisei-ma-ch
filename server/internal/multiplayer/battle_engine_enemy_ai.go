@@ -253,10 +253,20 @@ func (engine *BattleEngine) executeEnemyActionCandidate(enemy *battleEnemy, cand
 		return nil, err
 	}
 	results := []BattleResult{skillResult}
+	attackOverride := candidate.custom
+	if attackOverride == nil {
+		for _, edit := range enemy.OriginalSkills {
+			if edit.Slot == action.Slot && edit.SkillID == skill.ID && edit.FunctionID == skill.FunctionID {
+				a := edit.AttackOverride()
+				attackOverride = &a
+				break
+			}
+		}
+	}
 	skillRows, err := engine.executeSkillRoleSet(enemy.MemberType, target, skill, roles, func(role CombatSkillRole) ([]BattleResult, error) {
 		resolvedRole := role
 		if resolvedRole.Function == "ATTACK_AA" {
-			resolvedRole.CustomAttack = candidate.custom
+			resolvedRole.CustomAttack = attackOverride
 		}
 		resolvedRole.SourceSkillID = skill.ID
 		// The action's chosen member remains in ResultCmd50, but SELECT
