@@ -23,7 +23,7 @@ const (
 	reservationLifetime = time.Minute
 	comebackLifetime    = 2 * time.Minute
 	completedLifetime   = 30 * time.Minute
-	waitingRoomLifetime = 7 * time.Minute
+	waitingRoomLifetime = 9 * time.Minute
 	firstLocalRoomID    = int64(6020000001)
 	defaultMemberCount  = 2
 	MaxBattleWaves      = 64 // Matches the bounded CN RoomCountdownFinish receiver patch.
