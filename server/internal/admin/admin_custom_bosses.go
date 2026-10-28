@@ -122,6 +122,9 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 				return err
 			}
 		}
+		if err := validateCustomBossArtworkTransform(t.ArtworkTransform, len(t.Artwork) > 0 && original[idx].StaticImageID != 0); err != nil {
+			return err
+		}
 		if err := gamestate.ValidateTeamBattleEnemyStats(*t.Stats); err != nil {
 			return fmt.Errorf("第%d波 %s：%w", t.BattleIndex+1, t.Name, err)
 		}
@@ -202,7 +205,10 @@ func (c *contentStore) customBossGroup(b customBoss) (json.RawMessage, AdminBatt
 	set := func(fields map[string]json.RawMessage, key string, value any) { fields[key], _ = json.Marshal(value) }
 	set(group, "0", b.GroupID)
 	set(group, "1", 0)
-	set(group, "2", b.GroupID)
+	// The CN client reads searchid with Convert.ToSByte, not as a group ID.
+	// Custom encounters use the all-rooms search bucket; their independent
+	// boss_groupid and bossid still identify selection and room filtering.
+	set(group, "2", 0)
 	set(group, "4", b.Name)
 	set(group, "9", 0)
 	set(group, "11", []any{})

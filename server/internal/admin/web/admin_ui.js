@@ -9,6 +9,7 @@ titles.collections="称号与礼盒";titles.cdk="礼包兑换码";titles.mission
 titles['custom-cards']='自制卡牌';titles['dungeon-schedule']='副本日程表';
 titles['custom-stamps']='自制表情';
 titles['custom-bosses']='自定义 Boss';
+titles['custom-bosses-2d']='自制2DBOSS';titles['custom-bosses-3d']='自制3DBOSS';
 const viewMeta={
   'custom-cards':['扭蛋与商店','复制卡牌、上传卡面、组合技能效果并生成资源更新包'],
   'custom-stamps':['扭蛋与商店','制作文字、图片和带声音的表情，保存设计并生成资源更新包'],
@@ -122,14 +123,19 @@ function keyedDiff(label,before,after,key,text,name=key){
 }
 
 async function switchView(name){
+  if(name==='custom-bosses-2d'||name==='custom-bosses-3d'){
+    if(!setCustomBossKind(name.endsWith('3d')?'3d':'2d'))return;
+    name='custom-bosses';
+  }
+  const navName=name==='custom-bosses'?`custom-bosses-${customBossEditor.kind}`:name;
   if(!titles[name])name='dashboard';
   state.currentView=name;
   $$('.view').forEach(v=>v.classList.toggle('active',v.id===name));
-  $$('.nav button').forEach(v=>{const on=v.dataset.view===name;v.classList.toggle('active',on);on?v.setAttribute('aria-current','page'):v.removeAttribute('aria-current')});
-  $('#view-title').textContent=titles[name]||name;
+  $$('.nav button').forEach(v=>{const on=v.dataset.view===navName;v.classList.toggle('active',on);on?v.setAttribute('aria-current','page'):v.removeAttribute('aria-current')});
+  $('#view-title').textContent=titles[navName]||name;
   const [group,desc]=viewMeta[name]||['',''];$('#view-group').textContent=group;$('#view-desc').textContent=desc;
-  document.title=`${titles[name]} · Kairisei MA 本地运营后台`;
-  try{history.replaceState(null,'','#'+name)}catch{/* Deep links are optional. */}
+  document.title=`${titles[navName]} · Kairisei MA 本地运营后台`;
+  try{history.replaceState(null,'','#'+navName)}catch{/* Deep links are optional. */}
   closeNavDrawer();window.scrollTo(0,0);
   if(name==='dungeon-schedule'&&state.loaded.has(name)&&!adminPolicyDirty(name))state.loaded.delete(name);
   updatePolicyControls();await loadView(name);
@@ -286,7 +292,7 @@ function policyBusy(name){return state.loading.has(name)||state.publishing.has(n
 function updatePolicyControls(){
   if(typeof updateMissionControls==='function')updateMissionControls();
   for(const name of ['bosses','dungeon-schedule','gachas','pool-editor','settings','shop','drops','exchanges','player-policy','collections','custom-cards','custom-stamps','activity-rewards','evolution','missions'])$('#'+name).inert=policyBusy(name);
-  for(const name of Object.keys(titles)){const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
+  for(const name of Object.keys(titles)){if(!$('#'+name))continue;const busy=policyBusy(name);busy?$('#'+name).setAttribute('aria-busy','true'):$('#'+name).removeAttribute('aria-busy')}
   document.body.classList.toggle('busy',policyBusy(state.currentView));
   if(typeof updatePoolControls==='function')updatePoolControls();
   if(typeof updateDungeonScheduleControls==='function')updateDungeonScheduleControls();

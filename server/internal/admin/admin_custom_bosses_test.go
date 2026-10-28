@@ -83,6 +83,35 @@ func TestCustomBossSkipsOccupiedGroupIdentity(t *testing.T) {
 	}
 }
 
+// TeamBattleSoloShowReceive calls Convert.ToSByte for group field 2. Using
+// the independent (790xxxxxx) group ID there aborts the entire selection page.
+func TestCustomBossSelectionSearchIDFitsClientSignedByte(t *testing.T) {
+	for _, model := range []int{0, 1} {
+		for _, id := range []int{customBossFirstID, customBossLastID} {
+			b := customBoss{BossID: id, GroupID: id + customBossGroupOffset,
+				SourceGroup: json.RawMessage(`{"0":1,"2":42,"10":[{"0":11,"14":` + strconv.Itoa(model) + `}]}`)}
+			c := &contentStore{}
+			raw, _, err := c.customBossGroup(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire struct {
+				GroupID int  `json:"0"`
+				Search  int8 `json:"2"`
+				Bosses  []struct {
+					BossID int `json:"0"`
+				} `json:"10"`
+			}
+			if err = json.Unmarshal(raw, &wire); err != nil {
+				t.Fatalf("model %d boss %d cannot be decoded by client: %v", model, id, err)
+			}
+			if wire.Search != 0 || wire.GroupID != b.GroupID || len(wire.Bosses) != 1 || wire.Bosses[0].BossID != id {
+				t.Fatalf("search bucket or independent encounter identity lost: %s", raw)
+			}
+		}
+	}
+}
+
 func TestCustomBossCompleteRuntimeTemplates(t *testing.T) {
 	root := os.Getenv("CN602_RUNTIME_SET")
 	if root == "" {

@@ -50,6 +50,7 @@ type dropTarget struct {
 	EnemyIndex             int                                      `json:"enemy_index"`
 	Name                   string                                   `json:"name"`
 	Artwork                []byte                                   `json:"artwork,omitempty"`
+	ArtworkTransform       *customBossArtworkTransform              `json:"artwork_transform,omitempty"`
 	StaticImageID          int                                      `json:"static_image_id,omitempty"`
 	Stats                  *enemyStats                              `json:"stats,omitempty"`
 	Actions                []gamestate.TeamBattleEnemyAction        `json:"actions"`

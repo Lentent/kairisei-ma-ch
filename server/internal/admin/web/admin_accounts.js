@@ -135,7 +135,8 @@ function adminPolicyDirty(name){if(name==='player-policy')return playerPolicyDir
 
 function updateDraftIndicators(){
   $$('.nav [data-view]').forEach(button=>{
-    const dirty=adminPolicyDirty(button.dataset.view);
+    const bossKind=button.dataset.view.match(/^custom-bosses-(2d|3d)$/)?.[1];
+    const dirty=bossKind?bossKind===customBossEditor.kind&&adminPolicyDirty('custom-bosses'):adminPolicyDirty(button.dataset.view);
     button.classList.toggle('has-draft',dirty);
     button.title=dirty?'有未保存的修改，切换页面会保留草稿':'';
     $(`#${button.dataset.view} > .savebar`)?.classList.toggle('dirty',dirty);
