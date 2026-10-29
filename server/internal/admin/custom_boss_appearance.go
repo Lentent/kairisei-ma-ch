@@ -92,14 +92,15 @@ func decodeCustomBossArtwork(raw []byte) (image.Image, error) {
 
 func customBossAppearanceHash(b customBoss) string {
 	type part struct {
-		Wave int    `json:"wave"`
-		Slot int    `json:"slot"`
-		Name string `json:"name"`
-		Art  string `json:"art"`
+		Wave      int                         `json:"wave"`
+		Slot      int                         `json:"slot"`
+		Name      string                      `json:"name"`
+		Art       string                      `json:"art"`
+		Transform *customBossArtworkTransform `json:"transform,omitempty"`
 	}
 	parts := []part{}
 	for _, t := range b.Targets {
-		parts = append(parts, part{t.BattleIndex, t.EnemyIndex, t.Name, resourceHash(t.Artwork)})
+		parts = append(parts, part{t.BattleIndex, t.EnemyIndex, t.Name, resourceHash(t.Artwork), t.ArtworkTransform})
 	}
 	slices.SortFunc(parts, func(a, b part) int { return (a.Wave*4 + a.Slot) - (b.Wave*4 + b.Slot) })
 	raw, _ := json.Marshal(struct {
@@ -473,7 +474,7 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 				if e != nil {
 					return nil, e
 				}
-				texture, cab, e := buildCustomArtworkBundle(template, scrambled, oldPict, newPict, art, paths, customArtworkOverrides{cardMode: "texture"})
+				texture, cab, e := buildCustomArtworkBundle(template, scrambled, oldPict, newPict, art, paths, customArtworkOverrides{cardMode: "texture", bossTransform: t.ArtworkTransform})
 				if e != nil {
 					return nil, e
 				}

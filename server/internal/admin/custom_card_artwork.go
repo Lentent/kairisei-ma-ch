@@ -84,6 +84,10 @@ func scaleCustomArtworkForDisplay(src image.Image, w, h, displayW, displayH int,
 // GLTextureSettings, lightmap/color space, inline byte array, StreamingInfo.
 // Other layouts fail before a ZIP is returned. RGBA32 needs no GPU codec.
 func rewriteCustomTexture(raw []byte, newName string, art image.Image, cardMode ...string) ([]byte, error) {
+	return rewriteCustomTextureWithTransform(raw, newName, art, nil, cardMode...)
+}
+
+func rewriteCustomTextureWithTransform(raw []byte, newName string, art image.Image, transform *customBossArtworkTransform, cardMode ...string) ([]byte, error) {
 	c := resourceCursor{b: raw, order: binary.LittleEndian}
 	n := int(c.u32())
 	c.take(n)
@@ -125,6 +129,7 @@ func rewriteCustomTexture(raw []byte, newName string, art image.Image, cardMode 
 		return nil, errors.New("卡面模板纹理尾部不支持")
 	}
 	pixels := fitCustomTextureArtwork(art, newName, w, h, cardMode...)
+	pixels = transformCustomBossArtwork(pixels, transform)
 	rgba := make([]byte, w*h*4)
 	for y := 0; y < h; y++ {
 		copy(rgba[y*w*4:(y+1)*w*4], pixels.Pix[(h-1-y)*pixels.Stride:(h-y)*pixels.Stride])
@@ -173,8 +178,9 @@ func rewriteCustomArtworkContainer(object []byte, paths map[string]string, oldPi
 }
 
 type customArtworkOverrides struct {
-	icon, card image.Image
-	cardMode   string
+	icon, card    image.Image
+	cardMode      string
+	bossTransform *customBossArtworkTransform
 }
 
 func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, art image.Image, paths map[string]string, overrides customArtworkOverrides) (result []byte, cab string, err error) {
@@ -223,7 +229,7 @@ func buildCustomArtworkBundle(raw []byte, scrambled bool, oldPict, newPict int, 
 			if strings.HasPrefix(name, "chr10_") && overrides.card != nil {
 				selected = overrides.card
 			}
-			return rewriteCustomTexture(object, newName, selected, overrides.cardMode)
+			return rewriteCustomTextureWithTransform(object, newName, selected, overrides.bossTransform, overrides.cardMode)
 		}
 		if class == 142 {
 			next, e := rewriteCustomArtworkContainer(object, paths, oldPict, newPict)

@@ -3,12 +3,14 @@ package admin
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -89,6 +91,7 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 	b.Targets[0].Name = "机械核心"
 	b.Name = "机械试炼"
 	b.Targets[0].Artwork = bossTestArtwork(t)
+	b.Targets[0].ArtworkTransform = &customBossArtworkTransform{X: 12, Y: -8, Scale: 75}
 	b.Targets[2].Name = "第二波核心"
 	b.Targets[2].Artwork = bossTestArtwork(t)
 	b.CoverArtwork = bossTestArtwork(t)
@@ -128,7 +131,7 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved := restarted.content.customBosses[0]
-	if !bytes.Equal(saved.Targets[0].Artwork, b.Targets[0].Artwork) || saved.Targets[0].Name != "机械核心" || !restarted.content.customBossAppearanceCurrent(saved) {
+	if !bytes.Equal(saved.Targets[0].Artwork, b.Targets[0].Artwork) || saved.Targets[0].Name != "机械核心" || !reflect.DeepEqual(saved.Targets[0].ArtworkTransform, b.Targets[0].ArtworkTransform) || !restarted.content.customBossAppearanceCurrent(saved) {
 		t.Fatal("design or applied receipt lost on restart")
 	}
 	if !bytes.Equal(saved.CoverArtwork, b.CoverArtwork) || saved.ArtworkLayout != "separate" {
@@ -146,16 +149,19 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 		}
 		g := top["12"][0]
 		var name string
-		var picture, search int
+		var picture int
+		var search int8 // Matches proto.TeamBattleBossGroupInfo.searchid.
 		var bosses []map[string]json.RawMessage
 		_ = json.Unmarshal(g["4"], &name)
 		_ = json.Unmarshal(g["7"], &picture)
-		_ = json.Unmarshal(g["2"], &search)
+		if err := json.Unmarshal(g["2"], &search); err != nil {
+			t.Fatalf("selection searchid overflows the client's signed byte: %v", err)
+		}
 		_ = json.Unmarshal(g["10"], &bosses)
 		var bossPicture int
 		_ = json.Unmarshal(bosses[0]["9"], &bossPicture)
-		if name != b.Name || picture != customBossCoverID(b.BossID) || bossPicture != picture || search != b.GroupID {
-			t.Fatal("selection name, cover or independent search identity is stale")
+		if name != b.Name || picture != customBossCoverID(b.BossID) || bossPicture != picture || search != 0 {
+			t.Fatal("selection name, cover or all-rooms search bucket is stale")
 		}
 	}
 	assertSelection(config.TeamBattleSolo)
@@ -280,6 +286,7 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		b.Targets[i].BattleIndex = 1
 	}
 	b.Targets[0].Name = "自制核心"
+	b.Targets[0].ArtworkTransform = &customBossArtworkTransform{X: 25, Y: -10, Scale: 50}
 	b.Targets[0].Artwork = bossTestArtwork(t)
 	b.Targets[len(b.Targets)/2].Name = "二波核心"
 	b.Targets[len(b.Targets)/2].Artwork = bossTestArtwork(t)
@@ -371,6 +378,28 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		_, e = rewriteResourceObjects(bundle.nodes[0].data, func(class int, object []byte) ([]byte, error) {
 			if class == 28 && resourceObjectName(object) == "chr50_"+strconv.Itoa(pict) {
 				found = true
+				if wave == 0 {
+					c := resourceCursor{b: object, order: binary.LittleEndian}
+					c.take(int(c.u32()))
+					c.align(4)
+					w, h := int(c.u32()), int(c.u32())
+					c.take(48)
+					pixels := c.take(int(c.u32()))
+					bounds := image.Rectangle{}
+					for y := 0; y < h; y++ {
+						for x := 0; x < w; x++ {
+							if pixels[((h-1-y)*w+x)*4+3] != 0 {
+								bounds = bounds.Union(image.Rect(x, y, x+1, y+1))
+							}
+						}
+					}
+					if w != h {
+						t.Fatal("fixture must use square enemy texture")
+					}
+					if math.Abs(float64(bounds.Min.X+bounds.Max.X)/2-float64(w)*.75) > 2 || math.Abs(float64(bounds.Min.Y+bounds.Max.Y)/2-float64(h)*.4) > 2 || math.Abs(float64(bounds.Dx())-float64(w)/4) > 2 || math.Abs(float64(bounds.Dy())-float64(h)/2) > 2 {
+						t.Fatalf("exported transformed texture bounds %v on %dx%d canvas", bounds, w, h)
+					}
+				}
 			}
 			return object, nil
 		})
