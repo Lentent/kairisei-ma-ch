@@ -66,7 +66,7 @@ func createExpiryTestRoom(t *testing.T, autoStart bool) (*Server, *room) {
 	return s, current
 }
 
-func TestWaitingRoomExpiresAtSevenMinutes(t *testing.T) {
+func TestWaitingRoomExpiresAtNineMinutes(t *testing.T) {
 	for _, countdown := range []bool{false, true} {
 		t.Run(strconv.FormatBool(countdown), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -76,10 +76,10 @@ func TestWaitingRoomExpiresAtSevenMinutes(t *testing.T) {
 					// A countdown still checking account eligibility is also waiting.
 					current.State = RoomStateCountdown
 				}
-				time.Sleep(7*time.Minute - time.Nanosecond)
+				time.Sleep(9*time.Minute - time.Nanosecond)
 				synctest.Wait()
 				if _, exists := s.hub.Snapshot(current.RoomID); !exists {
-					t.Fatal("room expired before seven minutes")
+					t.Fatal("room expired before nine minutes")
 				}
 				time.Sleep(time.Nanosecond)
 				synctest.Wait()
@@ -106,7 +106,7 @@ func TestCancelledCountdownKeepsOriginalWaitingDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, current := createExpiryTestRoom(t, false)
 		deadline := current.waitingExpiresAt
-		time.Sleep(6 * time.Minute)
+		time.Sleep(8 * time.Minute)
 		owner := current.connections[current.OwnerMemberType]
 		if err := owner.handleCountdownStart(); err != nil {
 			t.Fatal(err)
@@ -138,7 +138,7 @@ func TestWaitingRoomOwnerLeaveStopsExpiry(t *testing.T) {
 		if current.waitingTimer != nil || !current.waitingExpiresAt.IsZero() {
 			t.Fatal("owner departure left a waiting timer")
 		}
-		time.Sleep(8 * time.Minute)
+		time.Sleep(10 * time.Minute)
 		synctest.Wait()
 		if _, exists := s.hub.Snapshot(current.RoomID); exists {
 			t.Fatal("owner departure retained the room")
@@ -170,7 +170,7 @@ func TestBattleAndAIRoomSurviveWaitingDeadline(t *testing.T) {
 				if current.State != RoomStateBattle || current.waitingTimer != nil || !current.waitingExpiresAt.IsZero() {
 					t.Fatal("battle retained a waiting timer")
 				}
-				time.Sleep(8 * time.Minute)
+				time.Sleep(10 * time.Minute)
 				synctest.Wait()
 				if _, exists := s.hub.Snapshot(current.RoomID); !exists {
 					t.Fatal("waiting deadline interrupted a battle")
@@ -196,7 +196,7 @@ func TestWaitingExpiryWaitsForBattleStartTransaction(t *testing.T) {
 					}
 					return nil
 				}
-				time.Sleep(7*time.Minute - 4*time.Second)
+				time.Sleep(9*time.Minute - 4*time.Second)
 				if err := current.connections[current.OwnerMemberType].handleCountdownStart(); err != nil {
 					t.Fatal(err)
 				}
