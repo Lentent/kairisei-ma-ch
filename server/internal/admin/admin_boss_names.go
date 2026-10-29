@@ -130,7 +130,7 @@ func (o *Operations) namedBossGroups(groups []AdminBattleGroup) []AdminBattleGro
 		}
 		g.Bosses = slices.Clone(g.Bosses)
 		for j, b := range g.Bosses {
-			g.Bosses[j] = o.content.bossWithName(b)
+			g.Bosses[j] = o.content.bossWithEditedStats(o.content.bossWithName(b))
 		}
 	}
 	return rows

@@ -60,6 +60,7 @@ type dropTarget struct {
 type enemyStats = gamestate.TeamBattleEnemyStats
 
 type DropBoss struct {
+	StatsEdited  bool         `json:"stats_edited,omitempty"`
 	BattleModel  string       `json:"battle_model,omitempty"`
 	SourceBossID int          `json:"source_boss_id,omitempty"`
 	Category     string       `json:"category"`
@@ -75,6 +76,8 @@ type contentStore struct {
 	customSkillCatalog    *multiplayer.CombatCatalog
 	customBosses          []customBoss
 	customBossRevision    int
+	bossStats             map[int][]bossStatsTarget
+	bossStatsRevision     int
 	activities            activityRewards
 	activityRevision      int
 	base                  gamestate.State
@@ -270,6 +273,9 @@ func (o *Operations) InitializeContent(base gamestate.State, battleMasterPath st
 	if err := o.loadCustomBosses(c); err != nil {
 		return err
 	}
+	if err := o.loadBossStats(c); err != nil {
+		return err
+	}
 	c.rules = map[int]BossRules{}
 	doc, err = o.storage.ReadDocument(bossRulesKey)
 	if err != nil {
@@ -326,6 +332,9 @@ func (c *contentStore) project(drops map[int]BossDrops, shops map[int]exchangeSh
 	state := gamestate.State{TeamBattleSolo: c.base.TeamBattleSolo, TeamBattlePastBossGroups: c.base.TeamBattlePastBossGroups}
 	state.TeamBattleRewards = append([]gamestate.TeamBattleRewardProfile(nil), c.base.TeamBattleRewards...)
 	state.TeamBattleReplays = slices.Clone(c.base.TeamBattleReplays)
+	if err := c.projectBossStats(&state); err != nil {
+		return state, err
+	}
 	if err := c.projectCustomBosses(&state); err != nil {
 		return state, err
 	}

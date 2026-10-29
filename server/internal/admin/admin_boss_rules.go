@@ -22,10 +22,11 @@ func (c *contentStore) rewardBossID(id int) int {
 }
 
 type BossRules struct {
-	BossID   int  `json:"boss_id"`
-	Standard bool `json:"standard"`
-	OwnDeck  bool `json:"own_deck"`
-	Continue bool `json:"continue"`
+	BossID       int  `json:"boss_id"`
+	Standard     bool `json:"standard"`
+	SoloDisabled bool `json:"solo_disabled"`
+	OwnDeck      bool `json:"own_deck"`
+	Continue     bool `json:"continue"`
 }
 
 type bossRuleEntry struct {
@@ -64,7 +65,7 @@ func (c *contentStore) validateBossRules(rule BossRules) error {
 }
 
 // Update both native catalog shapes, leaving identity, rewards and progress intact.
-func projectBossRuleGroup(raw json.RawMessage, bossKey string, rules map[int]bool) (json.RawMessage, error) {
+func projectBossRuleGroup(raw json.RawMessage, bossKey string, rules map[int]bool, soloDisabled map[int]bool) (json.RawMessage, error) {
 	var group map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &group); err != nil {
 		return nil, err
@@ -85,6 +86,10 @@ func projectBossRuleGroup(raw json.RawMessage, bossKey string, rules map[int]boo
 			}
 			boss["7"], _ = json.Marshal(revive)
 		}
+		if soloDisabled[id] {
+			// Native MULTI_ONLY disables offline solo while preserving rooms.
+			boss["24"] = json.RawMessage("3")
+		}
 	}
 	group[bossKey], _ = json.Marshal(bosses)
 	return json.Marshal(group)
@@ -92,12 +97,14 @@ func projectBossRuleGroup(raw json.RawMessage, bossKey string, rules map[int]boo
 
 func (c *contentStore) projectBossRules(state *gamestate.State, overrides map[int]BossRules) error {
 	rules := map[int]bool{}
+	soloDisabled := map[int]bool{}
 	state.DisabledTeamBattleBossIDs = maps.Clone(c.base.DisabledTeamBattleBossIDs)
 	if state.DisabledTeamBattleBossIDs == nil {
 		state.DisabledTeamBattleBossIDs = map[int]bool{}
 	}
 	for id, rule := range overrides {
 		rules[id] = rule.Continue
+		soloDisabled[id] = rule.SoloDisabled
 		if !rule.Standard {
 			state.DisabledTeamBattleBossIDs[id] = true
 		} else {
@@ -105,7 +112,8 @@ func (c *contentStore) projectBossRules(state *gamestate.State, overrides map[in
 		}
 		if ownID := c.ruleBases[id].OwnDeckBossID; ownID != 0 {
 			rules[ownID] = rule.Continue
-			if !rule.OwnDeck {
+			soloDisabled[ownID] = rule.SoloDisabled
+			if !rule.OwnDeck || rule.SoloDisabled {
 				state.DisabledTeamBattleBossIDs[ownID] = true
 			} else {
 				delete(state.DisabledTeamBattleBossIDs, ownID)
@@ -128,7 +136,7 @@ func (c *contentStore) projectBossRules(state *gamestate.State, overrides map[in
 			return err
 		}
 		for i, raw := range groups {
-			updated, err := projectBossRuleGroup(raw, "10", rules)
+			updated, err := projectBossRuleGroup(raw, "10", rules, soloDisabled)
 			if err != nil {
 				return err
 			}
@@ -139,7 +147,7 @@ func (c *contentStore) projectBossRules(state *gamestate.State, overrides map[in
 	state.TeamBattleSolo, _ = json.Marshal(top)
 	past := make([]json.RawMessage, len(state.TeamBattlePastBossGroups))
 	for i, raw := range state.TeamBattlePastBossGroups {
-		updated, err := projectBossRuleGroup(raw, "13", rules)
+		updated, err := projectBossRuleGroup(raw, "13", rules, soloDisabled)
 		if err != nil {
 			return err
 		}
@@ -181,10 +189,11 @@ func (a *API) saveBossRules(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Expected *int `json:"expected_revision"`
 		Rules    []struct {
-			BossID   int   `json:"boss_id"`
-			Standard *bool `json:"standard"`
-			OwnDeck  *bool `json:"own_deck"`
-			Continue *bool `json:"continue"`
+			BossID       int   `json:"boss_id"`
+			Standard     *bool `json:"standard"`
+			SoloDisabled *bool `json:"solo_disabled"`
+			OwnDeck      *bool `json:"own_deck"`
+			Continue     *bool `json:"continue"`
 		} `json:"rules"`
 	}
 	if err := decodeAdminJSON(r, &body); err != nil || body.Expected == nil || len(body.Rules) == 0 || len(body.Rules) > 100 {
@@ -210,6 +219,12 @@ func (a *API) saveBossRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rule := BossRules{BossID: input.BossID, Standard: *input.Standard, OwnDeck: *input.OwnDeck, Continue: *input.Continue}
+		// Old clients omit this new option: never reopen a disabled solo mode
+		// when they save unrelated rules.
+		rule.SoloDisabled = c.rules[input.BossID].SoloDisabled
+		if input.SoloDisabled != nil {
+			rule.SoloDisabled = *input.SoloDisabled
+		}
 		if seen[rule.BossID] {
 			WriteAdminError(w, 400, "难度重复")
 			return

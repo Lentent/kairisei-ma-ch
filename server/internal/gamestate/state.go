@@ -1076,6 +1076,9 @@ type TeamBattleReplayBattle struct {
 }
 
 type TeamBattleReplay struct {
+	// Explicit solo-AI room cost for custom encounters; zero uses the normal
+	// multiplayer price. Enemy stat overrides must not change entry pricing.
+	AutoStartBPUse int                       `json:"auto_start_bp_use,omitempty"`
 	EnemyOverrides []TeamBattleEnemyOverride `json:"enemy_overrides,omitempty"`
 	BossID         int                       `json:"boss_id"`
 	EnemyPartyID   int                       `json:"enemy_party_id"`

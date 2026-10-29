@@ -628,7 +628,7 @@ table.diff .none{color:var(--faint);text-decoration:none;font-weight:400}
 @media (max-width:640px){.batch-box .inline-field{white-space:normal;flex-wrap:wrap;width:100%}.batch-box .joined{flex:1;min-width:0}.batch-box .joined select{flex:1;min-width:0}#exchange-currency-search{width:90px}}
 /* Gift-catalog cards carry a real checkbox; the corner badge is only for checkbox-less cards. */
 label.catalog-card.selected::after{content:none}
-.rule-matrix th .col-actions{display:inline-flex;gap:2px;margin-left:6px;vertical-align:middle}
+.rule-matrix th .col-actions{display:flex;gap:2px;margin-top:6px}
 .rule-matrix th .col-actions .ghost{height:22px;padding:0 6px;font-size:11.5px}
 .rule-matrix th>span[title]{cursor:help;border-bottom:1px dotted var(--faint)}
 .rule-matrix td.changed{background:var(--amber-soft)!important}
@@ -994,4 +994,5 @@ label.catalog-card.selected::after{content:none}
 .cb-part-appearance input[type=file]{max-width:100%;min-width:0;font-size:12px}.cb-part-appearance .hint{line-height:1.8}
 .cb-part-appearance>.cb-entry-note:first-child{margin-bottom:20px}.cb-selection-settings{margin:24px 0}.cb-selection-settings>h3{font-size:14px}
 [data-original-list] .cb-damage-grid{margin-top:16px}[data-original-list] .hint{overflow-wrap:anywhere}
+#boss-stats-fields{border:0;margin:0;padding:0;min-width:0}#boss-stats-fields:disabled{opacity:.65}#boss-stats-part-reset{margin-top:18px}#boss-stats-tabs{margin:16px 0}#boss-stats-modal .field .hint{overflow-wrap:anywhere}#boss-stats-modal .dialog-actions{flex-wrap:wrap}#boss-stats-modal .cb-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}@media(max-width:800px){#boss-stats-modal .cb-stats-grid{grid-template-columns:1fr}}
 @media(max-width:800px){.cb-artwork-layout{grid-template-columns:1fr}.cb-artwork-preview{width:min(100%,280px)}}

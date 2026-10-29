@@ -274,6 +274,7 @@ func (c *contentStore) projectCustomBosses(state *gamestate.State) error {
 		}
 		groups[key] = append(groups[key], raw)
 		r := b.Replay
+		r.AutoStartBPUse = b.BPUse
 		r.Battles = slices.Clone(r.Battles)
 		if appearance, ok := c.customBossAppearances[b.BossID]; ok && appearance.SourceBossID == b.SourceBossID {
 			if len(r.Battles) == 0 {

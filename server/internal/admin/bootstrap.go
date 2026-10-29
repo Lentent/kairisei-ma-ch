@@ -432,6 +432,12 @@ func New(config Config) (http.Handler, error) {
 	router.Get("/api/boss-rules", admin.bossRules)
 	router.Get("/api/boss-names", admin.bossName)
 	router.Put("/api/boss-names", admin.saveBossName)
+	router.Get("/api/boss-stats", admin.bossStats)
+	router.Put("/api/boss-stats", admin.saveBossStats)
+	router.Get("/boss-stats.js", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(adminBossStatsJS)
+	})
 	router.Get("/api/custom-bosses", admin.customBossCatalog)
 	router.Get("/api/custom-boss-skills", admin.customBossSkills)
 	router.Get("/api/custom-boss-buffs", admin.customBossBuffs)

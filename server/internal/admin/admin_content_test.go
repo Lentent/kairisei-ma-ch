@@ -117,7 +117,7 @@ func TestBossDifficultyModesShareDropsAndPersist(t *testing.T) {
 	bad.BossID = 99
 	testfixture.CallContentAdmin(t, router, "PUT", "/rules", map[string]any{"expected_revision": 1, "rules": []BossRules{{BossID: 11, Standard: true}, bad}}, 400)
 	projected := ops.content.configuration.State
-	past, err := projectBossRuleGroup(json.RawMessage(`{"0":1,"13":[{"0":11,"7":1},{"0":111,"7":1}]}`), "13", map[int]bool{11: false, 111: false})
+	past, err := projectBossRuleGroup(json.RawMessage(`{"0":1,"13":[{"0":11,"7":1},{"0":111,"7":1}]}`), "13", map[int]bool{11: false, 111: false}, nil)
 	var pastGroup struct {
 		Bosses []struct {
 			Revive int `json:"7"`

@@ -84,6 +84,9 @@ var adminCustomStampsJS []byte
 //go:embed web/admin_custom_bosses.js
 var adminCustomBossesJS []byte
 
+//go:embed web/admin_boss_stats.js
+var adminBossStatsJS []byte
+
 // The hash-locked CN client DECK_RANK enum ends at SSSS (17). Admin setup may
 // only advance this persisted high-water mark; normal gameplay remains the
 // owner of calculated deck rank and no card or deck data is rewritten here.
