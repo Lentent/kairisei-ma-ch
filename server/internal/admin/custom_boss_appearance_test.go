@@ -92,6 +92,7 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 	b.Name = "机械试炼"
 	b.Targets[0].Artwork = bossTestArtwork(t)
 	b.Targets[0].ArtworkTransform = &customBossArtworkTransform{X: 12, Y: -8, Scale: 75}
+	b.Targets[0].TargetPosition = &customBossTargetPosition{X: 120, Y: -35}
 	b.Targets[2].Name = "第二波核心"
 	b.Targets[2].Artwork = bossTestArtwork(t)
 	b.CoverArtwork = bossTestArtwork(t)
@@ -131,7 +132,7 @@ func TestCustomBossAppearanceSaveRestartAndProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved := restarted.content.customBosses[0]
-	if !bytes.Equal(saved.Targets[0].Artwork, b.Targets[0].Artwork) || saved.Targets[0].Name != "机械核心" || !reflect.DeepEqual(saved.Targets[0].ArtworkTransform, b.Targets[0].ArtworkTransform) || !restarted.content.customBossAppearanceCurrent(saved) {
+	if !bytes.Equal(saved.Targets[0].Artwork, b.Targets[0].Artwork) || saved.Targets[0].Name != "机械核心" || !reflect.DeepEqual(saved.Targets[0].ArtworkTransform, b.Targets[0].ArtworkTransform) || !reflect.DeepEqual(saved.Targets[0].TargetPosition, b.Targets[0].TargetPosition) || !restarted.content.customBossAppearanceCurrent(saved) {
 		t.Fatal("design or applied receipt lost on restart")
 	}
 	if !bytes.Equal(saved.CoverArtwork, b.CoverArtwork) || saved.ArtworkLayout != "separate" {
@@ -287,6 +288,7 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 	}
 	b.Targets[0].Name = "自制核心"
 	b.Targets[0].ArtworkTransform = &customBossArtworkTransform{X: 25, Y: -10, Scale: 50}
+	b.Targets[0].TargetPosition = &customBossTargetPosition{X: 120.5, Y: -35}
 	b.Targets[0].Artwork = bossTestArtwork(t)
 	b.Targets[len(b.Targets)/2].Name = "二波核心"
 	b.Targets[len(b.Targets)/2].Artwork = bossTestArtwork(t)
@@ -412,7 +414,14 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 				t.Fatal("independent 2D sprites still use overlapping template layout/parent anchors")
 			}
 			for j := 1; j < 5; j++ {
-				if targets[id][j] != "0" {
+				expected := "0"
+				if wave == 0 && slot == 0 && j == 1 {
+					expected = "120.5"
+				}
+				if wave == 0 && slot == 0 && j == 2 {
+					expected = "-35"
+				}
+				if targets[id][j] != expected {
 					t.Fatal("separated target does not anchor to its own image")
 				}
 			}
@@ -476,6 +485,7 @@ func TestCustomBossAppearanceRuntimeExport(t *testing.T) {
 		}
 	}
 	b.Targets[0].Name = "再次改名"
+	b.Targets[0].TargetPosition = nil
 	b.ArtworkLayout = "template"
 	a2 := &API{collectionResourceRoot: staging}
 	second, err := a2.buildCustomBossAppearancePatch(b)

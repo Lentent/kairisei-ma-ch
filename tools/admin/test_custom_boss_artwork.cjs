@@ -102,8 +102,10 @@ const server=http.createServer(async(req,res)=>{
   await page.locator('#cb-tab-appearance').click();assert.match(await page.locator('[data-selection-name]').first().innerText(),/自制机械试炼/);
   await page.locator('[data-boss-wave="1"]').click();assert.equal(await page.locator('#cb-2-name').inputValue(),'本体');assert.equal(await page.locator('#cb-2-preview img').count(),0);
   await page.locator('#cb-2-name').fill('觉醒核心');await page.locator('[data-boss-wave="0"]').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');
+  await page.locator('#cb-0-target-x').fill('120.5');await page.locator('#cb-0-target-y').fill('-35');
   await page.locator('#custom-boss-save').click();await page.waitForFunction(()=>!customBossEditor.busy&&!customBossEditor.dirty);
   assert.equal(writes[0].targets[0].name,'机械核心');assert.equal(writes[0].targets[2].name,'觉醒核心');assert.equal(writes[0].targets[0].artwork,art.toString('base64'));assert.equal(source.targets[0].name,'本体');
+  assert.deepEqual(writes[0].targets[0].target_position,{x:120.5,y:-35});
   assert.deepEqual(writes[0].targets[0].artwork_transform,{x:12,y:-8,scale:75});
   assert.equal(writes[0].name,'自制机械试炼');assert.equal(writes[0].artwork_layout,'template');assert.equal(writes[0].cover_artwork,cover.toString('base64'));
   await page.locator('[data-view="custom-bosses-3d"]').click();
@@ -115,6 +117,7 @@ const server=http.createServer(async(req,res)=>{
   const download=page.waitForEvent('download');await page.locator('[data-boss-export]').first().click();await download;await page.waitForFunction(()=>!customBossEditor.busy);assert.equal(exportCount,1);
   if(screenshotDir)await page.screenshot({path:path.join(screenshotDir,'desktop.png'),fullPage:true});
   await page.reload();await page.waitForFunction(()=>state.loaded.has('custom-bosses'));await page.locator('#cb-tab-appearance').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');assert.equal(await page.locator('#cb-0-preview img').count(),1);
+  assert.equal(await page.locator('#cb-0-target-x').inputValue(),'120.5');
   assert.equal(await page.locator('#cb-0-transform-x').inputValue(),'12');
   conflict=true;await page.locator('#cb-0-name').fill('冲突时保留设计');await page.locator('#custom-boss-save').click();await page.waitForFunction(()=>!customBossEditor.busy);assert.equal(await page.evaluate(()=>customBossEditor.dirty),true);assert.equal(await page.locator('#cb-0-name').inputValue(),'冲突时保留设计');
   await page.locator('#custom-boss-reset').click();await page.locator('#custom-boss-reset').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');

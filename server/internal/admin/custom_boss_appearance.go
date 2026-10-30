@@ -92,15 +92,16 @@ func decodeCustomBossArtwork(raw []byte) (image.Image, error) {
 
 func customBossAppearanceHash(b customBoss) string {
 	type part struct {
-		Wave      int                         `json:"wave"`
-		Slot      int                         `json:"slot"`
-		Name      string                      `json:"name"`
-		Art       string                      `json:"art"`
-		Transform *customBossArtworkTransform `json:"transform,omitempty"`
+		Wave           int                         `json:"wave"`
+		Slot           int                         `json:"slot"`
+		Name           string                      `json:"name"`
+		Art            string                      `json:"art"`
+		Transform      *customBossArtworkTransform `json:"transform,omitempty"`
+		TargetPosition *customBossTargetPosition   `json:"target_position,omitempty"`
 	}
 	parts := []part{}
 	for _, t := range b.Targets {
-		parts = append(parts, part{t.BattleIndex, t.EnemyIndex, t.Name, resourceHash(t.Artwork), t.ArtworkTransform})
+		parts = append(parts, part{t.BattleIndex, t.EnemyIndex, t.Name, resourceHash(t.Artwork), t.ArtworkTransform, t.TargetPosition})
 	}
 	slices.SortFunc(parts, func(a, b part) int { return (a.Wave*4 + a.Slot) - (b.Wave*4 + b.Slot) })
 	raw, _ := json.Marshal(struct {
@@ -151,7 +152,7 @@ func (c *contentStore) customBossAppearanceCurrent(b customBoss) bool {
 	}
 	for _, t := range b.Targets {
 		i := slices.IndexFunc(source.Targets, func(s dropTarget) bool { return s.BattleIndex == t.BattleIndex && s.EnemyIndex == t.EnemyIndex })
-		if i < 0 || t.Name != source.Targets[i].Name || len(t.Artwork) > 0 {
+		if i < 0 || t.Name != source.Targets[i].Name || len(t.Artwork) > 0 || t.TargetPosition != nil {
 			return false
 		}
 	}
@@ -412,6 +413,10 @@ func (a *API) buildCustomBossAppearancePatch(boss customBoss) (result []byte, er
 				for j := 1; j <= 4; j++ {
 					target[j] = "0"
 				}
+			}
+			if p := t.TargetPosition; p != nil {
+				target[1] = strconv.FormatFloat(p.X, 'f', -1, 64)
+				target[2] = strconv.FormatFloat(p.Y, 'f', -1, 64)
 			}
 			changes["enemy_target.csv"][id] = target
 			if len(t.Artwork) > 0 {

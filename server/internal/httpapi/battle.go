@@ -494,8 +494,12 @@ func (a *API) teamBattleSoloStart(writer http.ResponseWriter, request *http.Requ
 	battlesWire := make([]any, len(battleSegments))
 	for index, segment := range battleSegments {
 		drop := teamBattleDropPlanWire(context.DropPlan, context.BattleEnemyTypes, index)
+		partyID := segment.EnemyPartyID
+		if segment.ClientEnemyPartyID > 0 {
+			partyID = segment.ClientEnemyPartyID
+		}
 		battlesWire[index] = map[string]any{
-			"enemy_partyid":        segment.EnemyPartyID,
+			"enemy_partyid":        partyID,
 			"enemy_type":           segment.EnemyType,
 			"drop":                 drop,
 			"event_special_reward": []any{},

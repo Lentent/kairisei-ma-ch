@@ -52,3 +52,29 @@ func TestCustomBossArtworkTransformValidationAndHash(t *testing.T) {
 		t.Fatal("transform did not invalidate published appearance")
 	}
 }
+
+func TestCustomBossTargetPosition(t *testing.T) {
+	for _, p := range []customBossTargetPosition{{X: 2001}, {Y: -2001}, {X: math.NaN()}, {Y: math.Inf(1)}} {
+		if validateCustomBossTargetPosition(&p, true) == nil {
+			t.Fatalf("accepted invalid position: %+v", p)
+		}
+	}
+	p := &customBossTargetPosition{X: 120.5, Y: -35}
+	if validateCustomBossTargetPosition(p, false) == nil {
+		t.Fatal("accepted non-static target")
+	}
+	if err := validateCustomBossTargetPosition(p, true); err != nil {
+		t.Fatal(err)
+	}
+	b := customBoss{Targets: []dropTarget{{}}}
+	before := customBossAppearanceHash(b)
+	b.Targets[0].TargetPosition = p
+	if before == customBossAppearanceHash(b) {
+		t.Fatal("target change did not invalidate appearance")
+	}
+	clone := cloneBossTargets(b.Targets)
+	clone[0].TargetPosition.X = 0
+	if p.X != 120.5 {
+		t.Fatal("draft target coordinates alias saved state")
+	}
+}

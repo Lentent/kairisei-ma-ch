@@ -14,6 +14,25 @@ type customBossArtworkTransform struct {
 	Scale float64 `json:"scale"`
 }
 
+// Client UI coordinates relative to the sprite's target anchor.
+type customBossTargetPosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+func validateCustomBossTargetPosition(p *customBossTargetPosition, static bool) error {
+	if p == nil {
+		return nil
+	}
+	if !static {
+		return errors.New("只有普通2D部位支持调整光标位置")
+	}
+	if math.IsNaN(p.X) || math.IsInf(p.X, 0) || math.Abs(p.X) > 2000 || math.IsNaN(p.Y) || math.IsInf(p.Y, 0) || math.Abs(p.Y) > 2000 {
+		return errors.New("光标坐标须为-2000至2000")
+	}
+	return nil
+}
+
 func validateCustomBossArtworkTransform(t *customBossArtworkTransform, uploaded bool) error {
 	if t == nil {
 		return nil

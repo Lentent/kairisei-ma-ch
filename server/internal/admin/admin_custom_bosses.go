@@ -125,6 +125,9 @@ func validateCustomBoss(b customBoss, original []dropTarget) error {
 		if err := validateCustomBossArtworkTransform(t.ArtworkTransform, len(t.Artwork) > 0 && original[idx].StaticImageID != 0); err != nil {
 			return err
 		}
+		if err := validateCustomBossTargetPosition(t.TargetPosition, original[idx].StaticImageID != 0); err != nil {
+			return err
+		}
 		if err := gamestate.ValidateTeamBattleEnemyStats(*t.Stats); err != nil {
 			return fmt.Errorf("第%d波 %s：%w", t.BattleIndex+1, t.Name, err)
 		}
