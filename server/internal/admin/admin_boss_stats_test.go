@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"kairisei.local/server/internal/gamestate"
+	"kairisei.local/server/internal/masterdata"
 	"kairisei.local/server/internal/multiplayer"
 	"kairisei.local/server/internal/testfixture"
 )
@@ -241,3 +242,147 @@ func TestBossStatsOriginalSkillsUseExistingBattleOverrides(t *testing.T) {
 }
 
 func customBossStatsString(v string) *string { return &v }
+
+func TestBossStatsCupPreservesScoreRulesAcrossSaveRestartAndRestore(t *testing.T) {
+	base, path := customBossFixture(t)
+	// Model a native 3-billion-HP cup body without changing the shared party.
+	enemyPath := filepath.Join(filepath.Dir(path), "cn602-battle-master", "enemy.csv")
+	data, err := os.ReadFile(enemyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	fields := strings.Split(lines[0], ",")
+	fields[8] = "1500000000" // The fixture party doubles the body's HP.
+	lines[0] = strings.Join(fields, ",")
+	if err = os.WriteFile(enemyPath, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	policy := &gamestate.TeamBattleScorePolicy{SourceState: "LOCAL_POLICY_DAMAGE_SCORE", Rate: 150, EndTurn: 7, TeamCostInitial: 6, MemberDeadEnd: true}
+	for i := range 9 {
+		policy.Grades = append(policy.Grades, gamestate.TeamBattleScoreGrade{Score: int64(i+1) * 100, Rewards: []gamestate.Reward{{Type: 10, Num: 10, CardSkillLevels: []int16{}}}})
+	}
+	base.TeamBattleRewards[0].ScorePolicy = policy
+	base.TeamBattleReplays[0].Battles = base.TeamBattleReplays[0].Battles[:1]
+	base.TeamBattleOwnDeckSources = map[int]int{1111: 11}
+	alias := base.TeamBattleReplays[0]
+	alias.BossID = 1111
+	base.TeamBattleReplays = append(base.TeamBattleReplays, alias)
+	aliasReward := base.TeamBattleRewards[0]
+	aliasReward.BossID = 1111
+	base.TeamBattleRewards = append(base.TeamBattleRewards, aliasReward)
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	newOps := func() *Operations {
+		t.Helper()
+		o, err := NewOperations(accounts.Database(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = o.InitializeContent(base, path); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	o := newOps()
+	a := &API{operations: o}
+	router := chi.NewRouter()
+	router.Get("/stats", a.bossStats)
+	router.Put("/stats", a.saveBossStats)
+	router.Put("/activities", a.saveActivityRewards)
+	router.Post("/copies", a.createCustomBoss)
+	initial := o.ContentConfiguration().State
+	var editor struct {
+		Boss DropBoss `json:"boss"`
+	}
+	if err = json.Unmarshal(testfixture.CallContentAdmin(t, router, "GET", "/stats?boss_id=11", nil, 200), &editor); err != nil {
+		t.Fatal(err)
+	}
+	if editor.Boss.Targets[0].Stats.HP != 3000000000 {
+		t.Fatal("cup editor lost native HP or party multiplier")
+	}
+	patch := []bossStatsTarget{{EnemyID: 1, Values: map[string]int{"attack": 999}}, {EnemyID: 2, EnemyIndex: 1, Values: map[string]int{"hp": 3000000000}}}
+	testfixture.CallContentAdmin(t, router, "PUT", "/stats", map[string]any{"boss_id": 11, "expected_revision": 0, "overrides": patch}, 200)
+	assertCup := func(state gamestate.State, wantPolicy *gamestate.TeamBattleScorePolicy) {
+		t.Helper()
+		for i, r := range state.TeamBattleReplays {
+			if len(r.EnemyOverrides) != 2 || r.EnemyOverrides[0].Stats.HP != 3000000000 || r.EnemyOverrides[0].Stats.Attack != 999 || r.EnemyOverrides[1].Stats.HP != 3000000000 {
+				t.Fatalf("cup stats did not reach entry %d: %+v", r.BossID, r.EnemyOverrides)
+			}
+			if r.EnemyOverrides[0].Actions != nil || r.EndTurn != wantPolicy.EndTurn || r.CostInitial != 3 || !reflect.DeepEqual(state.TeamBattleRewards[i].ScorePolicy, wantPolicy) {
+				t.Fatal("cup stat edit changed native AI, solo COST, or score rules")
+			}
+		}
+	}
+	saved := o.ContentConfiguration().State
+	assertCup(saved, policy)
+	if !reflect.DeepEqual(saved.TeamBattleRewards, initial.TeamBattleRewards) || !reflect.DeepEqual(initial.TeamBattleReplays[0].EnemyOverrides, base.TeamBattleReplays[0].EnemyOverrides) {
+		t.Fatal("stat edit mutated rewards or an existing snapshot")
+	}
+	// The activity editor and the stats editor must compose in either order.
+	config, err := o.content.activityDefaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Cups[11].Rate, config.Cups[11].EndTurn = 200, 5
+	testfixture.CallContentAdmin(t, router, "PUT", "/activities", map[string]any{"expected_revision": 0, "config": config}, 200)
+	assertCup(o.ContentConfiguration().State, config.Cups[11])
+	assertCup(saved, policy)
+	a.operations = newOps()
+	assertCup(a.operations.ContentConfiguration().State, config.Cups[11])
+	testfixture.CallContentAdmin(t, router, "POST", "/copies", map[string]any{"expected_revision": 0, "source_boss_id": 11}, 400)
+	patch[0].Values["hp"] = 3000000001
+	testfixture.CallContentAdmin(t, router, "PUT", "/stats", map[string]any{"boss_id": 11, "expected_revision": 1, "overrides": patch}, 400)
+	testfixture.CallContentAdmin(t, router, "PUT", "/stats", map[string]any{"boss_id": 11, "expected_revision": 1, "overrides": []bossStatsTarget{}}, 200)
+	for _, r := range newOps().ContentConfiguration().State.TeamBattleReplays {
+		if len(r.EnemyOverrides) != 0 {
+			t.Fatal("cup restore did not persist")
+		}
+	}
+}
+
+func TestBossStatsCupRuntimeTemplates(t *testing.T) {
+	root := os.Getenv("CN602_RUNTIME_SET")
+	if root == "" {
+		t.Skip("requires full runtime resource set")
+	}
+	path := filepath.Join(root, "_local/control/server/cn602-battle-runtime-master.json")
+	master, err := masterdata.LoadBattleRuntimeMaster(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := gamestate.State{TeamBattleSolo: json.RawMessage(`{"9":[],"10":[],"11":[],"12":[]}`)}
+	if err = masterdata.ApplyBattleRuntimeMaster(&base, master); err != nil {
+		t.Fatal(err)
+	}
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	o, err := NewOperations(accounts.Database(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = o.InitializeContent(base, path); err != nil {
+		t.Fatal(err)
+	}
+	cups := 0
+	for _, boss := range o.content.bosses {
+		// Older package snapshots have native cup entries without score policy
+		// metadata. Still exercise their real parties and enemy master values.
+		if !strings.HasPrefix(boss.Name, "圣剑杯") || o.content.rewardBossID(boss.BossID) != boss.BossID {
+			continue
+		}
+		b, err := o.content.originalBossSource(boss.BossID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range b.Targets {
+			// Editing attack alone must preserve all package defaults, including HP.
+			if _, err := o.content.validateBossStats(b.BossID, []bossStatsTarget{{BattleIndex: target.BattleIndex, EnemyIndex: target.EnemyIndex, EnemyID: target.Stats.EnemyID, Values: map[string]int{"attack": target.Stats.Attack}}}); err != nil {
+				t.Fatalf("cup %d part %d: %v", b.BossID, target.EnemyIndex, err)
+			}
+		}
+		cups++
+	}
+	if cups == 0 {
+		t.Fatal("runtime set did not exercise any cup templates")
+	}
+	t.Logf("validated %d native cup templates", cups)
+}

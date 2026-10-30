@@ -186,8 +186,10 @@ func CloneTeamBattleEnemyActions(rows []TeamBattleEnemyAction) []TeamBattleEnemy
 }
 
 func ValidateTeamBattleEnemyStats(s TeamBattleEnemyStats) error {
-	if s.EnemyID <= 0 || s.HP < 1 || s.HP > 2000000000 {
-		return errors.New("敌人ID无效或HP超出1至20亿")
+	// Native cup bodies include 3 billion HP; overrides must retain that value
+	// even when the operator changes only another stat or an original skill.
+	if s.EnemyID <= 0 || s.HP < 1 || s.HP > 3000000000 {
+		return errors.New("敌人ID无效或HP超出1至30亿")
 	}
 	for _, n := range []int{s.Attack, s.Magic, s.Recovery, s.DamageReduction} {
 		if n < 0 || n > 2000000000 {

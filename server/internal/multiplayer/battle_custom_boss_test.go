@@ -50,3 +50,26 @@ func TestCustomBossStatsAreFrozenAndAppliedToEveryWave(t *testing.T) {
 		t.Fatal("unrelated enemy identity accepted")
 	}
 }
+
+func TestCupEnemyOverridePreservesLargeHPAndScoreEnding(t *testing.T) {
+	base, members := nextBattleFixture(t)
+	policy := &gamestate.TeamBattleScorePolicy{SourceState: "LOCAL_POLICY_DAMAGE_SCORE", Rate: 150, EndTurn: 7, MemberDeadEnd: true}
+	rows := []gamestate.TeamBattleEnemyOverride{{Stats: gamestate.TeamBattleEnemyStats{EnemyID: 1, HP: 3000000000, Attack: 999, Attribute: "FIRE"}}}
+	engine, err := newBattleEngine(base.catalog, RoomSpec{EnemyPartyID: 1, CostInitial: 3, HoldMax: 5, Seed: 602, EnemyOverrides: rows, ScorePolicy: policy}, members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := engine.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if engine.enemies[0].HP != 3000000000 || engine.endTurn != 7 || !engine.memberDeadEnd {
+		t.Fatal("large cup HP or score ending changed")
+	}
+	for _, r := range results {
+		if r.Command == resultBattleParam && r.Args[0] == 5 && r.Args[1] == 3000000000 && r.Args[3] == 999 {
+			return
+		}
+	}
+	t.Fatal("client battle parameters lost 64-bit cup HP or edited attack")
+}

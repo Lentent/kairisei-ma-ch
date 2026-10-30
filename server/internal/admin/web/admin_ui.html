@@ -231,6 +231,7 @@
       <div class="panel"><div class="panel-head"><div><h2>圣剑杯</h2><span class="hint">单人为挑战本：通关即领取全部尚未领取的档位，失败、超时或退出无奖励。组队积分 = 敌方本体与部位损失的 HP × 倍率。</span></div></div><div class="panel-body">
         <div class="cup-head">
           <div class="field grow"><label for="cup-select">编辑副本</label><select id="cup-select"></select></div>
+          <button type="button" class="secondary" id="cup-boss-stats" disabled>修改 BOSS 数值</button>
         </div>
         <div class="cup-rules">
           <section class="cup-rule-group" aria-labelledby="cup-rules-all"><h4 id="cup-rules-all">单人与组队</h4>
@@ -755,7 +756,7 @@
 <div class="modal" id="boss-stats-modal" role="dialog" aria-modal="true" aria-labelledby="boss-stats-title"><div class="dialog wide">
   <div class="dialog-head"><div><h2 id="boss-stats-title">修改原版 BOSS 数值</h2><p class="lead">直接编辑当前难度，保留原 BOSS 身份、掉落与进度。</p></div><button class="icon-button dialog-x" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button></div>
   <div class="dialog-body">
-    <p class="hint">保存后用于新开的组队／AI 房间；普通单人战斗仍使用手机资源包原值。已建立的房间不变。</p>
+    <p class="hint">保存后用于新开的组队／AI 房间；普通单人战斗仍使用手机资源包原值。已建立的房间不变。支持圣剑杯本体与部位数值，HP 最高 30 亿；积分倍率、档位奖励与回合上限在「圣剑杯与探索」调整。</p>
     <p id="boss-stats-error" class="state-error" role="alert" hidden></p>
     <div id="boss-stats-loading" class="hint">正在读取资源包数值…</div>
     <div id="boss-stats-form" hidden>

@@ -37,7 +37,7 @@ function bossStatNumber(key,label,value,min=0,max=2000000000){
 function renderBossStatFields(t){
   const e=bossStatsEditor,s=t.stats,p=e.mode==='custom'?e.edits[e.target]:null;
   const attr=`<div class="field"><label for="bs-attribute">属性</label><select id="bs-attribute" data-boss-attribute><option value="">包内原属性：${esc(attributeName(s.attribute)||s.attribute)}</option>${customBossAttributes.map(([v,n])=>`<option value="${v}" ${p?.attribute===v?'selected':''}>${n}</option>`).join('')}</select></div>`;
-  const base=[['hp','HP'],['attack','物攻'],['magic','魔攻'],['recovery','回复'],['defense','物防'],['magic_defense','魔防'],['damage_reduction','通用固定减伤']].map(([k,n])=>bossStatNumber(k,n,s[k],k==='hp'?1:k.includes('defense')?-2000000000:0)).join('');
+  const base=[['hp','HP'],['attack','物攻'],['magic','魔攻'],['recovery','回复'],['defense','物防'],['magic_defense','魔防'],['damage_reduction','通用固定减伤']].map(([k,n])=>bossStatNumber(k,n,s[k],k==='hp'?1:k.includes('defense')?-2000000000:0,k==='hp'?3000000000:2000000000)).join('');
   const arrays=(key,labels,min,max)=>!s[key]?'':labels.map((label,j)=>label?bossStatNumber(`${key}:${j}`,label,s[key][j],min,max):'').join('');
   const advanced=arrays('attribute_fixed',['火','冰','风','光','暗'].map(n=>n+'固定减伤'),-2000000000,2000000000)+arrays('attribute_rates',['火','冰','风','光','暗','地','雷','水','无属性'].map(n=>n+'伤害倍率（%）'),0,100000)+arrays('status_resistances',customBossStatusNames.map(n=>n?n+'抗性（%）':''),0,100)+arrays('dot_reductions',['中毒','燃烧','冻结','流血','感电'].map(n=>n+'减伤'),0,2000000000);
   return `<div class="cb-stats-grid">${attr}${base}</div><details class="cb-resistances"><summary>属性减伤与异常抗性</summary><p class="hint">属性倍率 100 表示原倍率，50 表示减半，0 表示该属性伤害为零。异常抗性 100 表示完全抵抗。</p><div class="cb-stats-grid">${advanced}</div></details>`;

@@ -32,11 +32,6 @@ func (c *contentStore) originalBossSource(id int) (DropBoss, error) {
 	if !ok || b.SourceBossID != 0 || c.rewardBossID(id) != id || len(b.Targets) == 0 {
 		return b, errors.New("请选择有完整敌人资料的原版 BOSS 难度；复制品请到自定义 Boss 编辑")
 	}
-	for _, p := range c.base.TeamBattleRewards {
-		if p.BossID == id && p.ScorePolicy != nil {
-			return b, errors.New("圣剑杯计分副本暂不支持直接修改数值")
-		}
-	}
 	var replay *gamestate.TeamBattleReplay
 	for i := range c.base.TeamBattleReplays {
 		if c.base.TeamBattleReplays[i].BossID == id {

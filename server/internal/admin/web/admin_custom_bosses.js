@@ -388,7 +388,7 @@ function renderCustomBossForm(){
     const s=t.stats,originalAttribute=source?.targets.find(row=>row.battle_index===t.battle_index&&row.enemy_index===t.enemy_index)?.stats?.attribute;
     const attrs=originalAttribute&&!customBossAttributes.some(([v])=>v===originalAttribute)?[[originalAttribute,`模板属性：${originalAttribute}`],...customBossAttributes]:customBossAttributes;
     const attribute=`<div class="field"><label for="cb-${i}-attribute">属性</label><select id="cb-${i}-attribute" data-target="${i}" data-stat="attribute">${attrs.map(([v,n])=>`<option value="${v}" ${s.attribute===v?'selected':''}>${esc(n)}</option>`).join('')}</select></div>`;
-    const base=[['hp','HP'],['attack','物攻'],['magic','魔攻'],['recovery','回复'],['defense','物防'],['magic_defense','魔防'],['damage_reduction','通用固定减伤']].map(([key,label])=>customBossNumber(i,key,label,s[key]??0,key==='hp'?1:key.includes('defense')?-2000000000:0)).join('');
+    const base=[['hp','HP'],['attack','物攻'],['magic','魔攻'],['recovery','回复'],['defense','物防'],['magic_defense','魔防'],['damage_reduction','通用固定减伤']].map(([key,label])=>customBossNumber(i,key,label,s[key]??0,key==='hp'?1:key.includes('defense')?-2000000000:0,key==='hp'?3000000000:2000000000)).join('');
     const fixed=customBossArray(i,'attribute_fixed',['火','冰','风','光','暗'].map((n,j)=>[j,n+'固定减伤']),s.attribute_fixed,-2000000000,2000000000);
     const rates=customBossArray(i,'attribute_rates',['火','冰','风','光','暗','地','雷','水','无属性'].map((n,j)=>[j,n+'伤害倍率（%）']),s.attribute_rates,0,100000);
     const statuses=customBossArray(i,'status_resistances',customBossStatusNames.slice(1).map((n,j)=>[j+1,n+'抗性（%）']),s.status_resistances,0,100);

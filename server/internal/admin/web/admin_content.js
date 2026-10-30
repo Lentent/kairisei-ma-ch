@@ -28,6 +28,7 @@ function renderGradeBars(p){
 }
 function renderActivityRewards(){
   const p=activityEditor.config.cups[$('#cup-select').value];
+  $('#cup-boss-stats').disabled=!p;
   $('#cup-turns').value=p?.end_turn??'';$('#cup-rate').value=p?.rate||'';$('#cup-team-cost').value=p?(p.team_cost_initial||3):'';$('#cup-turns').disabled=$('#cup-rate').disabled=$('#cup-team-cost').disabled=!p;
   $('#cup-grades').innerHTML=p?p.grades.map((g,i)=>{g.rewards??=[];return `<tr data-grade="${i}"><td><span class="grade-badge">${i+1}</span></td><td><div class="score-cell"><input type="number" min="0" max="1000000000000" step="1" value="${esc(g.score)}" data-cup-score="${i}" aria-label="第${i+1}档门槛"><span class="score-human"></span><span class="score-bar"><i></i></span></div></td><td><div class="reward-list">${rewardChips(g.rewards,'cup:'+i)}${g.rewards.length<10?`<button type="button" class="add-chip" data-activity-add="cup:${i}">+ 添加奖励</button>`:''}</div>${g.rewards.length?'':'<span class="row-error warn-text">此档无奖励：达到门槛也不会发放物品</span>'}</td></tr>`}).join(''):emptyRow(3,'当前资源尚未配置圣剑杯');
   if(p)renderGradeBars(p);
@@ -106,6 +107,7 @@ $('#explore-set-chance').onclick=()=>{
   activityChanged();renderActivityRewards();
 };
 $('#cup-select').onchange=()=>{$('#cup-copy-result').textContent='';renderActivityRewards()};
+$('#cup-boss-stats').onclick=()=>{const id=Number($('#cup-select').value);if(activityEditor.config?.cups[id])openBossStats(id)};
 for(const [id,field] of [['#cup-turns','end_turn'],['#cup-rate','rate'],['#cup-team-cost','team_cost_initial']])$(id).oninput=()=>{const p=activityEditor.config?.cups[$('#cup-select').value];if(p){p[field]=$(id).value===''?NaN:Number($(id).value);activityChanged();validateActivity()}};
 const activityRewardText=r=>`${activityRewardLabel(r)} ×${r.num}`;
 function activityDiff(){
