@@ -62,9 +62,14 @@ function renderCustomBossPage(){
   const kind=customBossEditor.kind.toUpperCase();
   $('#custom-boss-search').placeholder='名称、难度或 ID';
   $('#cb-tab-appearance').textContent=kind==='3D'?'02 部位名称':'02 图片与部位名';
-  $('#custom-boss-basic .cb-selection-settings').hidden=kind==='3D';
+  $('#custom-boss-basic .cb-selection-settings').hidden=false;
+  $('#custom-boss-selection-heading').textContent=kind==='3D'?'选关封面':'选关封面与 2D 排列';
+  $('#custom-boss-layout').closest('.field').hidden=kind==='3D';
+  $('#custom-boss-layout').closest('.field').nextElementSibling.hidden=kind==='3D';
+  $('#custom-boss-cover-note').textContent=kind==='3D'?'上传玩家选关时看到的封面 PNG；未上传时沿用模板封面。单张最多 4MB。保存后，在「部位名称」生成并应用资源更新包，再重启并让客户端重新下载资源后生效。':'不另传封面时，优先使用首波本体上传图；没有本体图时沿用模板。单张最多 4MB，封面与部位图合计最多 16MB。';
+  $('#custom-boss-cover-reset').textContent=kind==='3D'?'恢复模板封面':'改用首波本体图／模板封面';
   $('#custom-boss-workshop-title').textContent=`自制${kind}BOSS`;
-  $('#custom-boss-workshop-description').textContent=kind==='3D'?'复制 3D 模板，保留模型演出，修改部位名称、数值与行动。':'复制 2D 模板，上传部位图片、改名并编排行动。';
+  $('#custom-boss-workshop-description').textContent=kind==='3D'?'复制 3D 模板，保留模型演出，上传选关封面，修改部位名称、数值与行动。':'复制 2D 模板，上传部位图片、改名并编排行动。';
 
   const rows=customBossEditor.bosses.filter(customBossInKind).filter(b=>matchesWords(`${b.name} ${b.difficulty} ${b.boss_id}`,$('#custom-boss-list-search').value));
   $('#custom-boss-count').textContent=`${rows.length} / ${customBossEditor.bosses.filter(customBossInKind).length} 个`;
@@ -289,7 +294,7 @@ $('#custom-boss-targets').addEventListener('click',async e=>{
 });
 function renderCustomBossAppearance(t,i,source){
   const e=customBossEditor,original=source?.targets.find(s=>s.battle_index===t.battle_index&&s.enemy_index===t.enemy_index),canUpload=!!original?.static_image_id;
-  if(customBossKind(e.draft)==='3d')return `<section class="cb-part-appearance"><div class="cb-entry-note"><b>3D 模型沿用模板</b><p>关卡名称在「基础与开放」设置；这里修改战斗中的部位名称，部位数量和破坏关系保持模板配置。</p><button type="button" class="secondary sm" data-selection-settings>修改关卡名称</button></div><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-entry-note"><b>应用部位名称</b><p>${e.appearanceCurrent[e.draft.boss_id]===false?'有待应用的资源修改。':'修改部位名称后，需要更新客户端资源。'}先保存配置，再生成更新包，按包内说明合并资源、重启并重新下载资源。</p><button type="button" class="secondary" data-boss-export>生成部位名称更新包</button></div></section>`;
+  if(customBossKind(e.draft)==='3d')return `<section class="cb-part-appearance"><div class="cb-entry-note"><b>3D 模型沿用模板</b><p>关卡名称与选关封面在「基础与开放」设置；这里修改战斗中的部位名称，部位数量和破坏关系保持模板配置。</p><button type="button" class="secondary sm" data-selection-settings>修改关卡名称与封面</button></div><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-entry-note"><b>应用封面与部位名称</b><p>${e.appearanceCurrent[e.draft.boss_id]===false?'有待应用的资源修改。':'修改封面或部位名称后，需要更新客户端资源。'}先保存配置，再生成更新包，按包内说明合并资源、重启并重新下载资源。</p><button type="button" class="secondary" data-boss-export>生成封面与部位名称更新包</button></div></section>`;
   const status=e.appearanceCurrent[e.draft.boss_id]===false?'图片或部位名有待应用的修改。生成更新包后，按包内说明合并资源并重启。':'当前使用已应用的外观；修改图片或部位名后，须重新生成并应用更新包。';
   return `<section class="cb-part-appearance"><div class="cb-entry-note"><b>选关页名称：<span data-selection-name>${esc(e.draft.name)}</span></b><p>下面修改的是战斗部位名。关卡名称、选关封面和图片排列在「基础与开放」分别设置。</p><button type="button" class="secondary sm" data-selection-settings>修改关卡名称与封面</button></div><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-artwork-layout"><div class="cb-artwork-preview" id="cb-${i}-preview">${customBossArtworkPreview(t)}</div><div><h4>部位 PNG</h4>${canUpload?`<div class="field"><label for="cb-${i}-artwork">上传本体或部位图片</label><input id="cb-${i}-artwork" type="file" accept="image/png,.png" data-part-artwork="${i}"></div><button type="button" class="secondary sm" data-part-artwork-reset="${i}" ${t.artwork?'':'disabled'}>恢复模板图片</button>${customBossTransformControls(t,i)}${customBossTargetControls(t,i)}<p class="hint">建议透明背景 PNG，单张最多 4MB，边长 64–4096 像素，总像素不超过 800 万；部位图和封面合计最多 16MB。首波本体图默认同时用作选关封面，也可另行上传封面。</p>`:'<p class="hint">这个部位使用 3D 或 Live2D 外观，可修改名称。上传 PNG 请选择标有「2D 可换图」的模板及普通图片部位。</p>'}<p class="hint">完整角色图选择「独立排列」，本体与部位会分开显示。已制作好透明留白的分层部件图选择「模板拼接」。部位数量和实际战斗破坏关系保持模板配置。</p></div></div><div class="cb-entry-note"><b>应用战斗外观</b><p>${status}</p><p>先保存配置，再生成当前 Boss 的外观更新包。封面、排列和部位名在应用资源包、重启并重新下载资源后生效。</p><button type="button" class="secondary" data-boss-export>生成外观资源更新包</button></div></section>`;
 }
@@ -392,7 +397,7 @@ $('#custom-boss-targets').addEventListener('click',async event=>{
     const r=await fetch('/api/custom-bosses/export',{method:'POST',headers:{'Content-Type':'application/json','X-Kairisei-Admin-Action':'apply'},body:JSON.stringify({expected_revision:e.revision,boss_id:e.draft.boss_id})});
     if(!r.ok){const data=await r.json();throw new Error(data.error||'生成外观资源更新包失败')}
     const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download=`自制Boss-${e.draft.boss_id}-外观-v${e.revision}.zip`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
-    toast(customBossKind(e.draft)==='3d'?'部位名称更新包已生成。按包内说明合并资源、重启，并让客户端重新下载。':'外观包已生成。按包内说明合并资源、重启，并让客户端重新下载。');
+    toast(customBossKind(e.draft)==='3d'?'封面与部位名称更新包已生成。按包内说明合并资源、重启，并让客户端重新下载。':'外观包已生成。按包内说明合并资源、重启，并让客户端重新下载。');
   }catch(err){customBossError(errorText(err))}finally{e.busy=false;customBossControls()}
 });
 function renderCustomBossForm(){

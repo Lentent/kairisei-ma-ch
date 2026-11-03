@@ -54,14 +54,21 @@ const server=http.createServer(async(req,res)=>{
   assert.equal(await page.locator('#view-title').innerText(),'自制3DBOSS');
   assert.equal(await page.locator('#custom-boss-list [data-edit-custom-boss]').count(),1);
   assert.equal(await page.locator('#custom-boss-layout').isVisible(),false);
-  assert.equal(await page.locator('#custom-boss-cover').isVisible(),false);
+  assert.equal(await page.locator('#custom-boss-cover').isVisible(),true);
   assert.equal(await page.locator('#cb-tab-appearance').innerText(),'02 部位名称');
+  await page.locator('#custom-boss-cover').setInputFiles({name:'3d-cover.png',mimeType:'image/png',buffer:testPNG()});
+  await page.waitForFunction(()=>!!customBossEditor.draft.cover_artwork);
+  assert.equal(await page.locator('#custom-boss-cover-preview img').count(),1);
+  await page.locator('#custom-boss-cover-reset').click();
+  assert.equal(await page.evaluate(()=>!!customBossEditor.draft.cover_artwork),false);
+  await page.locator('#custom-boss-reset').click();
+  await page.locator('#custom-boss-reset').click();
   await page.locator('#cb-tab-appearance').click();
   assert.equal(await page.locator('#custom-boss-targets [data-part-artwork]').count(),0);
   assert.equal(await page.locator('#custom-boss-targets .cb-artwork-preview').count(),0);
-  assert.doesNotMatch(await page.locator('#custom-boss-part-scope').innerText(),/PNG|2D|图片排列|模板拼接|独立排列|选关封面/);
+  assert.doesNotMatch(await page.locator('#custom-boss-part-scope').innerText(),/2D|图片排列|模板拼接|独立排列/);
   assert.equal(await page.locator('#cb-0-name').inputValue(),'本体');
-  assert.equal(await page.locator('[data-boss-export]').first().innerText(),'生成部位名称更新包');
+  assert.equal(await page.locator('[data-boss-export]').first().innerText(),'生成封面与部位名称更新包');
   await page.locator('#cb-tab-stats').click();
   assert.equal(await page.locator('#cb-0-hp').isVisible(),true);
 
