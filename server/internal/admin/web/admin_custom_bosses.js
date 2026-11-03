@@ -294,19 +294,30 @@ function renderCustomBossAppearance(t,i,source){
   return `<section class="cb-part-appearance"><div class="cb-entry-note"><b>选关页名称：<span data-selection-name>${esc(e.draft.name)}</span></b><p>下面修改的是战斗部位名。关卡名称、选关封面和图片排列在「基础与开放」分别设置。</p><button type="button" class="secondary sm" data-selection-settings>修改关卡名称与封面</button></div><div class="field"><label for="cb-${i}-name">战斗内的部位名称</label><input id="cb-${i}-name" data-part-name="${i}" maxlength="80" value="${esc(t.name)}"><p class="hint">模板名称：${esc(original?.name||t.name)}。最多 80 字，不支持英文逗号、引号、标签和换行。</p></div><div class="cb-artwork-layout"><div class="cb-artwork-preview" id="cb-${i}-preview">${customBossArtworkPreview(t)}</div><div><h4>部位 PNG</h4>${canUpload?`<div class="field"><label for="cb-${i}-artwork">上传本体或部位图片</label><input id="cb-${i}-artwork" type="file" accept="image/png,.png" data-part-artwork="${i}"></div><button type="button" class="secondary sm" data-part-artwork-reset="${i}" ${t.artwork?'':'disabled'}>恢复模板图片</button>${customBossTransformControls(t,i)}${customBossTargetControls(t,i)}<p class="hint">建议透明背景 PNG，单张最多 4MB，边长 64–4096 像素，总像素不超过 800 万；部位图和封面合计最多 16MB。首波本体图默认同时用作选关封面，也可另行上传封面。</p>`:'<p class="hint">这个部位使用 3D 或 Live2D 外观，可修改名称。上传 PNG 请选择标有「2D 可换图」的模板及普通图片部位。</p>'}<p class="hint">完整角色图选择「独立排列」，本体与部位会分开显示。已制作好透明留白的分层部件图选择「模板拼接」。部位数量和实际战斗破坏关系保持模板配置。</p></div></div><div class="cb-entry-note"><b>应用战斗外观</b><p>${status}</p><p>先保存配置，再生成当前 Boss 的外观更新包。封面、排列和部位名在应用资源包、重启并重新下载资源后生效。</p><button type="button" class="secondary" data-boss-export>生成外观资源更新包</button></div></section>`;
 }
 function customBossTargetControls(t,i){
-  return '<fieldset><legend>光标位置</legend><div class="cb-field-grid">'+[['x','横向坐标（正数向右）'],['y','纵向坐标（正数向上）']].map(([key,label])=>'<div class="field"><label for="cb-'+i+'-target-'+key+'">'+label+'</label><input id="cb-'+i+'-target-'+key+'" data-part-target="'+i+'" data-target-key="'+key+'" type="number" min="-2000" max="2000" step="0.1" value="'+(t.target_position?.[key]??'')+'" placeholder="默认坐标"></div>').join('')+'</div><button type="button" class="secondary sm" data-target-reset="'+i+'">恢复默认光标</button><p class="hint">独立于图片位置，使用客户端界面坐标。填写任一项后，另一项默认为 0；清空两项恢复默认。保存后生成并完整应用外观包、重启服务并重新下载资源。</p></fieldset>';
+  return '<fieldset><legend>光标位置</legend><div class="cb-field-grid">'+[['x','横向坐标（正数向右）'],['y','纵向坐标（正数向上）']].map(([key,label])=>'<div class="field"><label for="cb-'+i+'-target-'+key+'">'+label+'</label><input id="cb-'+i+'-target-'+key+'" data-part-target="'+i+'" data-target-key="'+key+'" type="number" min="-2000" max="2000" step="0.1" value="'+(t.target_position?.[key]??'')+'" placeholder="默认坐标"></div>').join('')+'</div><button type="button" class="secondary sm" data-target-reset="'+i+'">恢复默认光标</button><div data-target-preview="'+i+'">'+customBossTargetPreview(t)+'</div><p class="hint">独立于图片位置，使用客户端界面坐标。填写任一项后，另一项默认为 0；清空两项恢复默认。保存后生成并完整应用外观包、重启服务并重新下载资源。</p></fieldset>';
+}
+// Target coordinates use the client coordinate system, not PNG pixels.
+function customBossTargetPreview(t){
+  const p=t.target_position;
+  if(!p)return '<div class="cb-target-empty">沿用模板默认光标，未设置自定义坐标。</div><p class="hint">模板默认坐标暂未提供预览；填写 X 或 Y 后显示自定义位置。</p>';
+  const range=Math.max(500,Math.ceil(Math.max(Math.abs(p.x),Math.abs(p.y))*1.25/100)*100),x=160+p.x/range*120,y=160-p.y/range*120;
+  return `<div class="cb-target-coordinate"><svg viewBox="0 0 320 320" role="img" aria-label="光标坐标参考：X ${p.x}，Y ${p.y}"><path class="cb-target-grid" d="M40 40H280V280H40Z M100 40V280 M220 40V280 M40 100H280 M40 220H280"/><path class="cb-target-axis" d="M40 160H280 M160 40V280"/><text x="160" y="25" text-anchor="middle">上 +Y（${range}）</text><text x="160" y="310" text-anchor="middle">下 −Y（−${range}）</text><text x="7" y="150">−X</text><text x="280" y="150">+X</text><text x="166" y="177">0, 0</text><path class="cb-target-guide" d="M160 160H${x}V${y}"/><g class="cb-target-marker" transform="translate(${x} ${y})"><circle r="9"/><path d="M-15 0H15 M0 -15V15"/></g></svg><b>光标：X ${p.x}，Y ${p.y}</b></div><p class="hint">坐标参考范围：±${range}，随坐标自动扩展。原点为客户端坐标原点，正 X 向右、正 Y 向上。这是相对位置示意，游戏中的实际位置还受模板锚点和部位尺寸影响。</p>`;
+}
+function refreshCustomBossTargetPreview(i){
+  const el=document.querySelector('[data-target-preview="'+i+'"]');
+  if(el)el.innerHTML=customBossTargetPreview(customBossEditor.draft.targets[Number(i)]);
 }
 $('#custom-boss-targets').addEventListener('input',event=>{
   const el=event.target,i=el.dataset.partTarget;if(i===undefined||customBossEditor.busy)return;
   const t=customBossEditor.draft?.targets[Number(i)];if(!t||!el.validity.valid)return;
   const x=$('#cb-'+i+'-target-x').value,y=$('#cb-'+i+'-target-y').value;
   if(x===''&&y==='')delete t.target_position;else t.target_position={x:Number(x),y:Number(y)};
-  customBossChanged();
+  refreshCustomBossTargetPreview(i);customBossChanged();
 });
 $('#custom-boss-targets').addEventListener('click',event=>{
   const el=event.target.closest('[data-target-reset]');if(!el||customBossEditor.busy)return;
   const i=el.dataset.targetReset;delete customBossEditor.draft.targets[Number(i)].target_position;
-  for(const key of ['x','y'])$('#cb-'+i+'-target-'+key).value='';customBossChanged();
+  for(const key of ['x','y'])$('#cb-'+i+'-target-'+key).value='';refreshCustomBossTargetPreview(i);customBossChanged();
 });
 function customBossArtworkPreview(t){return t.artwork?`<img style="${customBossTransformStyle(t)}" src="data:image/png;base64,${esc(t.artwork)}" alt="部位PNG预览">`:'<span class="hint">沿用模板图片<br>上传 PNG 后在这里预览</span>'}
 function customBossTransformStyle(t){const v=t.artwork_transform||{x:0,y:0,scale:100};return `transform:translate(${v.x}%,${v.y}%) scale(${v.scale/100})`}

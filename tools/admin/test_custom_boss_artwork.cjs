@@ -103,6 +103,16 @@ const server=http.createServer(async(req,res)=>{
   await page.locator('[data-boss-wave="1"]').click();assert.equal(await page.locator('#cb-2-name').inputValue(),'本体');assert.equal(await page.locator('#cb-2-preview img').count(),0);
   await page.locator('#cb-2-name').fill('觉醒核心');await page.locator('[data-boss-wave="0"]').click();assert.equal(await page.locator('#cb-0-name').inputValue(),'机械核心');
   await page.locator('#cb-0-target-x').fill('120.5');await page.locator('#cb-0-target-y').fill('-35');
+  assert.equal(await page.locator('[data-target-preview="0"] svg').getAttribute('aria-label'),'光标坐标参考：X 120.5，Y -35');
+  const marker=page.locator('[data-target-preview="0"] .cb-target-marker');
+  assert.equal(await marker.getAttribute('transform'),'translate(188.92 168.4)');
+  await page.locator('#cb-0-target-x').fill('2000');
+  assert.match(await page.locator('[data-target-preview="0"]').innerText(),/±2500/);
+  await page.locator('[data-target-reset="0"]').click();
+  assert.equal(await page.locator('[data-target-preview="0"] svg').count(),0);
+  assert.match(await page.locator('[data-target-preview="0"]').innerText(),/沿用模板默认光标/);
+  await page.locator('#cb-0-target-x').fill('120.5');await page.locator('#cb-0-target-y').fill('-35');
+
   await page.locator('#custom-boss-save').click();await page.waitForFunction(()=>!customBossEditor.busy&&!customBossEditor.dirty);
   assert.equal(writes[0].targets[0].name,'机械核心');assert.equal(writes[0].targets[2].name,'觉醒核心');assert.equal(writes[0].targets[0].artwork,art.toString('base64'));assert.equal(source.targets[0].name,'本体');
   assert.deepEqual(writes[0].targets[0].target_position,{x:120.5,y:-35});

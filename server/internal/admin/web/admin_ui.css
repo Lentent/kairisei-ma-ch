@@ -998,3 +998,13 @@ label.catalog-card.selected::after{content:none}
 @media(max-width:800px){.cb-artwork-layout{grid-template-columns:1fr}.cb-artwork-preview{width:min(100%,280px)}}
 
 .cb-artwork-transform{margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:10px;min-width:0}.cb-artwork-composite{position:relative;width:min(100%,320px);margin-top:10px}.cb-artwork-composite img{position:absolute;inset:0;transform-origin:center}.cb-artwork-transform input{width:100%}
+
+.cb-target-coordinate{max-width:340px;margin:14px auto;text-align:center}
+.cb-target-coordinate svg{display:block;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.cb-target-coordinate text{fill:currentColor;font-size:11px}
+.cb-target-grid{fill:none;stroke:var(--line);stroke-width:1}
+.cb-target-axis{fill:none;stroke:currentColor;stroke-width:1;opacity:.5}
+.cb-target-guide{fill:none;stroke:#dc7b25;stroke-dasharray:4 3}
+.cb-target-marker{fill:none;stroke:#e05245;stroke-width:2.5}
+.cb-target-coordinate b{display:block;margin-top:8px}
+.cb-target-empty{padding:16px;margin-top:12px;border:1px dashed var(--line);border-radius:8px;text-align:center}
