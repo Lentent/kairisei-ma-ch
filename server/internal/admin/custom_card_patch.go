@@ -253,6 +253,14 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 		return nil, nil, nil, card, e
 	}
 	card.HP, card.Attack, card.Magic, card.Mind = p.HP, p.Attack, p.Magic, p.Mind
+	for i := range roles {
+		if c.RoleSources[i].MinChain > 0 {
+			for len(roles[i]) < 33 {
+				roles[i] = append(roles[i], "")
+			}
+			roles[i] = append(roles[i], strconv.Itoa(c.RoleSources[i].MinChain))
+		}
+	}
 	return row, skills, roles, card, nil
 }
 

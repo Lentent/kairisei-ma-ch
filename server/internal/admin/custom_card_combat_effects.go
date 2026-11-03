@@ -57,7 +57,11 @@ func validateCustomSpecialRoleTarget(row []string, skills [][]string) error {
 // inert, preserves row indices and avoids NONE's empty-Arthur-skill sentinel.
 func customClientRoleRows(rows [][]string) [][]string {
 	result := cloneCustomRows(rows)
-	for _, row := range result {
+	for i, row := range result {
+		if len(row) > 33 {
+			result[i] = row[:33]
+			row = result[i]
+		}
 		if isCustomSpecialRole(row) {
 			row[8] = "ATK_OP_PIERCING"
 			row[20], row[21], row[22] = "0", "0", "0"

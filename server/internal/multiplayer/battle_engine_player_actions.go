@@ -203,9 +203,16 @@ func (engine *BattleEngine) executePlayerAction(action battleAction, chainCounts
 		}
 		return sphereResults, nil
 	}
+	chainCount := maxCombatChain(action.skill.Attribute, chainCounts)
+	filtered := make([]CombatSkillRole, 0, len(action.roles))
+	for _, role := range action.roles {
+		if role.MinChain <= chainCount {
+			filtered = append(filtered, role)
+		}
+	}
+	action.roles = filtered
 	singleToAllRecipients := engine.singleToAllRecipients(action)
 	action = engine.applySingleToAll(action)
-	chainCount := maxCombatChain(action.skill.Attribute, chainCounts)
 	cardSkillResult, err := engine.playerCardSkillResult(action, chainCount)
 	if err != nil {
 		return nil, err
@@ -345,6 +352,9 @@ func (engine *BattleEngine) settleActionPhase(results []BattleResult, nextPhase 
 }
 
 func (engine *BattleEngine) executePlayerRole(action battleAction, role CombatSkillRole, chainCount int) (results []BattleResult, err error) {
+	if role.MinChain > chainCount {
+		return nil, nil
+	}
 	role.SourceSkillID = action.skill.ID
 	defer func() {
 		if err == nil {
