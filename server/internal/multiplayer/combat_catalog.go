@@ -147,6 +147,7 @@ type CombatSkillDefinition struct {
 }
 
 type CombatSkillRole struct {
+	MinChain        int // Custom server-only prerequisite, zero means unrestricted.
 	CustomAttack    *gamestate.TeamBattleEnemyAction
 	CustomBuffValue *int
 	SourceSkillID   int // Bound on an execution copy; immutable CSV SkillID is the role-set key.
@@ -1256,6 +1257,12 @@ func parseCombatSkillRole(row []string) (CombatSkillRole, error) {
 		Function: combatField(row, 8), Target: combatField(row, 9),
 		ExcludeSelf: optionalCombatInt(row, 10) == 1, HasTargetAttributes: true,
 		ChainRate: optionalCombatInt(row, 30), HateLimit: optionalCombatInt(row, 31),
+	}
+	if id >= 1900000000 && len(row) > 33 {
+		value.MinChain = optionalCombatInt(row, 33)
+		if value.MinChain < 0 || value.MinChain > 4 {
+			return CombatSkillRole{}, errors.New("invalid custom role minimum chain")
+		}
 	}
 	for index := range value.Attributes {
 		value.Attributes[index] = optionalCombatInt(row, 11+index) > 0

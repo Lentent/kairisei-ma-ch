@@ -76,8 +76,9 @@ func (c customCard) hasCustomArtwork() bool {
 }
 
 type customRoleSource struct {
-	CardID int `json:"card_id"`
-	Index  int `json:"index"`
+	MinChain int `json:"min_chain,omitempty"`
+	CardID   int `json:"card_id"`
+	Index    int `json:"index"`
 }
 type customCardDraft struct {
 	Cards []customCard `json:"cards"`
@@ -478,6 +479,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 		}
 		for j, row := range c.Roles {
 			source := c.RoleSources[j]
+			if source.MinChain != 0 && (source.MinChain < 2 || source.MinChain > 4) {
+				return errors.New("效果连携前提须为无限制或2至4连携")
+			}
 			if isCustomSpecialRole(row) {
 				fn := customRowInt(row, 0)
 				if _, ok := functions[fn]; !ok {
