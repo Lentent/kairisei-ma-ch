@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-30",
+  "base_commit": "14145cf",
+  "server_version": "1.3.9",
+  "feature": "cup-boss-stat-editor",
+  "go_version": "go1.26.0",
+  "deployed": false,
+  "files": [
+    {
+      "name": "kairi-server.exe",
+      "bytes": 29680128,
+      "sha256": "7799c24582790ebf0ccfd3c7c1ffce322dfbbf6f5f4e7a8b0445bd7d35fe4d44"
+    },
+    {
+      "name": "kairi-server-linux-amd64",
+      "bytes": 29036706,
+      "sha256": "9d413d2685f56c81a32dae0380dbdf5d0d06a97b30364b89cf6b971f65f26af3"
+    },
+    {
+      "name": "kairi-server-linux-arm64",
+      "bytes": 26542242,
+      "sha256": "3d5b5717329cb1668bef14fb06eeee345b5744b8fc82febd5bab8bda627359b6"
+    }
+  ]
+}
