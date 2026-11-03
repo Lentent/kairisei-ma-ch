@@ -257,7 +257,7 @@ func (s customCardSources) template(id int) (customCard, error) {
 	}
 	card.RoleSources = make([]customRoleSource, len(card.Roles))
 	for i := range card.Roles {
-		card.RoleSources[i] = customRoleSource{id, i}
+		card.RoleSources[i] = customRoleSource{CardID: id, Index: i}
 	}
 	if len(card.Skills) > 40 || len(card.Roles) > 120 {
 		return card, errors.New("模板技能过于复杂，请选择其他卡牌")

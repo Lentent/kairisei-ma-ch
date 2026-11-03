@@ -24,3 +24,14 @@ func TestCustomRoleChainPrerequisite(t *testing.T) {
 		t.Fatal("legacy role changed")
 	}
 }
+
+func TestCustomChainOnlyOneMemberPlays(t *testing.T) {
+	actions := []battleAction{{memberType: 1, cardType: 1, skill: CombatSkillDefinition{Attribute: "FIRE"}}}
+	if got := maxCombatChain("FIRE", battleActionChainCounts(actions)); got != 0 {
+		t.Fatalf("single player: %d", got)
+	}
+	actions = append(actions, battleAction{memberType: 2, cardType: 1, skill: CombatSkillDefinition{Attribute: "FIRE"}})
+	if got := maxCombatChain("FIRE", battleActionChainCounts(actions)); got != 2 {
+		t.Fatalf("two players: %d", got)
+	}
+}

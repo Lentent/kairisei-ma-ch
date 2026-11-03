@@ -261,6 +261,10 @@ func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]str
 			roles[i] = append(roles[i], strconv.Itoa(c.RoleSources[i].MinChain))
 		}
 	}
+	skills, roles, e = compileCustomCardChains(c.ID, skills, roles)
+	if e != nil {
+		return nil, nil, nil, card, e
+	}
 	return row, skills, roles, card, nil
 }
 

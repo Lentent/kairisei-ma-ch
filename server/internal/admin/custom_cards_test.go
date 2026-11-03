@@ -103,13 +103,13 @@ func TestCustomCardsRespectClientGroupCapacity(t *testing.T) {
 	c.ID = customCardFirstID
 	for i := 1; i < customClientSkillGroupLimit; i++ {
 		c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
-		c.RoleSources = append(c.RoleSources, customRoleSource{101, 0})
+		c.RoleSources = append(c.RoleSources, customRoleSource{CardID: 101, Index: 0})
 	}
 	if err := a.validateCustomCards(&customCardDraft{[]customCard{c}}, s); err != nil {
 		t.Fatalf("five effects per group must be accepted: %v", err)
 	}
 	c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
-	c.RoleSources = append(c.RoleSources, customRoleSource{101, 0})
+	c.RoleSources = append(c.RoleSources, customRoleSource{CardID: 101, Index: 0})
 	if err := a.validateCustomCards(&customCardDraft{[]customCard{c}}, s); err == nil {
 		t.Fatal("six effects overflow the client's fixed role array")
 	}
@@ -157,7 +157,7 @@ func TestCustomCardsValidateCompositionAndIndependentIDs(t *testing.T) {
 	c.ID = customCardFirstID
 	c.Cost = 3
 	c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
-	c.RoleSources = append(c.RoleSources, customRoleSource{101, 0})
+	c.RoleSources = append(c.RoleSources, customRoleSource{CardID: 101, Index: 0})
 	c.Roles[2][20] = "999"
 	d := customCardDraft{[]customCard{c}}
 	if e = a.validateCustomCards(&d, s); e != nil {
@@ -501,7 +501,7 @@ func TestCustomCardsCompleteResourceExport(t *testing.T) {
 	c.Roles[0][20] = "999"
 	// Add a second supported effect from an existing source to the normal branch.
 	c.Roles = append(c.Roles, append([]string(nil), c.Roles[0]...))
-	c.RoleSources = append(c.RoleSources, customRoleSource{10000010, 0})
+	c.RoleSources = append(c.RoleSources, customRoleSource{CardID: 10000010, Index: 0})
 	c.CutinTemplateID = 10000020
 	c.ActionSources = []customCardActionSource{{FunctionID: customRowInt(c.Roles[0], 0), CardID: 10000020, SourceFunctionID: 11100101}}
 	im := image.NewNRGBA(image.Rect(0, 0, 128, 192))
