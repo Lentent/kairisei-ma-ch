@@ -23,10 +23,25 @@ func customSingleToAllRole(functionID int) []string {
 }
 
 func isCustomSpecialRole(row []string) bool {
-	return len(row) > 8 && row[8] == multiplayer.CombatFunctionTurnSingleToAll
+	return len(row) > 8 && (row[8] == multiplayer.CombatFunctionTurnSingleToAll || row[8] == customPowerBoost)
 }
 
 func validateCustomSpecialRole(row []string, source customRoleSource) error {
+	if len(row) > 8 && row[8] == customPowerBoost {
+		expected := customPowerBoostRole(customRowInt(row, 0))
+		if len(row) != len(expected) || source.CardID != 0 || source.Index != 0 {
+			return errors.New("数值提升效果结构无效，请重新添加")
+		}
+		percent, err := strconv.Atoi(row[20])
+		if err != nil || percent < 0 || percent > 10000 {
+			return errors.New("数值提升百分比须为0至10000的整数")
+		}
+		expected[20] = row[20]
+		if !reflect.DeepEqual(row, expected) {
+			return errors.New("数值提升效果仅可修改提升百分比和连携前提")
+		}
+		return nil
+	}
 	expected := customSingleToAllRole(customRowInt(row, 0))
 	if len(row) == len(expected) {
 		if row[20] == "" && row[9] == "SELF" {
@@ -42,7 +57,7 @@ func validateCustomSpecialRole(row []string, source customRoleSource) error {
 }
 
 func validateCustomSpecialRoleTarget(row []string, skills [][]string) error {
-	if row[20] != "1" || row[9] != "USER_ONE" {
+	if row[8] == customPowerBoost || row[20] != "1" || row[9] != "USER_ONE" {
 		return nil
 	}
 	for _, skill := range skills {

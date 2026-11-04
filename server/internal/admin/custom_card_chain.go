@@ -29,8 +29,10 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 	counts := map[string]int{}
 	for _, skill := range skills {
 		group := byFunction[skill[49]]
+		hasBoost := false
 		thresholds := map[int]bool{0: true}
 		for _, role := range group {
+			hasBoost = hasBoost || role[8] == customPowerBoost
 			if n := customRowInt(role, 33); n > 0 {
 				thresholds[n] = true
 			}
@@ -40,7 +42,7 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 			bounds = append(bounds, n)
 		}
 		sort.Ints(bounds)
-		if len(bounds) == 1 {
+		if len(bounds) == 1 && !hasBoost {
 			result = append(result, skill)
 			counts[skill[0]]++
 			continue
@@ -68,6 +70,7 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 			branch[slot+1], branch[slot+2] = strconv.Itoa(lower), strconv.Itoa(upper)
 			branch[49] = strconv.Itoa(next)
 			next++
+			percent := customBoostPercent(group, lower)
 			activeDisplay := false
 			for i, role := range group {
 				copyRole := append([]string(nil), role...)
@@ -84,6 +87,9 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 				} else if i == customRowInt(skill, 5) {
 					activeDisplay = true
 				}
+				if err := applyCustomPower(copyRole, percent); err != nil {
+					return nil, nil, err
+				}
 				roles = append(roles, copyRole)
 			}
 			if !activeDisplay {
@@ -96,6 +102,14 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 	for id, count := range counts {
 		if count > customClientSkillGroupLimit {
 			return nil, nil, fmt.Errorf("卡牌%d的技能%s展开连携条件后有%d个分支，客户端最多支持5个，请减少条件或更换模板", cardID, id, count)
+		}
+	}
+	// Original groups may still be included in exports; never leak custom enums.
+	for _, role := range roles {
+		if role[8] == customPowerBoost {
+			if err := applyCustomPower(role, 0); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 	return result, roles, nil

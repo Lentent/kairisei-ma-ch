@@ -160,6 +160,11 @@ func customCardEffectHelp(rules map[string][]string) map[string]customEffectHelp
 		TemplateRole: role,
 		Parameters:   []customEffectParameterHelp{},
 	}
+	help[customPowerBoost] = customEffectHelp{
+		Name: "本组效果数值提升", Description: "按百分比提升当前效果组内的伤害、治疗、能力增减、追加伤害、持续伤害及护盾数值，与效果排列位置无关。持续回合、次数、概率、暴击率、穿防率及抽卡数量不变；其他效果保持原值。普通技能与觉醒技能、模板条件分支须分别添加。多个提升效果按百分比相加。可搭配至少4连携实现4C数值提升80%。",
+		Parameters:   []customEffectParameterHelp{p("提升百分比", "80表示提升80%，最终为原数值的180%；小数向下取整。", "percent")},
+		TemplateRole: customPowerBoostRole(0),
+	}
 	return help
 }
 

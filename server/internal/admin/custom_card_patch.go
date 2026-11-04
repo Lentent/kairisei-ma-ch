@@ -334,6 +334,9 @@ func (a *API) buildCustomCardPatch(d customCardDraft, s customCardSources) (resu
 		if e != nil {
 			return nil, e
 		}
+		if e = resolveCustomHealingPresentation(skillRows, roleRows, s); e != nil {
+			return nil, fmt.Errorf("卡牌%d治疗动作校验失败：%w", c.ID, e)
+		}
 		if e = resolveCustomCardPlaylists(roleRows, assets); e != nil {
 			return nil, fmt.Errorf("卡牌%d演出校验失败：%w", c.ID, e)
 		}
