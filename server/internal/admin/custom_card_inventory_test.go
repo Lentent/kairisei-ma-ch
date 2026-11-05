@@ -336,7 +336,39 @@ func TestCustomCardsServerAnimationResourceExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string][][]string{"skill_player.csv": skills, "skill_role_player.csv": roles}
+	// Old deployments may contain a server-only playlist alias. The exported
+	// server and client must use the same direction; only a fallback to the
+	// alias's original playlist is allowed to differ from the draft.
+	serverRows, err := customCSVRows(generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportedRoles := [][]string{}
+	wantedIDs := map[string]bool{}
+	for _, id := range ids {
+		wantedIDs[strconv.Itoa(id)] = true
+	}
+	for _, row := range serverRows {
+		if wantedIDs[row[0]] {
+			exportedRoles = append(exportedRoles, row)
+		}
+	}
+	if len(exportedRoles) != len(roles) {
+		t.Fatal("exported role count differs")
+	}
+	for i, row := range roles {
+		if row[3] != exportedRoles[i][3] {
+			original, ok := customOriginal3DPlaylist(row[3])
+			if !ok || original != exportedRoles[i][3] {
+				t.Fatal("unexpected playlist substitution")
+			}
+			row[3] = original
+		}
+		if !reflect.DeepEqual(row, exportedRoles[i]) {
+			t.Fatal("server changed buff settings")
+		}
+	}
+	want := map[string][][]string{"skill_player.csv": skills, "skill_role_player.csv": customClientRoleRows(exportedRoles)}
 	updates := map[string]func(string) (string, error){}
 	for name, expected := range want {
 		updates[name] = func(text string) (string, error) {

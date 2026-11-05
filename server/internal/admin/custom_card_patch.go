@@ -83,6 +83,9 @@ func rewriteCustomCSV(text string, changes map[string][][]string) (string, error
 }
 
 func materializeCustomCard(c customCard, s customCardSources) ([]string, [][]string, [][]string, gamestate.Card, error) {
+	if err := validateCustomSingleRoleTargets(c); err != nil {
+		return nil, nil, nil, gamestate.Card{}, err
+	}
 	attribute, fusionAttributes, err := normalizeCustomCardAttribute(c.Attribute)
 	if err != nil {
 		return nil, nil, nil, gamestate.Card{}, err

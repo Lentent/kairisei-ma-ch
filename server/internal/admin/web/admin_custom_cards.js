@@ -4,7 +4,7 @@ function loadCustomCardHelp(d){if(d.evolution_recipes)customCardEditor.evolution
 function customEffectHelp(code){return customCardEditor.help[code]||{name:code,description:'此效果尚未配置中文说明，请结合来源卡技能说明。',parameters:[]}}
 function customTargetLabel(target){return customCardEditor.targetLabels[target]||{SELECT:'沿用技能目标',SELF:'自身',USER_ONE:'己方单体',USER_ALL:'己方全体',FRIEND_ALL:'己方全体',ENEMY_ONE:'敌方单体',ENEMY_ALL:'敌方全体'}[target]||target||'沿用模板目标'}
 function customTargetOptionsHTML(target,role=false,attack=false){
-  const options=attack?['ENEMY_ONE','ENEMY_ALL']:['SELF','USER_ONE','USER_ALL','ENEMY_ONE','ENEMY_ALL'];
+  const options=role?(attack?['ENEMY_ALL']:['SELF','USER_ALL','ENEMY_ALL']):attack?['ENEMY_ONE','ENEMY_ALL']:['SELF','USER_ONE','USER_ALL','ENEMY_ONE','ENEMY_ALL'];
   if(role)options.unshift('SELECT');
   if(target==='FRIEND_ALL'&&options.includes('USER_ALL'))options[options.indexOf('USER_ALL')]='FRIEND_ALL';
   if(target&&!options.includes(target))options.unshift(target);
@@ -35,7 +35,7 @@ function changeCustomSingleToAllScope(index,target){
   if(target==='USER_ONE'){
     const linked=c.skills.map((skill,i)=>({skill,i})).filter(({skill})=>(Number(skill[49])||Number(skill[0]))===fn);
     const roots=new Set(linked.map(({skill})=>skill[0]));
-    if(c.skills.some(skill=>roots.has(skill[0])&&skill[10]==='ATTACK')){toast('己方一人需要选择队友，请使用回复、支援等可设置己方单体目标的技能模板',true);renderCustomSkills();return}
+    if(c.skills.some(skill=>roots.has(skill[0])&&['ATTACK','SORCERY'].includes(skill[10]))){toast('己方一人需要选择队友，请使用回复、支援等可设置己方单体目标的技能模板',true);renderCustomSkills();return}
     role[9]=target;role[20]='1';
     for(const root of roots){const i=c.skills.findIndex(skill=>skill[0]===root);if(c.skills[i][19]!=='USER_ONE')changeCustomSkillTarget(i,'USER_ONE')}
   }else{role[9]=target;role[20]='1'}
@@ -167,7 +167,7 @@ function renderCustomSkills(){
   const c=currentCustomCard();if(!c){$('#custom-card-skills').innerHTML='';return}
   if(migrateLegacyCustomSingleToAll(c))customCardChanged();
   const functions=[...new Set(c.skills.map(r=>Number(r[49])||Number(r[0])))];
-  const skillFields=c.skills.map((r,i)=>`<div class="custom-skill-text"><b>技能分支 ${i+1}</b><div class="field"><label for="custom-skill-target-${i}">技能目标</label><select id="custom-skill-target-${i}" data-custom-skill-target="${i}">${customTargetOptionsHTML(r[19],false,r[10]==='ATTACK')}</select><p class="hint">同一技能的条件分支共用目标；普通技能与觉醒技能可分别设置。触发条件沿用模板。</p></div><div class="field"><label for="custom-skill-name-${i}">技能名称</label><input id="custom-skill-name-${i}" maxlength="60" value="${esc(r[1])}" data-custom-skill="${i}:1"></div><div class="field"><label for="custom-skill-subtitle-${i}">技能副名（名称下方的小字）</label><input id="custom-skill-subtitle-${i}" maxlength="60" value="${esc(r[2])}" data-custom-skill="${i}:2" aria-describedby="custom-skill-subtitle-help-${i}"><p class="hint" id="custom-skill-subtitle-help-${i}">最多60字，可留空清除。不能包含英文逗号、双引号或换行。</p></div><div class="field"><label for="custom-skill-desc-${i}">技能介绍（下方可查看占位符含义）</label><input id="custom-skill-desc-${i}" maxlength="500" value="${esc(r[3])}" data-custom-skill="${i}:3" aria-describedby="custom-skill-desc-help-${i}"></div><div id="custom-skill-desc-help-${i}" class="custom-description-help"></div></div>`).join('');
+  const skillFields=c.skills.map((r,i)=>`<div class="custom-skill-text"><b>技能分支 ${i+1}</b><div class="field"><label for="custom-skill-target-${i}">技能目标</label><select id="custom-skill-target-${i}" data-custom-skill-target="${i}">${customTargetOptionsHTML(r[19],false,['ATTACK','SORCERY'].includes(r[10]))}</select><p class="hint">同一技能的条件分支共用目标；普通技能与觉醒技能可分别设置。触发条件沿用模板。</p></div><div class="field"><label for="custom-skill-name-${i}">技能名称</label><input id="custom-skill-name-${i}" maxlength="60" value="${esc(r[1])}" data-custom-skill="${i}:1"></div><div class="field"><label for="custom-skill-subtitle-${i}">技能副名（名称下方的小字）</label><input id="custom-skill-subtitle-${i}" maxlength="60" value="${esc(r[2])}" data-custom-skill="${i}:2" aria-describedby="custom-skill-subtitle-help-${i}"><p class="hint" id="custom-skill-subtitle-help-${i}">最多60字，可留空清除。不能包含英文逗号、双引号或换行。</p></div><div class="field"><label for="custom-skill-desc-${i}">技能介绍（下方可查看占位符含义）</label><input id="custom-skill-desc-${i}" maxlength="500" value="${esc(r[3])}" data-custom-skill="${i}:3" aria-describedby="custom-skill-desc-help-${i}"></div><div id="custom-skill-desc-help-${i}" class="custom-description-help"></div></div>`).join('');
   const groups=functions.map((fn,k)=>{
     const indices=c.roles.map((r,i)=>Number(r[0])===fn?i:-1).filter(i=>i>=0);
     const branches=c.skills.map((r,i)=>(Number(r[49])||Number(r[0]))===fn?i+1:0).filter(Boolean).join('、');
@@ -319,6 +319,7 @@ function validateCustomCardDesign(d){
   if(!object(d)||!Array.isArray(d.cards)||d.cards.length>200)throw new Error('设计文件须包含有效cards数组，最多200张');
   const ids=new Set(),e=customCardEditor,occupied=new Set(e.occupied);
   for(const c of d.cards){
+    if(Array.isArray(c?.role_sources)&&c.role_sources.some(s=>s?.min_chain!=null&&![0,2,3,4].includes(s.min_chain)))throw new Error('效果连携前提须为无限制或2至4连携');
     if(c?.allow_fame_training!=null&&typeof c.allow_fame_training!=='boolean')throw new Error('允许名声强化须为开关值');
     for(const kind of ['attack','support']){const raw=c?.[`${kind}_voice_audio`];if(raw!=null&&(typeof raw!=='string'||raw.length>5592408||!/^UklGR[A-Za-z0-9+/]*={0,2}$/.test(raw)||c[`${kind}_voice_source`]!=null))throw new Error('自制语音须为规范WAV音频，不能与同类来源语音同时设置');const volume=c?.[`${kind}_voice_volume`];if(volume!=null&&!integer(volume,0,100))throw new Error('自制语音音量须为0–100的整数百分比')}
     for(const key of ['evolution','divergence']){const route=c?.[key];if(route!=null&&(!object(route)||!integer(route.target_card_id,98000001,98999999)||!integer(route.recipe_from_card_id,1,2147483647)||!integer(route.recipe_to_card_id,1,2147483647)))throw new Error('普通及乖离进化配置须包含目标自制卡及配方来源')}

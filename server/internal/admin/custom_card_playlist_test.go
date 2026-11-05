@@ -3,10 +3,13 @@ package admin
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +119,39 @@ func TestCustomCardLegacyPlaylistCompleteResourceExport(t *testing.T) {
 	for _, id := range ids {
 		selected[strconv.Itoa(id)] = true
 	}
+	// Some resource sets ship the colour alias for every supported avatar.
+	var inventory struct {
+		Assets []struct{ Directory, Name string }
+	}
+	inventoryJSON, err := os.ReadFile(filepath.Join(root, "asset-map.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(inventoryJSON, &inventory); err != nil {
+		t.Fatal(err)
+	}
+	baseDirs, aliasDirs := map[string]bool{}, map[string]bool{}
+	for _, asset := range inventory.Assets {
+		if !strings.HasPrefix(asset.Directory, "text/action/") || !strings.HasSuffix(asset.Directory, "/playlist") {
+			continue
+		}
+		switch asset.Name {
+		case "pl_buff_buff_b":
+			baseDirs[asset.Directory] = true
+		case "pl_buff_buff_b_cp_support_wind":
+			aliasDirs[asset.Directory] = true
+		}
+	}
+	if len(baseDirs) == 0 {
+		t.Fatal("missing base playlist")
+	}
+	wantPlaylist := "pl_buff_buff_b_cp_support_wind"
+	for dir := range baseDirs {
+		if !aliasDirs[dir] {
+			wantPlaylist = "pl_buff_buff_b"
+			break
+		}
+	}
 	check := func(raw []byte) [][]string {
 		rows, err := customCSVRows(raw)
 		if err != nil {
@@ -124,7 +160,7 @@ func TestCustomCardLegacyPlaylistCompleteResourceExport(t *testing.T) {
 		var got [][]string
 		for _, row := range rows {
 			if selected[row[0]] {
-				if row[3] != "pl_buff_buff_b" {
+				if row[3] != wantPlaylist {
 					t.Fatalf("exported missing playlist: %s", row[3])
 				}
 				got = append(got, row)

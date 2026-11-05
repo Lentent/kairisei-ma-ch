@@ -470,6 +470,9 @@ func (a *API) validateCustomCards(d *customCardDraft, s customCardSources) error
 				}
 			}
 		}
+		if e := validateCustomSingleRoleTargets(*c); e != nil {
+			return e
+		}
 		if e := validateCustomCardSharedTargets(*c, base); e != nil {
 			return e
 		}

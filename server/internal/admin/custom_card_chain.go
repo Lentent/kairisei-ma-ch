@@ -25,6 +25,7 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 			}
 		}
 	}
+	unconditional := map[string]bool{}
 	var result [][]string
 	counts := map[string]int{}
 	for _, skill := range skills {
@@ -42,7 +43,10 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 			bounds = append(bounds, n)
 		}
 		sort.Ints(bounds)
-		if len(bounds) == 1 && !hasBoost {
+		if len(bounds) == 1 {
+			if hasBoost {
+				unconditional[skill[49]] = true
+			}
 			result = append(result, skill)
 			counts[skill[0]]++
 			continue
@@ -84,7 +88,7 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 					if len(copyRole) > 33 {
 						copyRole = copyRole[:33]
 					}
-				} else if i == customRowInt(skill, 5) {
+				} else if i+1 == customRowInt(skill, 5) && !isCustomSpecialRole(role) {
 					activeDisplay = true
 				}
 				if err := applyCustomPower(copyRole, percent); err != nil {
@@ -93,7 +97,7 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 				roles = append(roles, copyRole)
 			}
 			if !activeDisplay {
-				branch[4], branch[5], branch[6], branch[18] = "0", "0", "0", "0"
+				branch[4], branch[5], branch[6] = "0", "0", "0"
 			}
 			result = append(result, branch)
 			counts[skill[0]]++
@@ -102,6 +106,16 @@ func compileCustomCardChains(cardID int, skills, roles [][]string) ([][]string, 
 	for id, count := range counts {
 		if count > customClientSkillGroupLimit {
 			return nil, nil, fmt.Errorf("卡牌%d的技能%s展开连携条件后有%d个分支，客户端最多支持5个，请减少条件或更换模板", cardID, id, count)
+		}
+	}
+	// Apply unconditional boosts once per original group, even if several skills share it.
+	for fn := range unconditional {
+		group := byFunction[fn]
+		percent := customBoostPercent(group, 0)
+		for _, role := range group {
+			if err := applyCustomPower(role, percent); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 	// Original groups may still be included in exports; never leak custom enums.

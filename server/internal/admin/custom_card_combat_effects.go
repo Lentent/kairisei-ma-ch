@@ -77,6 +77,13 @@ func customClientRoleRows(rows [][]string) [][]string {
 			result[i] = row[:33]
 			row = result[i]
 		}
+		// The client parses this column as SKILL_ROLE_TARGET, not SKILL_TARGET.
+		// A missing enum name falls back to SELECT and inherits the attack target.
+		if len(row) > 9 && row[9] == "USER_ALL" {
+			row[9] = "FRIEND_ALL"
+		} else if len(row) > 9 && (row[9] == "USER_ONE" || row[9] == "ENEMY_ONE") {
+			row[9] = "SELECT"
+		}
 		if isCustomSpecialRole(row) {
 			row[8] = "ATK_OP_PIERCING"
 			row[20], row[21], row[22] = "0", "0", "0"
