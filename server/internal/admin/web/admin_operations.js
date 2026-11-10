@@ -44,7 +44,7 @@ function renderVariantBar(){
 function poolVariantSummary(v){
   const s=poolEditor.contents?.get(v.gacha_id),m=poolEditor.mixedByID?.get(v.gacha_id);if(!s)return '';
   const box=poolEditor.boxByID?.get(v.gacha_id);
-  const count=box?'箱池 · 前 10 轮 + 无限循环':m?`${(m.steps.length?m.steps[0].reward_pool:m.reward_pool).length} 项奖励${m.steps.length?` · ${m.steps.length} 个阶段`:''}`:`${s.selected.size} 张卡牌`;
+  const count=box?'箱池 · 池数范围 + 无限循环':m?`${(m.steps.length?m.steps[0].reward_pool:m.reward_pool).length} 项奖励${m.steps.length?` · ${m.steps.length} 个阶段`:''}`:`${s.selected.size} 张卡牌`;
   const fames=m?0:[...s.fames.keys()].filter(id=>s.selected.has(id)).length;
   return `<b>${count}</b>${poolPendingDraft(v)?' <span class="tag warn">草稿</span>':''}${fames?`<span class="sub">${fames} 张自定义名声</span>`:''}`;
 }
@@ -415,8 +415,8 @@ function poolProblems(configs) {
     if(c.box_rounds?.length){
       const row=poolEditor.variants.find(v=>v.gacha_id===c.gacha_id);
       if(c.card_num!==row.base.card_num||!gachaBoxDrawCountAllowed(c.card_num)||c.play_count_max!==0)problems.push('箱池抽数须与入口一致（1–11 抽或 50 抽），累计次数不限');
-      if(c.box_rounds.length!==11)problems.push('箱池须有 11 套模板');
-      c.box_rounds.forEach((r,i)=>{if(!gachaBoxRoundReady(r))problems.push(`${i===10?'循环模板':`第 ${i+1} 轮`}须配置 1–${gachaBoxMaxRewards} 项奖励，库存为正整数且合计不超过 ${num(gachaBoxMaxStock)} 份`);});
+      if(!gachaBoxRangesReady(c.box_rounds))problems.push('箱池范围须连续递增，最后一套为无限循环，最多 100 套');
+      c.box_rounds.forEach((r,i)=>{if(!gachaBoxRoundReady(r))problems.push(`${gachaBoxRangeLabel(c.box_rounds,i)}须配置 1–${gachaBoxMaxRewards} 项奖励，库存为正整数且合计不超过 ${num(gachaBoxMaxStock)} 份`);});
     }else if(!poolEditor.mixedByID.has(c.gacha_id)){
       if(!c.card_ids.length)problems.push(`${label(c)}至少选择一张卡牌`);
       if(c.weights.some(w=>!Number.isInteger(w)||w<1||w>1000000))problems.push(`${label(c)}权重须为1–1000000的整数`);
@@ -446,7 +446,7 @@ function renderPoolPreview(previews) {
   poolEditor.preview={publishable:ready,blocked_card_ids:blocked,config:c,previews};
   const names=new Map(poolEditor.cards.map(card=>[card.reward_type_id,card.name]));
   const when=p=>p.config.start_unix||p.config.end_unix?`${describeTime(p.config.start_unix)} → ${describeTime(p.config.end_unix)}`:'不限';
-  const contents=p=>{if(p.config.box_rounds?.length)return '箱池 · 前 10 轮 + 无限循环 · 各轮库存独立配置';const fames=Object.keys(p.config.card_fames||{}).length;return p.config.card_ids?.length?`${num(p.config.card_ids.length)} 张卡牌${fames?` · ${fames} 张卡牌自定义名声`:''}`:`${num((p.config.steps?.[0]?.reward_pool||p.config.reward_pool||[]).length)} 项奖励${p.config.steps?.length?` · ${p.config.steps.length} 个阶段`:''}`};
+  const contents=p=>{if(p.config.box_rounds?.length)return '箱池 · 池数范围 + 无限循环 · 各轮库存独立配置';const fames=Object.keys(p.config.card_fames||{}).length;return p.config.card_ids?.length?`${num(p.config.card_ids.length)} 张卡牌${fames?` · ${fames} 张卡牌自定义名声`:''}`:`${num((p.config.steps?.[0]?.reward_pool||p.config.reward_pool||[]).length)} 项奖励${p.config.steps?.length?` · ${p.config.steps.length} 个阶段`:''}`};
   const gifts=p=>(p.config.gift_rules||p.base.gift_rules||[]).map(g=>`<p class="hint">第 ${g.from_play} 至 ${g.to_play||'以后'} 次赠送：${g.rewards.map(r=>`${esc(rewardLabel(r))} × ${r.num}`).join('、')}</p>`).join('');
   const odds=p=>(p.stages.length?p.stages:[{draw_count:p.base.card_num,card_ids:p.config.card_ids,odds_scaled:p.odds_scaled}]).map(stage=>`<details><summary>${p.base.card_num} 抽 · ${esc(poolProfessionName(p.base.arthur_type))} <code>${p.config.gacha_id}</code> · ${esc(p.config.steps?.length||p.config.box_rounds?.length?stage.name:paymentName(p.base))} · ${stage.draw_count} 抽 · ${(stage.card_ids||stage.rewards||[]).length} 项 · 展开概率</summary><div class="table-wrap" style="max-height:280px"><table><thead><tr><th>卡牌／奖励</th><th class="num">单次概率</th></tr></thead><tbody>${(stage.rewards||stage.card_ids||[]).map((r,i)=>`<tr><td>${esc(typeof r==='number'?(names.get(r)||r):rewardLabel(r))}${typeof r==='number'?'':` × ${r.num}`}${stage.stocks?` · 库存 ${stage.stocks[i]} 份`:''}${typeof r==='number'&&p.config.card_fames?.[r]>1?` <span class="tag info">名声 ${p.config.card_fames[r]}</span>`:''}</td><td class="num">${(stage.odds_scaled[i]/p.odds_scale).toFixed(5)}%</td></tr>`).join('')}</tbody></table></div></details>`).join('')+gifts(p);
   const html=`<div class="preview-head"><div class="gacha-art preview-cover">${image(poolCoverURL(c.cover_path),c.name)}</div><div><h3>${esc(c.name)} ${ready?'<span class="tag ok">可发布</span>':'<span class="tag bad">不能发布</span>'}</h3><p class="hint">${list.length} 个分池一起保存和发布；开放由「扭蛋发布」控制，并须处于排期内。</p></div></div>`+
@@ -483,7 +483,7 @@ $('#pool-import').onchange=event=>runPoolEdit(async()=>{
       if(typeof c.name!=='string'||!Number.isInteger(c.price)||(c.pay_type!=null&&![0,2,3,4,6].includes(c.pay_type)))throw new Error('名称、价格或消耗方式无效');
       if(c.card_fames!=null&&(typeof c.card_fames!=='object'||Object.entries(c.card_fames).some(([id,f])=>!c.card_ids.includes(Number(id))||!Number.isInteger(f)||f<1)))throw new Error('抽出名声设置无效');
       localTimeInput(c.start_unix);localTimeInput(c.end_unix);
-      if(poolEditor.boxByID?.has(c.gacha_id)&&(!Array.isArray(c.box_rounds)||c.box_rounds.length!==11||c.box_rounds.some(r=>!Array.isArray(r.rewards))))throw new Error('箱池导入须包含 11 套奖励模板');
+      if(poolEditor.boxByID?.has(c.gacha_id)&&(!Array.isArray(c.box_rounds)||!gachaBoxRangesReady(c.box_rounds)||c.box_rounds.some(r=>!Array.isArray(r.rewards))))throw new Error('箱池导入须包含有效的池数范围和奖励模板');
     }
     const first=configs[0],boxConfigs=configs.filter(c=>poolEditor.boxByID?.has(c.gacha_id));
     if(boxConfigs.some(c=>JSON.stringify(c.box_rounds)!==JSON.stringify(boxConfigs[0].box_rounds)))throw new Error('无限池所有抽法共用奖励与轮次，导入的箱池模板必须一致');

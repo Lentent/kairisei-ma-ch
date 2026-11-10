@@ -495,3 +495,30 @@ func TestGachaBoxFiftyDrawPaysBossCurrencyOnce(t *testing.T) {
 		t.Fatal("insufficient Boss currency changed stock or materials", err)
 	}
 }
+
+func TestGachaBoxConfiguredRangesAcrossDraws(t *testing.T) {
+	s := boxTestAccount()
+	rounds := s.gachas[0].BoxRounds[:3]
+	rounds[0].EndRound, rounds[1].EndRound = 10, 50
+	for i := range rounds {
+		rounds[i].Rewards[0].Stock = 1
+	}
+	s.gachas[0].BoxRounds = rounds
+	for round := 1; round <= 55; round++ {
+		before := s.items[10].Num
+		_, err := s.PlayGacha(70000001, 3, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if round > 10 {
+			want = 2
+		}
+		if round > 50 {
+			want = 3
+		}
+		if s.items[10].Num-before != want {
+			t.Fatalf("round %d used wrong rewards", round)
+		}
+	}
+}

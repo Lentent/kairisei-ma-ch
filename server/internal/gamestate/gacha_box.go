@@ -20,7 +20,8 @@ type GachaBoxReward struct {
 }
 
 type GachaBoxRound struct {
-	Rewards []GachaBoxReward `json:"rewards"`
+	EndRound uint64           `json:"end_round,omitempty"`
+	Rewards  []GachaBoxReward `json:"rewards"`
 }
 
 // Remaining pins the current box's actual rewards across configuration edits.
@@ -88,8 +89,8 @@ func ValidateGachaBoxes(boxes map[int]GachaBoxProgress) error {
 }
 
 func ValidateGachaBoxRules(p GachaProfile) error {
-	if len(p.BoxRounds) != GachaBoxTemplates {
-		return fmt.Errorf("箱池须配置前 10 轮和第 11 轮起的循环模板，共 11 套")
+	if err := ValidateGachaBoxRanges(p.BoxRounds); err != nil {
+		return err
 	}
 	if !GachaBoxDrawCountAllowed(p.CardNum) || p.CardNumMax != p.CardNum || p.PlayCountMax != 0 || len(p.CardIDs) != 0 || len(p.RewardPool) != 0 || len(p.Steps) != 0 || len(p.Gifts) != 0 || len(p.CardFames) != 0 || p.UserSelectMax != 0 || p.GuaranteedCount != 0 || p.UnownedOnly || p.DailyFirstFree {
 		return fmt.Errorf("箱池须为固定 1–11 抽或 50 抽、不限次数，不能附加普通池或阶段池规则")
@@ -100,4 +101,61 @@ func ValidateGachaBoxRules(p GachaProfile) error {
 		}
 	}
 	return nil
+}
+
+// Legacy templates have no endpoints; the first ten entries each cover one round.
+func GachaBoxRangeEnd(rounds []GachaBoxRound, index int) uint64 {
+	if !GachaBoxHasRanges(rounds) && index < len(rounds)-1 {
+		return uint64(index + 1)
+	}
+	return rounds[index].EndRound
+}
+func GachaBoxHasRanges(rounds []GachaBoxRound) bool {
+	for _, r := range rounds {
+		if r.EndRound != 0 {
+			return true
+		}
+	}
+	return false
+}
+func ValidateGachaBoxRanges(rounds []GachaBoxRound) error {
+	if len(rounds) == 0 || len(rounds) > 100 {
+		return fmt.Errorf("箱池须配置 1–100 套范围模板")
+	}
+	if !GachaBoxHasRanges(rounds) && len(rounds) != 1 && len(rounds) != GachaBoxTemplates {
+		return fmt.Errorf("旧版箱池须配置 11 套模板")
+	}
+	var previous uint64
+	for i := range rounds {
+		end := GachaBoxRangeEnd(rounds, i)
+		if i == len(rounds)-1 {
+			if end != 0 {
+				return fmt.Errorf("最后一套须为无限循环，结束池数为 0")
+			}
+			continue
+		}
+		if end <= previous || end > 1000000000 {
+			return fmt.Errorf("结束池数须递增且不超过 1000000000")
+		}
+		previous = end
+	}
+	return nil
+}
+func GachaBoxRoundIndex(rounds []GachaBoxRound, round uint64) int {
+	for i := range rounds {
+		if end := GachaBoxRangeEnd(rounds, i); end == 0 || round <= end {
+			return i
+		}
+	}
+	return len(rounds) - 1
+}
+func GachaBoxRangeLabel(rounds []GachaBoxRound, index int) string {
+	start := uint64(1)
+	if index > 0 {
+		start = GachaBoxRangeEnd(rounds, index-1) + 1
+	}
+	if end := GachaBoxRangeEnd(rounds, index); end != 0 {
+		return fmt.Sprintf("第 %d–%d 池", start, end)
+	}
+	return fmt.Sprintf("第 %d 池起 · 无限循环", start)
 }

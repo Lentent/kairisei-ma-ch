@@ -61,7 +61,7 @@ func (s *Account) GachaBoxOddsMessage(profile gamestate.GachaProfile) string {
 	for _, entry := range profile.RewardPool {
 		total += entry.Weight
 	}
-	lines := []string{fmt.Sprintf("第 %d 轮，剩余 %d 份；当前概率 = 剩余份数 / 本轮总剩余份数。抽空自动换轮，第 11 轮起无限重复。", profile.BoxRound, total)}
+	lines := []string{fmt.Sprintf("第 %d 轮，剩余 %d 份；当前概率 = 剩余份数 / 本轮总剩余份数。抽空自动换轮，%s。", profile.BoxRound, total, gamestate.GachaBoxRangeLabel(profile.BoxRounds, len(profile.BoxRounds)-1))}
 	for _, entry := range profile.RewardPool {
 		reward := entry.Reward
 		name := ""
@@ -99,7 +99,7 @@ func (s *Account) gachaBoxLocked(profile gamestate.GachaProfile) gamestate.Gacha
 }
 
 func newGachaBox(profile gamestate.GachaProfile, round uint64) gamestate.GachaBoxProgress {
-	index := int(min(round, uint64(gamestate.GachaBoxTemplates))) - 1
+	index := gamestate.GachaBoxRoundIndex(profile.BoxRounds, round)
 	return gamestate.GachaBoxProgress{Round: round, Remaining: gamestate.CloneGachaBoxRewards(profile.BoxRounds[index].Rewards)}
 }
 
@@ -110,14 +110,14 @@ func currentBoxGacha(profile gamestate.GachaProfile, progress gamestate.GachaBox
 		profile.RewardPool[i] = gamestate.WeightedReward{Reward: entry.Reward, Weight: entry.Stock}
 	}
 	mode := ""
-	if progress.Round >= 11 {
+	if gamestate.GachaBoxRoundIndex(profile.BoxRounds, progress.Round) == len(profile.BoxRounds)-1 {
 		mode = "（循环池）"
 	}
 	status := fmt.Sprintf("第 %d 轮%s，剩余 %d 份", progress.Round, mode, gamestate.GachaBoxStock(progress.Remaining))
 	profile.Name += " · " + status
 	payment := map[int]string{2: "友情点", 3: "水晶", 4: fmt.Sprintf("道具 %d", profile.PayTypeID), 6: "付费水晶"}[profile.PayType]
 	profile.BuyMessage = fmt.Sprintf("%s。消耗 %d %s 抽取 %d 份奖励吗？抽空自动进入下一轮。", status, profile.Price, payment, profile.CardNum)
-	profile.SubMessage = "每轮份数按模板配置，抽中扣库存；前 10 轮独立，第 11 轮起无限重复。"
+	profile.SubMessage = "各池按范围模板配置奖励和库存，抽中扣库存；最后一套无限循环。"
 	return profile
 }
 

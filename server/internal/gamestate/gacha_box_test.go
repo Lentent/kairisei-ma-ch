@@ -83,3 +83,29 @@ func TestGachaBoxVariableStocksAndIndependentRewardLimit(t *testing.T) {
 		t.Fatal("variable remaining inventory rejected", err)
 	}
 }
+
+func TestGachaBoxRanges(t *testing.T) {
+	rounds := []GachaBoxRound{{EndRound: 10}, {EndRound: 50}, {}}
+	if err := ValidateGachaBoxRanges(rounds); err != nil {
+		t.Fatal(err)
+	}
+	for round, want := range map[uint64]int{1: 0, 10: 0, 11: 1, 50: 1, 51: 2, 100000: 2} {
+		if got := GachaBoxRoundIndex(rounds, round); got != want {
+			t.Fatalf("round %d: got %d want %d", round, got, want)
+		}
+	}
+	for _, bad := range [][]GachaBoxRound{{{EndRound: 10}, {EndRound: 9}, {}}, {{EndRound: 10}}, {{}, {EndRound: 10}, {}}, {{EndRound: 1000000001}, {}}} {
+		if ValidateGachaBoxRanges(bad) == nil {
+			t.Fatalf("invalid ranges accepted: %+v", bad)
+		}
+	}
+	if err := ValidateGachaBoxRanges([]GachaBoxRound{{}}); err != nil {
+		t.Fatal(err)
+	}
+	legacy := make([]GachaBoxRound, 11)
+	for round, want := range map[uint64]int{1: 0, 10: 9, 11: 10, 1000: 10} {
+		if GachaBoxRoundIndex(legacy, round) != want {
+			t.Fatal("legacy mapping changed")
+		}
+	}
+}

@@ -27,7 +27,7 @@ func boxGachaVariantAllowed(p gamestate.GachaProfile) bool {
 		gamestate.GachaBoxDrawCountAllowed(p.CardNum) && p.CardNum == p.CardNumMax &&
 		p.UserSelectMax == 0 && !p.DailyFirstFree && !p.UnownedOnly &&
 		p.PlayCountMax == 0 && p.GuaranteedCount == 0 &&
-		len(p.BoxRounds) == gamestate.GachaBoxTemplates && len(p.CardIDs) == 0 &&
+		len(p.BoxRounds) > 0 && gamestate.ValidateGachaBoxRanges(p.BoxRounds) == nil && len(p.CardIDs) == 0 &&
 		len(p.CardWeights) == 0 && len(p.CardFames) == 0 && len(p.Gifts) == 0 &&
 		len(p.RewardPool) == 0 && len(p.Steps) == 0
 }
