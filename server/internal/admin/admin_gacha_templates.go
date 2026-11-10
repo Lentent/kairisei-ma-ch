@@ -19,19 +19,53 @@ type gachaRuleTemplate struct {
 	ProfessionChoices bool     `json:"profession_choices"`
 }
 
-// The native picker groups only by card_num/card_num_max and then takes the
-// first row for an Arthur type. Duplicate payment alternatives would be ambiguous.
-func (o *Operations) professionChoicesAllowed(members []int) bool {
-	seen := map[[2]int]bool{}
+// The native picker needs one payment per profession/draw size. When a
+// crystal draw has a ticket alternative, use the crystal row for professions.
+func (o *Operations) professionChoiceMembers(members []int) []int {
+	groups := map[[2]int][]int{}
 	for _, id := range members {
 		p := o.gachaBases[id]
 		key := [2]int{p.CardNum, p.CardNumMax}
-		if p.GachaType != 0 || p.ArthurType != 0 || p.UserSelectMax != 0 || p.CategoryNum == 10000 || p.CardNum != p.CardNumMax || p.DailyFirstFree || p.UnownedOnly || len(p.RewardPool) != 0 || seen[key] {
-			return false
+		if p.GachaType != 0 || p.ArthurType != 0 || p.UserSelectMax != 0 || p.CategoryNum == 10000 || p.CardNum <= 0 || p.CardNum != p.CardNumMax || p.DailyFirstFree || p.UnownedOnly || len(p.RewardPool) != 0 || len(p.Steps) != 0 || len(p.BoxRounds) != 0 {
+			return nil
 		}
-		seen[key] = true
+		groups[key] = append(groups[key], id)
 	}
-	return len(members) > 0
+	chosen := map[int]bool{}
+	for _, ids := range groups {
+		if len(ids) == 1 {
+			chosen[ids[0]] = true
+			continue
+		}
+		crystal := 0
+		for _, id := range ids {
+			switch o.gachaBases[id].PayType {
+			case 3:
+				if crystal != 0 {
+					return nil
+				}
+				crystal = id
+			case 4:
+			default:
+				return nil
+			}
+		}
+		if crystal == 0 {
+			return nil
+		}
+		chosen[crystal] = true
+	}
+	result := []int{}
+	for _, id := range members {
+		if chosen[id] {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func (o *Operations) professionChoicesAllowed(members []int) bool {
+	return len(o.professionChoiceMembers(members)) > 0
 }
 
 func (o *Operations) filterGachaProfession(p gamestate.GachaProfile) gamestate.GachaProfile {

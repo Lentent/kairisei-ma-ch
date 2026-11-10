@@ -273,6 +273,7 @@ func (admin *API) createCustomGacha(w http.ResponseWriter, r *http.Request) {
 			WriteAdminError(w, 400, "此模板不能使用职业选择：需要普通固定抽数卡池，且每种抽数只能有一种消耗方式")
 			return
 		}
+		members = o.professionChoiceMembers(members)
 		slices.Sort(body.Professions)
 		for i, profession := range body.Professions {
 			if profession < 1 || profession > 5 || (i > 0 && profession == body.Professions[i-1]) {

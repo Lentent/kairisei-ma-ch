@@ -646,9 +646,11 @@ function renderPoolCreateSummary() {
   const rule=$('#pool-create-mode').value==='rule',selected=Number($('#pool-create-source').value);
   const template=rule?poolEditor.ruleTemplates.find(t=>t.id===selected):null;
   const members=rule?(template?.gacha_ids||[]).map(id=>poolEditor.rows.find(r=>r.gacha_id===id)).filter(Boolean):poolGroupRows(poolEditor.rows.find(r=>r.gacha_id===selected));
-  const seen=new Set(),allowed=rule?!!template?.profession_choices:members.length>0&&members.every(r=>{const b=r.base,k=`${b.card_num}:${b.card_num_max}`;if(b.gacha_type||b.arthur_type||b.user_select_max||b.category_num===10000||b.card_num!==b.card_num_max||b.daily_first_free||b.unowned_only||b.reward_pool?.length||seen.has(k))return false;seen.add(k);return true});
+  const groups=new Map();
+  const ordinary=members.length>0&&members.every(r=>{const b=r.base,k=`${b.card_num}:${b.card_num_max}`;if(b.gacha_type||b.arthur_type||b.user_select_max||b.category_num===10000||b.card_num<=0||b.card_num!==b.card_num_max||b.daily_first_free||b.unowned_only||b.reward_pool?.length||b.steps?.length||b.box_rounds?.length)return false;groups.set(k,[...(groups.get(k)||[]),b]);return true});
+  const allowed=rule?!!template?.profession_choices:ordinary&&[...groups.values()].every(rows=>rows.length===1||(rows.filter(b=>b.pay_type===3).length===1&&rows.every(b=>b.pay_type===3||b.pay_type===4)));
   $$('#pool-create-professions input').forEach(el=>{el.disabled=!allowed;if(!allowed)el.checked=false});
-  $('#pool-create-profession-note').textContent=allowed?'创建后各职业分池独立编辑，单职业池自动保留对应职业和通用卡。':'此模板不支持职业选择：需普通固定抽数，且每种抽数只有一种消耗方式。';
+  $('#pool-create-profession-note').textContent=allowed?'创建后各职业分池独立编辑，单职业池自动保留对应职业和通用卡。同抽数同时有水晶和券时，职业分池采用水晶抽法。':'此模板不支持职业选择：需普通固定抽数，且每种抽数只有一种消耗方式。';
   if($('#pool-create-mode').value==='rule'){
     const template=poolEditor.ruleTemplates.find(t=>t.id===Number($('#pool-create-source').value));
     $('#pool-create-summary').innerHTML=template?`<b>${esc(template.name)} · ${template.gacha_ids.length} 种抽法</b><span>初始内容与封面：${esc(template.source_name)}</span>${template.summary.map(line=>`<span>${esc(line)}</span>`).join('')}`:'没有可用的规则模板';

@@ -577,10 +577,24 @@ func TestRuleTemplatesCreatePublishReloadAndKeepDailyClaim(t *testing.T) {
 	if code, _ := call("/api/gacha-pools", map[string]any{"rule_template_id": created[60200201], "name": "invalid", "expected_revision": o.customGachaRevision}); code != 400 {
 		t.Fatal("operator pool offered as immutable template")
 	}
-	// The stock picker needs one row per profession/draw count, and sends that exact ID.
-	if code, _ := call("/api/gacha-pools", map[string]any{"rule_template_id": 60200201, "professions": []int{1, 5}, "name": "ambiguous", "expected_revision": o.customGachaRevision}); code != 400 {
-		t.Fatal("ambiguous payment alternatives accepted for the native picker")
+	// Ticket/crystal alternatives become unambiguous crystal profession rows.
+	code, crystal := call("/api/gacha-pools", map[string]any{"rule_template_id": 60200201, "professions": []int{1, 2, 3, 4, 5}, "name": "水晶职业测试", "expected_revision": o.customGachaRevision})
+	if code != 200 || len(crystal["gacha_ids"].([]any)) != 10 {
+		t.Fatalf("crystal profession creation: %d %v", code, crystal)
 	}
+	for _, raw := range crystal["gacha_ids"].([]any) {
+		base := o.gachaBases[int(raw.(float64))]
+		if base.PayType != 3 || (base.CardNum != 1 && base.CardNum != 10) {
+			t.Fatalf("unexpected crystal profession draw: %+v", base)
+		}
+		for _, card := range base.CardIDs {
+			job := catalog.DeckRankPolicy.Cards[card].ArthurType
+			if base.ArthurType != 5 && job != 0 && job != base.ArthurType {
+				t.Fatal("other profession leaked into crystal pool")
+			}
+		}
+	}
+
 	code, professional := call("/api/gacha-pools", map[string]any{"rule_template_id": 60200301, "professions": []int{1, 2, 3, 4, 5}, "name": "职业测试", "expected_revision": o.customGachaRevision})
 	if code != 200 || len(professional["gacha_ids"].([]any)) != 10 {
 		t.Fatalf("profession creation: %d %v", code, professional)
