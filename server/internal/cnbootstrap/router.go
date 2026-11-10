@@ -108,8 +108,11 @@ func (app *application) router() chi.Router {
 	cpkResource := cnBootstrapCPKResource(app.resources.CPK)
 	router.Get("/local/resources/cpk/*", cpkResource)
 	router.Head("/local/resources/cpk/*", cpkResource)
-	router.Get("/local/resources/image/*", app.resources.Images.serveHTTP)
-	router.Head("/local/resources/image/*", app.resources.Images.serveHTTP)
+	serveImage := func(w http.ResponseWriter, r *http.Request) {
+		app.resources.Images.serve(app.config.CDN.BaseURL, w, r)
+	}
+	router.Get("/local/resources/image/*", serveImage)
+	router.Head("/local/resources/image/*", serveImage)
 	router.NotFound(func(writer http.ResponseWriter, _ *http.Request) {
 		http.Error(writer, "CN route adapter not implemented", http.StatusNotImplemented)
 	})

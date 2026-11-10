@@ -25,6 +25,24 @@ import (
 	"kairisei.local/server/internal/multiplayer"
 )
 
+func TestSaveCustomCardPackageKeepsBothExports(t *testing.T) {
+	dir := t.TempDir()
+	for _, data := range []string{"first", "second"} {
+		path, err := saveCustomCardPackage(dir, 1, []byte(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != data || filepath.Ext(path) != ".zip" {
+			t.Fatalf("bad export %q: %v", path, err)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("expected two completed exports: %v, %v", entries, err)
+	}
+}
+
 func TestCustomSkillRowsPreserveBranchesAndOtherLines(t *testing.T) {
 	text := "#header\r\n11,old1\r\n7,\"historical\"bad,unchanged\n11,old2\r\n"
 	out, e := rewriteCustomCSV(text, map[string][][]string{"11": {{"11", "first"}, {"11", "second"}}, "12": {{"12", "new"}}})

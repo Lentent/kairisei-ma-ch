@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"kairisei.local/server/internal/gamestate"
@@ -659,10 +660,26 @@ func (a *API) exportCustomCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Expected *int `json:"expected_revision"`
+		Expected  *int   `json:"expected_revision"`
+		Directory string `json:"directory"`
 	}
 	if e := decodeAdminJSON(r, &body); e != nil || body.Expected == nil {
 		WriteAdminError(w, 400, "请提交已保存草稿的版本")
+		return
+	}
+	// Allow time to build the ZIP before the first response byte is written.
+	if body.Directory != "" {
+		if !filepath.IsAbs(body.Directory) {
+			WriteAdminError(w, 400, "请填写服务器上的绝对路径")
+			return
+		}
+		if info, err := os.Stat(body.Directory); err != nil || !info.IsDir() {
+			WriteAdminError(w, 400, "服务器目录不存在或无法访问")
+			return
+		}
+	}
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(3 * time.Minute)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		WriteAdminError(w, 500, err.Error())
 		return
 	}
 	a.operations.configMu.Lock()
@@ -692,8 +709,39 @@ func (a *API) exportCustomCards(w http.ResponseWriter, r *http.Request) {
 		WriteAdminError(w, 400, e.Error())
 		return
 	}
+	if body.Directory != "" {
+		path, err := saveCustomCardPackage(body.Directory, revision, patch)
+		if err != nil {
+			WriteAdminError(w, 500, "保存更新包失败："+err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"path": path})
+		return
+	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=custom-cards-v%d.zip", revision))
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(patch)
+}
+
+func saveCustomCardPackage(dir string, revision int, data []byte) (string, error) {
+	file, err := os.CreateTemp(dir, fmt.Sprintf("custom-cards-v%d-*.zip.part", revision))
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(file.Name())
+	_, err = file.Write(data)
+	closeErr := file.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	path := strings.TrimSuffix(file.Name(), ".part")
+	if err := os.Link(file.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
 }

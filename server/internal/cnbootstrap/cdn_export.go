@@ -192,7 +192,7 @@ func BuildCDNManifest(manifestPath string) (result CDNManifest, err error) {
 		return result, err
 	}
 	for _, file := range images.Files {
-		key := "image/" + images.Namespace + "/" + file.Path
+		key := file.cdnKey()
 		if err := add(key, file.SourcePath, file.Bytes); err != nil {
 			return result, err
 		}

@@ -24,7 +24,11 @@ type cardImage struct {
 	SourcePath string `json:"-"`
 }
 
-// The immutable manifest versions the URL as well as the CDN objects. The CN
+func (file cardImage) cdnKey() string {
+	return "image/" + file.SHA256 + "/" + file.Path
+}
+
+// The manifest versions the client-facing lookup URL. The CN
 // client caches enlarged illustrations by URL, independently of patch bundles.
 type cardImages struct {
 	Namespace string
@@ -86,10 +90,18 @@ func loadCardImages(root string) (cardImages, error) {
 }
 
 func (images cardImages) serveHTTP(writer http.ResponseWriter, request *http.Request) {
-	name, ok := strings.CutPrefix(chi.URLParam(request, "*"), images.Namespace+"/")
+	images.serve("", writer, request)
+}
+
+func (images cardImages) serve(cdnBase string, writer http.ResponseWriter, request *http.Request) {
+	version, name, ok := strings.Cut(chi.URLParam(request, "*"), "/")
 	file, exists := images.Files[name]
-	if !ok || !exists {
+	if !ok || !exists || (version != images.Namespace && version != file.SHA256) {
 		http.NotFound(writer, request)
+		return
+	}
+	if cdnBase != "" {
+		http.Redirect(writer, request, cdnBase+"/"+file.cdnKey(), http.StatusTemporaryRedirect)
 		return
 	}
 	writer.Header().Set("Content-Type", "image/png")
