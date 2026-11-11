@@ -77,6 +77,8 @@ func (a *API) writeProtocolResponse(
 		common.Notifications[0].PVPReset.EndTime = a.pvpConfig.ResetEndTime
 		if a.account.MissionState() {
 			common.Notifications[0].MissionClearReceive = 1
+			// The original client uses this flag for the task menu badge.
+			common.Notifications[0].MissionNewReceive = 1
 		}
 	}
 	body, err := marshalProtocolWithPopups(common, method, popups)
