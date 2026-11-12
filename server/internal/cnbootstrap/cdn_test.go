@@ -44,7 +44,7 @@ func TestCDNLoginKeepsAPIsAndVersionServiceLocal(t *testing.T) {
 		if base == "" {
 			base = root + "/local/resources/"
 		}
-		if result["res_patch_url"] != base+"patch/" || result["res_cpk_url"] != base+"cpk/" || result["res_img_url"] != root+"/local/resources/image/images/" {
+		if result["res_patch_url"] != base+"patch/" || result["res_cpk_url"] != base+"cpk/" || result["res_img_url"] != root+"/local/resources/image/png-images/" {
 			t.Fatalf("unexpected resource URLs: %v", result)
 		}
 	}
@@ -176,21 +176,12 @@ func TestCDNExportUsesOverlayCRCAndPhysicalAliasOwner(t *testing.T) {
 			t.Fatalf("export/HTTP differ for %s: %d", object.Key, response.Code)
 		}
 	}
-	imageURL := "/image/" + images.Namespace + "/chr51/chr51_10000010.png"
-	redirectRouter := chi.NewRouter()
-	redirectRouter.Get("/image/*", func(w http.ResponseWriter, r *http.Request) {
-		images.serve("https://cdn.example.test", w, r)
-	})
-	for _, namespace := range []string{images.Namespace, "next-manifest"} {
-		images.Namespace = namespace
-		response := httptest.NewRecorder()
-		redirectRouter.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/image/"+namespace+"/chr51/chr51_10000010.png", nil))
-		expected := "https://cdn.example.test/image/" + images.Files["chr51/chr51_10000010.png"].SHA256 + "/chr51/chr51_10000010.png"
-		if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != expected {
-			t.Fatalf("unexpected image redirect: %d %v", response.Code, response.Header())
-		}
+	imageURL := "/image/png-" + images.Namespace + "/chr51/chr51_10000010.png"
+	legacy := httptest.NewRecorder()
+	router.ServeHTTP(legacy, httptest.NewRequest(http.MethodGet, "/image/"+images.Namespace+"/chr51/chr51_10000010.png", nil))
+	if legacy.Code != http.StatusOK || legacy.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("legacy image URL failed: %d %v", legacy.Code, legacy.Header())
 	}
-	images.Namespace = strings.Split(imageURL, "/")[2]
 	head := httptest.NewRecorder()
 	router.ServeHTTP(head, httptest.NewRequest(http.MethodHead, imageURL, nil))
 	if head.Code != http.StatusOK || head.Body.Len() != 0 || head.Header().Get("Content-Type") != "image/png" {

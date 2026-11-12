@@ -2,6 +2,8 @@
 
 默认从自己的服务端下载资源，无需配置 CDN。启用后仍需保留完整的 `resource-set` 目录。
 
+启用 CDN 后，补丁和 CPK 由 CDN 分发，游戏内点击卡牌打开的放大立绘由游戏服务端直接返回。
+
 ## 配置与同步
 
 在服务端解压目录，把 `cdn-sync.example.json` 复制为 `cdn-sync.json`，填写：

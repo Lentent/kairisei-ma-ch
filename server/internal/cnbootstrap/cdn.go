@@ -60,5 +60,5 @@ func (config CDNConfig) resourceURLs(serverURL, imageNamespace string) (patchURL
 	if base == "" {
 		base = serverURL + "/local/resources"
 	}
-	return base + "/patch/", base + "/cpk/", serverURL + "/local/resources/image/" + imageNamespace + "/"
+	return base + "/patch/", base + "/cpk/", serverURL + "/local/resources/image/" + cardImageURLPrefix + imageNamespace + "/"
 }
