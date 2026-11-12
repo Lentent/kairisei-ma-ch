@@ -493,7 +493,7 @@ func TestRuleTemplatesCreatePublishReloadAndKeepDailyClaim(t *testing.T) {
 	router := chi.NewRouter()
 	router.Get("/api/gacha-editor", admin.gachaEditorList)
 	router.Post("/api/gacha-pools", admin.createCustomGacha)
-	router.Post("/api/gacha-editor/group/{action:publish}", admin.gachaGroupAction)
+	router.Post("/api/gacha-editor/group/{action:draft|publish}", admin.gachaGroupAction)
 	call := func(path string, body any) (int, map[string]any) {
 		encoded, _ := json.Marshal(body)
 		r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(encoded))
@@ -582,8 +582,12 @@ func TestRuleTemplatesCreatePublishReloadAndKeepDailyClaim(t *testing.T) {
 	if code != 200 || len(crystal["gacha_ids"].([]any)) != 10 {
 		t.Fatalf("crystal profession creation: %d %v", code, crystal)
 	}
+	crystalGroup := int(crystal["group_id"].(float64))
+	crystalConfigs := []AdminGachaConfig{}
+	crystalExpected := map[int]gachaGroupExpectation{}
 	for _, raw := range crystal["gacha_ids"].([]any) {
-		base := o.gachaBases[int(raw.(float64))]
+		id := int(raw.(float64))
+		base := o.gachaBases[id]
 		if base.PayType != 3 || (base.CardNum != 1 && base.CardNum != 10) {
 			t.Fatalf("unexpected crystal profession draw: %+v", base)
 		}
@@ -593,6 +597,36 @@ func TestRuleTemplatesCreatePublishReloadAndKeepDailyClaim(t *testing.T) {
 				t.Fatal("other profession leaked into crystal pool")
 			}
 		}
+		doc, err := o.storage.ReadDocument("gacha-draft:" + strconv.Itoa(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var config AdminGachaConfig
+		if err := json.Unmarshal(doc.Payload, &config); err != nil {
+			t.Fatal(err)
+		}
+		config.CategoryNum = limitedGachaCategoryNum
+		crystalConfigs = append(crystalConfigs, config)
+		crystalExpected[id] = gachaGroupExpectation{Draft: doc.Revision}
+	}
+	crystalConfigs[0].CategoryNum = 0
+	categoryEdit := map[string]any{"group_id": crystalGroup, "configs": crystalConfigs, "expected": crystalExpected}
+	if code, result := call("/api/gacha-editor/group/draft", categoryEdit); code != 400 {
+		t.Fatalf("accepted inconsistent group categories: %d %v", code, result)
+	}
+	crystalConfigs[0].CategoryNum = limitedGachaCategoryNum
+	if code, result := call("/api/gacha-editor/group/draft", categoryEdit); code != 200 {
+		t.Fatalf("save limited category: %d %v", code, result)
+	}
+	for _, config := range crystalConfigs {
+		doc, err := o.storage.ReadDocument("gacha-draft:" + strconv.Itoa(config.GachaID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		crystalExpected[config.GachaID] = gachaGroupExpectation{Draft: doc.Revision, SHA256: doc.SHA256}
+	}
+	if code, result := call("/api/gacha-editor/group/publish", map[string]any{"group_id": crystalGroup, "expected": crystalExpected}); code != 200 {
+		t.Fatalf("publish limited category: %d %v", code, result)
 	}
 
 	code, professional := call("/api/gacha-pools", map[string]any{"rule_template_id": 60200301, "professions": []int{1, 2, 3, 4, 5}, "name": "职业测试", "expected_revision": o.customGachaRevision})
@@ -626,6 +660,17 @@ func TestRuleTemplatesCreatePublishReloadAndKeepDailyClaim(t *testing.T) {
 	admin.operations = restarted
 	if err := admin.validateStoredGachas(); err != nil {
 		t.Fatal("template restart", err)
+	}
+	for _, config := range crystalConfigs {
+		live, err := restarted.effectiveGachaConfig(config.GachaID)
+		if err != nil || live.CategoryNum != config.CategoryNum || live.Price != config.Price ||
+			!reflect.DeepEqual(live.CardIDs, config.CardIDs) || !reflect.DeepEqual(live.Weights, config.Weights) {
+			t.Fatalf("limited category changed the saved draw configuration: %d, %v", config.GachaID, err)
+		}
+		profile := restarted.configuredGacha(config.GachaID, live).Profile
+		if profile.CategoryNum != limitedGachaCategoryNum || profile.CategoryPictID != limitedGachaCategoryPictID || profile.PayType != 3 {
+			t.Fatalf("wrong limited category or payment: %d / %d / %d", profile.CategoryNum, profile.CategoryPictID, profile.PayType)
+		}
 	}
 	for id := range expected {
 		if !reflect.DeepEqual(restarted.gachaBases[id], o.gachaBases[id]) {

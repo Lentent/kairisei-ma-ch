@@ -484,6 +484,7 @@
           <div class="gacha-art cover-preview" id="pool-cover-preview"></div>
           <div class="pool-shared-copy"><div class="cover-title"><b>卡池封面</b><span class="tag" id="pool-cover-state">包内封面</span></div><div class="toolbar"><label class="secondary file-button" tabindex="0" id="pool-cover-upload-label"><svg class="icon"><use href="#i-upload"/></svg>上传封面<input id="pool-cover-upload" type="file" accept="image/png,image/jpeg" hidden></label><button class="secondary" id="pool-cover-reset" type="button">恢复包内封面</button></div><p class="hint">PNG 或 JPEG，2 MiB 以内，建议 934×372。客户端列表显示第一个分池的封面，所有分池保存同一引用；发布后生效，读取位置在「运营设置 → 卡池封面来源」切换。</p></div>
           <div class="pool-shared-rules">
+            <div class="field" id="pool-category-field" hidden><label for="pool-category">客户端分类</label><select id="pool-category"><option value="0">沿用模板</option><option value="1">限定扭蛋</option></select></div>
             <div class="field"><label for="pool-start">开始时间（本机时区，留空立即）</label><input id="pool-start" type="datetime-local"></div>
             <div class="field"><label for="pool-end">结束时间（留空不限）</label><input id="pool-end" type="datetime-local"></div>
             <div class="field"><label for="pool-play-limit">每人累计限抽次数</label><input id="pool-play-limit" type="number" min="0" max="1000000" value="0"></div>

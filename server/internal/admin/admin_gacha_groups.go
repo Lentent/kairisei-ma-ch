@@ -48,6 +48,9 @@ func (operations *Operations) gachaGroupShared(configs []AdminGachaConfig) error
 	}
 	first := configs[0]
 	for _, config := range configs[1:] {
+		if config.CategoryNum != first.CategoryNum {
+			return errors.New("同一卡池的各抽法必须使用同一客户端分类")
+		}
 		if (len(config.BoxRounds) > 0) != (len(first.BoxRounds) > 0) {
 			return errors.New("无限箱池不能混入普通抽法")
 		}

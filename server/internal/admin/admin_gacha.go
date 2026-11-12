@@ -16,7 +16,12 @@ import (
 	"kairisei.local/server/internal/gamestate"
 )
 
+// Match the category used by the built-in limited event pools.
+const limitedGachaCategoryNum = 1
+const limitedGachaCategoryPictID = 1
+
 type AdminGachaConfig struct {
+	CategoryNum  int                        `json:"category_num,omitempty"` // Zero inherits the template category.
 	CardNum      int                        `json:"card_num,omitempty"`
 	BannerKey    string                     `json:"banner_key,omitempty"`
 	Gifts        []gamestate.GachaGiftRule  `json:"gift_rules,omitempty"`
@@ -54,6 +59,9 @@ func AdminGachaConfigFromProfile(profile gamestate.GachaProfile) AdminGachaConfi
 
 func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) game.GachaConfiguration {
 	base = gamestate.CloneGachas([]gamestate.GachaProfile{base})[0]
+	if config.CategoryNum == limitedGachaCategoryNum {
+		base.CategoryNum, base.CategoryPictID = limitedGachaCategoryNum, limitedGachaCategoryPictID
+	}
 	if config.PayType != 0 {
 		if base.PayType == 2 && config.PayType != 2 {
 			base.CardNumMax = base.CardNum
@@ -239,6 +247,11 @@ func (admin *API) validateGachaConfig(config AdminGachaConfig) (map[string]any, 
 	base, exists := admin.operations.gachaBases[config.GachaID]
 	if !exists {
 		return nil, errors.New("不能编辑新手保留卡池或未知卡池")
+	}
+	if config.CategoryNum != 0 {
+		if _, custom := admin.operations.customGachas[base.GroupID]; !custom || admin.operations.legacyCustomGachas[base.GroupID] || config.CategoryNum != limitedGachaCategoryNum {
+			return nil, errors.New("仅后台新建的整组卡池可以切换到限定扭蛋")
+		}
 	}
 	if pool := admin.operations.customGachas[config.GachaID]; (pool.RuleVersion == 3 || len(base.BoxRounds) > 0) && config.CardNum != base.CardNum {
 		return nil, fmt.Errorf("新建抽法固定为%d抽，请重新载入后保存", base.CardNum)
