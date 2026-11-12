@@ -17,6 +17,9 @@ import (
 
 var cardImagePath = regexp.MustCompile(`^chr51/chr51_[0-9]{8}\.png$`)
 
+// Give clients a fresh URL after replacing CDN redirects with PNG responses.
+const cardImageURLPrefix = "png-"
+
 type cardImage struct {
 	Path       string `json:"path"`
 	Bytes      int64  `json:"bytes"`
@@ -90,18 +93,10 @@ func loadCardImages(root string) (cardImages, error) {
 }
 
 func (images cardImages) serveHTTP(writer http.ResponseWriter, request *http.Request) {
-	images.serve("", writer, request)
-}
-
-func (images cardImages) serve(cdnBase string, writer http.ResponseWriter, request *http.Request) {
 	version, name, ok := strings.Cut(chi.URLParam(request, "*"), "/")
 	file, exists := images.Files[name]
-	if !ok || !exists || (version != images.Namespace && version != file.SHA256) {
+	if !ok || !exists || (version != cardImageURLPrefix+images.Namespace && version != images.Namespace && version != file.SHA256) {
 		http.NotFound(writer, request)
-		return
-	}
-	if cdnBase != "" {
-		http.Redirect(writer, request, cdnBase+"/"+file.cdnKey(), http.StatusTemporaryRedirect)
 		return
 	}
 	writer.Header().Set("Content-Type", "image/png")

@@ -27,6 +27,11 @@ import (
 
 func newTestHandler(t *testing.T, root string, logPath string, unlockedFeatures ...uint) http.Handler {
 	t.Helper()
+	return newTestHandlerWithCDN(t, root, logPath, CDNConfig{}, unlockedFeatures...)
+}
+
+func newTestHandlerWithCDN(t *testing.T, root string, logPath string, cdn CDNConfig, unlockedFeatures ...uint) http.Handler {
+	t.Helper()
 	savePath := testfixture.WriteTestSave(t, root)
 	// These transport fixtures model an established account. Seed SQLite
 	// explicitly; JSON is configuration, no longer an account-import path.
@@ -85,6 +90,7 @@ func newTestHandler(t *testing.T, root string, logPath string, unlockedFeatures 
 	}
 	cardMasterPath := testfixture.WriteTestCardMaster(t, root)
 	handler, err := newProtocolTestHandler(t, Config{
+		CDN: cdn,
 		Persistence: PersistenceConfig{
 			RequestLog: logPath,
 			SavePath:   savePath,
@@ -400,7 +406,7 @@ func TestCN602LocalSDKLoginContract(t *testing.T) {
 	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler := newTestHandler(t, root, logPath)
+	handler := newTestHandlerWithCDN(t, root, logPath, CDNConfig{BaseURL: "https://cdn.example.test"})
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"http://local//loginSDK.php",
@@ -436,6 +442,15 @@ func TestCN602LocalSDKLoginContract(t *testing.T) {
 	}
 	if pictures, ok := payload["display_pictures"].(map[string]any); !ok || len(pictures) != 0 {
 		t.Fatalf("display_pictures must be an empty object: %#v", payload["display_pictures"])
+	}
+	imageURL := payload["res_img_url"].(string) + "chr51/chr51_10000010.png"
+	enlarged := httptest.NewRecorder()
+	handler.ServeHTTP(enlarged, httptest.NewRequest(http.MethodGet, imageURL, nil))
+	if enlarged.Code != http.StatusOK || enlarged.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("enlarged image with CDN enabled: status %d, headers %v", enlarged.Code, enlarged.Header())
+	}
+	if _, err := png.Decode(enlarged.Body); err != nil {
+		t.Fatalf("invalid enlarged PNG: %v", err)
 	}
 }
 
