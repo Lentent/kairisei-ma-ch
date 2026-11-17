@@ -200,13 +200,11 @@ func (operations *Operations) nextCustomGachaID() int {
 
 // effectiveGachaConfig is what players currently get: the published document, else the base rules.
 func (operations *Operations) effectiveGachaConfig(id int) (AdminGachaConfig, error) {
-	config := AdminGachaConfigFromProfile(operations.gachaBases[id])
 	live, err := operations.storage.ReadDocument("gacha-live:" + strconv.Itoa(id))
-	if err != nil || live.Revision == 0 {
-		return config, err
+	if err != nil {
+		return AdminGachaConfig{}, err
 	}
-	err = json.Unmarshal(live.Payload, &config)
-	return config, err
+	return storedAdminGachaConfig(operations.gachaBases[id], live)
 }
 
 func (admin *API) createCustomGacha(w http.ResponseWriter, r *http.Request) {

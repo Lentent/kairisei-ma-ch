@@ -57,6 +57,25 @@ func AdminGachaConfigFromProfile(profile gamestate.GachaProfile) AdminGachaConfi
 	return AdminGachaConfig{PayType: profile.PayType, PayTypeID: profile.PayTypeID, CardNum: profile.CardNum, BannerKey: profile.BannerKey, Gifts: profile.Gifts, GachaID: profile.GachaID, Name: profile.Name, Price: profile.Price, PlayCountMax: profile.PlayCountMax, CardIDs: append([]int{}, profile.CardIDs...), Weights: append([]int{}, profile.CardWeights...), RewardPool: profile.RewardPool, Steps: profile.Steps, BoxRounds: profile.BoxRounds, CardFames: profile.CardFames, CoverPath: profile.CoverPath}
 }
 
+func storedAdminGachaConfig(base gamestate.GachaProfile, doc accountstore.Document) (AdminGachaConfig, error) {
+	config := AdminGachaConfigFromProfile(base)
+	if doc.Revision > 0 {
+		if err := json.Unmarshal(doc.Payload, &config); err != nil {
+			return AdminGachaConfig{}, fmt.Errorf("decode gacha %d: %w", base.GachaID, err)
+		}
+	}
+	if config.PayType == 0 {
+		config.PayType, config.PayTypeID = base.PayType, base.PayTypeID
+	}
+	// Older documents may retain an item ID after changing currency. Only
+	// item draws use that ID. Keep validation strict for new admin edits.
+	switch config.PayType {
+	case 0, 2, 3, 6:
+		config.PayTypeID = 0
+	}
+	return config, nil
+}
+
 func adminConfiguredGacha(base gamestate.GachaProfile, config AdminGachaConfig) game.GachaConfiguration {
 	base = gamestate.CloneGachas([]gamestate.GachaProfile{base})[0]
 	if config.CategoryNum == limitedGachaCategoryNum {
@@ -171,11 +190,9 @@ func (operations *Operations) readGachaConfigurations() ([]game.GachaConfigurati
 			continue
 		}
 		// Operator pools always carry a configuration so accounts can append (or hide) them.
-		config := AdminGachaConfigFromProfile(operations.gachaBases[id])
-		if doc.Revision > 0 {
-			if err := json.Unmarshal(doc.Payload, &config); err != nil {
-				return nil, 0, err
-			}
+		config, err := storedAdminGachaConfig(operations.gachaBases[id], doc)
+		if err != nil {
+			return nil, 0, err
 		}
 		if config.GachaID != id {
 			return nil, 0, errors.New("gacha operation identity mismatch")
@@ -227,7 +244,7 @@ func (admin *API) validateStoredGachas() error {
 		}
 		preview, err := admin.validateGachaConfig(edit)
 		if err != nil {
-			return err
+			return fmt.Errorf("卡池 %d：%w", edit.GachaID, err)
 		}
 		if !preview["publishable"].(bool) {
 			return errors.New("published gacha card resources are unavailable")
@@ -391,12 +408,10 @@ func (admin *API) gachaEditorList(writer http.ResponseWriter, request *http.Requ
 			WriteAdminError(writer, 500, err.Error())
 			return
 		}
-		config := AdminGachaConfigFromProfile(base)
-		if live.Revision > 0 {
-			if err := json.Unmarshal(live.Payload, &config); err != nil {
-				WriteAdminError(writer, 500, err.Error())
-				return
-			}
+		config, err := storedAdminGachaConfig(base, live)
+		if err != nil {
+			WriteAdminError(writer, 500, err.Error())
+			return
 		}
 		pool, custom := admin.operations.customGachas[id]
 		rows = append(rows, map[string]any{"gacha_id": id, "config": config, "base": base, "live": live, "draft": draft, "custom": custom, "legacy": admin.operations.legacyCustomGachas[id], "deleted": pool.Deleted, "template_id": pool.TemplateID, "banner_url": "/gacha-assets/" + base.BannerKey + ".png"})

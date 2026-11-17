@@ -79,6 +79,59 @@ func TestLegacyGachaDocumentDefaultsRemainCompatible(t *testing.T) {
 	}
 }
 
+func TestStoredGachaCurrencyChangeRestartsWithLegacyItemID(t *testing.T) {
+	accounts := testfixture.NewFriendCapacityTestAccounts(t)
+	base := gamestate.GachaProfile{
+		GachaID: 60200301, GroupID: 60200301, PublicationKey: "water_coin",
+		Name: "legacy", Price: 10, CardNum: 1, CardNumMax: 1,
+		PayType: 4, PayTypeID: 4000, CardIDs: []int{1}, CardWeights: []int{1},
+	}
+	for _, tc := range []struct {
+		name     string
+		storedID int
+	}{
+		{name: "stale item ID", storedID: 4000},
+		{name: "omitted item ID"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := accounts.Database()
+			key := "gacha-live:" + strconv.Itoa(base.GachaID)
+			doc, err := store.ReadDocument(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := AdminGachaConfigFromProfile(base)
+			config.PayType, config.PayTypeID = 3, tc.storedID
+			saved, err := store.WriteDocument(key, doc.Revision, config, "gacha-live")
+			if err != nil {
+				t.Fatal(err)
+			}
+			operations, err := NewOperations(store, []gamestate.GachaProfile{base})
+			if err != nil {
+				t.Fatal(err)
+			}
+			admin := &API{operations: operations, catalogByKey: map[string]AdminCatalogEntry{
+				"6:1": {Rarity: 6, ResourceState: "ready"},
+			}}
+			if err := admin.validateStoredGachas(); err != nil {
+				t.Fatal(err)
+			}
+			profile := operations.gachaConfigurations[0].Profile
+			if profile.PayType != 3 || profile.PayTypeID != 0 || profile.Price != base.Price {
+				t.Fatalf("wrong payment after restart: type=%d item=%d price=%d", profile.PayType, profile.PayTypeID, profile.Price)
+			}
+			reloaded, err := store.ReadDocument(key)
+			if err != nil || reloaded.SHA256 != saved.SHA256 || reloaded.Revision != saved.Revision {
+				t.Fatal("loading modified the stored document", err)
+			}
+			config.PayTypeID = base.PayTypeID
+			if _, err := admin.validateGachaConfig(config); err == nil {
+				t.Fatal("new edits must reject an item ID for crystal payment")
+			}
+		})
+	}
+}
+
 func TestAdminGachaDraftPublicationAndRestart(t *testing.T) {
 	accounts := testfixture.NewFriendCapacityTestAccounts(t)
 	base := gamestate.GachaProfile{GachaID: 60200301, Name: "local", Price: 10, CardNum: 2, CardNumMax: 2, GroupID: 60200301, PublicationKey: "water_coin", CardIDs: []int{1, 2}, CardWeights: []int{1, 1}, GuaranteedCount: 1, GuaranteedRarityRank: 6, RemainderRarityRank: 5}
